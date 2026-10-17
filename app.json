@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "Angol",
-    "slug": "Angol",
+    "name": "Angkol",
+    "slug": "angkol-static-prototype",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -20,6 +20,8 @@
     },
     "web": {
       "favicon": "./assets/favicon.png"
-    }
+    },
+    "scheme": "angkol-prototype",
+    "plugins": ["expo-router"]
   }
 }
