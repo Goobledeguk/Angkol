@@ -1,7 +1,5 @@
 # Angkol static UI prototype
 
-This is a separate, standalone Expo SDK 57 UI prototype. It must not be connected to the original Angkol application, Firebase project, accounts, databases, or services.
-
 Run `npm install`, then `npm start` (or `npm run web`). Login identifies the role from the exact sample account email, without a role selector. Registration keeps its role selection and stores a sample account in memory until reload.
 
 Sample password for all predefined accounts: `Angkol123!`.
