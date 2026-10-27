@@ -154,6 +154,18 @@ function departure(route: Snapshot["routes"][number], now: number) {
     ? `Tomorrow ${route.startsAt}`
     : `${String(Math.floor(next / 60)).padStart(2, "0")}:${String(next % 60).padStart(2, "0")}`;
 }
+function departureCount(route: Snapshot["routes"][number]) {
+  const minute = (value: string) => {
+    const [hours, minutes] = value.split(":").map(Number);
+    return hours * 60 + minutes;
+  };
+  return (
+    Math.floor(
+      (minute(route.endsAt) - minute(route.startsAt)) /
+        Math.max(1, route.interval),
+    ) + 1
+  );
+}
 export default function DriverApp({
   data,
   busy,
@@ -205,7 +217,18 @@ export default function DriverApp({
   const [error, setError] = useState("");
   const [boarded, setBoarded] = useState("0");
   const [alighted, setAlighted] = useState("0");
-  const [query, setQuery] = useState("");
+  const initialRoute =
+    data.routes.find((route) => route.id === data.user.routeId) ||
+    data.routes[0];
+  const [routeFrom, setRouteFrom] = useState(
+    initialRoute?.stops[0]?.name || "",
+  );
+  const [routeTo, setRouteTo] = useState(
+    initialRoute?.stops[initialRoute.stops.length - 1]?.name || "",
+  );
+  const [routeSearchActive, setRouteSearchActive] = useState(false);
+  const [assignedRoutesOnly, setAssignedRoutesOnly] = useState(false);
+  const [showAllTerminals, setShowAllTerminals] = useState(false);
   const [name, setName] = useState(data.user.name);
   const [phone, setPhone] = useState(data.user.phone);
   const [report, setReport] = useState("");
@@ -1082,73 +1105,191 @@ export default function DriverApp({
     }
   } else if (page === "Routes") {
     title = "Routes & terminals";
-    subtitle = "Configured local departure information";
+    subtitle = "Live local departure information";
     back = "Route";
+    const from = routeFrom.trim().toLowerCase();
+    const to = routeTo.trim().toLowerCase();
+    const routeMatches = data.routes.filter((route) => {
+      if (
+        !route.active ||
+        (assignedRoutesOnly && route.id !== data.user.routeId)
+      ) {
+        return false;
+      }
+      if (!routeSearchActive) {
+        return true;
+      }
+      const stopNames = route.stops.map((stop) => stop.name.toLowerCase());
+      const fromIndex = stopNames.findIndex((stop) => stop.includes(from));
+      const toIndex = stopNames.findIndex((stop) => stop.includes(to));
+      return fromIndex >= 0 && toIndex >= fromIndex;
+    });
+    const nearbyTerminals = data.terminals.filter(
+      (terminal) => terminal.active,
+    );
+    const visibleTerminals = showAllTerminals
+      ? nearbyTerminals
+      : nearbyTerminals.slice(0, 1);
     content = (
       <>
-        <View style={ps.search}>
-          <Icon name="search-outline" />
-          <TextInput
-            accessibilityLabel="Find PUJ/PUV routes"
-            style={ps.searchInput}
-            value={query}
-            onChangeText={setQuery}
-            placeholder="Search route or destination"
-            placeholderTextColor={c.muted}
+        <View style={[ps.card, { padding: 14, gap: 9 }]}>
+          <View style={ps.location}>
+            <View style={ps.dot} />
+            <View style={{ flex: 1 }}>
+              <Text style={ps.locationCaption}>From</Text>
+              <TextInput
+                accessibilityLabel="From"
+                style={[ps.label, { padding: 0 }]}
+                value={routeFrom}
+                onChangeText={(value) => {
+                  setRouteFrom(value);
+                  setRouteSearchActive(false);
+                }}
+                placeholder="Choose departure point"
+                placeholderTextColor={c.muted}
+              />
+            </View>
+            <Icon name="chevron-forward" size={18} color={c.muted} />
+          </View>
+          <View style={ps.location}>
+            <View style={[ps.dot, ps.square, { backgroundColor: c.amber }]} />
+            <View style={{ flex: 1 }}>
+              <Text style={ps.locationCaption}>To</Text>
+              <TextInput
+                accessibilityLabel="To"
+                style={[ps.label, { padding: 0 }]}
+                value={routeTo}
+                onChangeText={(value) => {
+                  setRouteTo(value);
+                  setRouteSearchActive(false);
+                }}
+                placeholder="Choose destination"
+                placeholderTextColor={c.muted}
+              />
+            </View>
+            <Icon name="chevron-forward" size={18} color={c.muted} />
+          </View>
+          <Button
+            title="Find PUJ/PUV routes"
+            icon="search-outline"
+            onPress={() => setRouteSearchActive(true)}
           />
         </View>
-        {data.routes
-          .filter(
-            (r) =>
-              r.active &&
-              `${r.name} ${r.stops.map((p) => p.name).join(" ")}`
-                .toLowerCase()
-                .includes(query.toLowerCase()),
-          )
-          .map((r) => (
-            <View
-              key={r.id}
-              style={[ps.card, r.id === data.user.routeId && ps.selected]}
+        <View style={ps.between}>
+          <Text style={ps.section}>Best matches</Text>
+          <Pressable accessibilityRole="button" onPress={() => go("Route")}>
+            <Text style={ps.textLink}>View map</Text>
+          </Pressable>
+        </View>
+        {routeMatches.map((route) => (
+          <Pressable
+            key={route.id}
+            accessibilityRole="button"
+            accessibilityLabel={`${route.id}, ${route.name}, departs ${departure(route, data.serverTime)}`}
+            onPress={() => {
+              setRouteFrom(route.stops[0]?.name || "");
+              setRouteTo(route.stops[route.stops.length - 1]?.name || "");
+              setRouteSearchActive(true);
+            }}
+            style={[
+              ps.card,
+              { padding: 13, gap: 10 },
+              route.id === data.user.routeId && ps.selected,
+            ]}
+          >
+            <View style={ps.row}>
+              <View style={ps.routeCode}>
+                <Text style={ps.routeCodeText}>{route.id}</Text>
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={ps.label}>{route.name}</Text>
+                <Text style={ps.small} numberOfLines={1}>
+                  {route.stops.map((stop) => stop.name).join(" · ")}
+                </Text>
+              </View>
+              <Icon name="chevron-forward" size={18} color={c.muted} />
+            </View>
+            <View style={ps.between}>
+              <View style={ps.pill}>
+                <Icon name="time-outline" size={14} color={c.green} />
+                <Text style={ps.pillText}>
+                  Departs {departure(route, data.serverTime)}
+                </Text>
+              </View>
+              <View style={[ps.pill, { backgroundColor: "#E8F2FA" }]}>
+                <Icon name="people" size={14} color="#3479B8" />
+                <Text style={[ps.pillText, { color: "#3479B8" }]}>
+                  {data.user.capacity} seats
+                </Text>
+              </View>
+            </View>
+          </Pressable>
+        ))}
+        {!routeMatches.length && (
+          <Hint text="No routes match those stops. Try another departure and destination." />
+        )}
+        <View style={ps.between}>
+          <Text style={ps.section}>Nearby terminals</Text>
+          {nearbyTerminals.length > 0 && (
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => setShowAllTerminals((showAll) => !showAll)}
             >
+              <Text style={ps.textLink}>
+                {showAllTerminals ? "Show less" : "See all"}
+              </Text>
+            </Pressable>
+          )}
+        </View>
+        {visibleTerminals.map((terminal) => {
+          const terminalRoute = data.routes.find(
+            (route) => route.id === terminal.routeId,
+          );
+          const departures = terminalRoute ? departureCount(terminalRoute) : 0;
+          return (
+            <View key={terminal.id} style={[ps.banner, { padding: 13 }]}>
               <View style={ps.row}>
-                <View style={ps.routeCode}>
-                  <Text style={ps.routeCodeText}>{r.id}</Text>
+                <View
+                  style={{
+                    width: 44,
+                    height: 44,
+                    borderRadius: 12,
+                    backgroundColor: "#155847",
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                >
+                  <Icon name="business-outline" color="white" size={22} />
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={ps.label}>{r.name}</Text>
-                  <Text style={ps.small}>
-                    {r.stops.map((p) => p.name).join(" · ")}
+                  <Text
+                    style={[ps.bannerSub, { color: "white" }]}
+                    numberOfLines={1}
+                  >
+                    {terminal.name}
+                  </Text>
+                  <Text style={ps.tiny}>
+                    {terminal.routeId} · Local terminal
+                  </Text>
+                </View>
+                <View style={[ps.pill, { backgroundColor: "#FFF2D9" }]}>
+                  <Text style={[ps.pillText, { color: "#A85D10" }]}>
+                    {departures} departures
                   </Text>
                 </View>
               </View>
-              <View style={ps.between}>
-                <Tag text={`Departs ${departure(r, data.serverTime)}`} />
-                <Tag
-                  text={
-                    r.id === data.user.routeId
-                      ? "Assigned route"
-                      : "Not assigned"
-                  }
-                  amber={r.id !== data.user.routeId}
-                />
-              </View>
             </View>
-          ))}
-        <Text style={ps.section}>Nearby terminals</Text>
-        {data.terminals
-          .filter((t) => t.active)
-          .map((t) => (
-            <View key={t.id} style={ps.card}>
-              <View style={ps.row}>
-                <Icon name="business-outline" />
-                <View style={{ flex: 1 }}>
-                  <Text style={ps.label}>{t.name}</Text>
-                  <Text style={ps.small}>{t.routeId}</Text>
-                </View>
-              </View>
-            </View>
-          ))}
-        <Hint text="Route assignments are managed by the administrator. Schedules may shift with loading; confirm at the terminal." />
+          );
+        })}
+        {!visibleTerminals.length && (
+          <Hint text="No active terminals are listed for the available routes." />
+        )}
+        <View style={[ps.row, { alignItems: "flex-start", gap: 7 }]}>
+          <Icon name="information-circle" size={16} color={c.muted} />
+          <Text style={[ps.small, { flex: 1 }]}>
+            Schedules are terminal-managed and may shift with loading time.
+          </Text>
+        </View>
       </>
     );
   } else if (page === "Records") {
@@ -1350,6 +1491,14 @@ export default function DriverApp({
           light
           onPress={() => go("Support")}
         />
+        <Button
+          title="Sign out"
+          light
+          disabled={locked}
+          onPress={() => {
+            void logout();
+          }}
+        />
       </>
     );
   } else if (page === "Account") {
@@ -1516,22 +1665,39 @@ export default function DriverApp({
             {title}
           </Text>
         </View>
-        {(page === "Dashboard" || page === "Earnings") && (
+        {(page === "Dashboard" ||
+          page === "Earnings" ||
+          (puj && page === "Routes")) && (
           <Pressable
             accessibilityRole="button"
+            accessibilityState={
+              page === "Routes" ? { selected: assignedRoutesOnly } : undefined
+            }
             accessibilityLabel={
-              page === "Earnings" ? "Share cash records" : "Notifications"
+              page === "Earnings"
+                ? "Share cash records"
+                : page === "Routes"
+                  ? assignedRoutesOnly
+                    ? "Show all routes"
+                    : "Show assigned route only"
+                  : "Notifications"
             }
             style={ps.iconButton}
             onPress={() =>
-              page === "Earnings" ? void shareRecords() : go("Notifications")
+              page === "Earnings"
+                ? void shareRecords()
+                : page === "Routes"
+                  ? setAssignedRoutesOnly((assignedOnly) => !assignedOnly)
+                  : go("Notifications")
             }
           >
             <Icon
               name={
                 page === "Earnings"
                   ? "download-outline"
-                  : "notifications-outline"
+                  : page === "Routes"
+                    ? "options-outline"
+                    : "notifications-outline"
               }
               size={22}
             />
