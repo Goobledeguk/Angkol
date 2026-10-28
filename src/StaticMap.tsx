@@ -21,8 +21,8 @@ export default function StaticMap({
     <View style={[styles.container, { height }]}>
       <Image
         source={require("../assets/calbayog-map.png")}
-        style={StyleSheet.absoluteFill}
-        resizeMode="stretch"
+        style={[StyleSheet.absoluteFill, { width: "100%", height: "100%" }]}
+        resizeMode="cover"
         accessibilityLabel="Calbayog City map"
       />
       <Pressable

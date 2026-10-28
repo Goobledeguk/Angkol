@@ -233,7 +233,7 @@ export default function DriverApp({
   const [phone, setPhone] = useState(data.user.phone);
   const [report, setReport] = useState("");
   const lock = useRef(false);
-  const scroll = useRef<ScrollView>(null);
+  const scroll = useRef<React.ComponentRef<typeof ScrollView>>(null);
   const locked = busy || working;
   const runs = data.runs || [];
   const activeRun = runs.find((r) => r.status === "In progress");
@@ -532,28 +532,60 @@ export default function DriverApp({
     title = `${hour >= 5 && hour < 12 ? "Maupay nga aga" : hour < 18 && hour >= 12 ? "Maupay nga kulop" : "Maupay nga gab-i"}, ${data.user.name.split(" ")[0]}`;
     content = (
       <>
-        <View style={ps.banner}>
-          <Text style={ps.bannerSub}>
-            {data.user.plate || "Vehicle plate not provided"} ·{" "}
-            {puj ? "PUJ / PUV" : "Tricycle"} · {data.user.capacity} passenger
-            capacity
-          </Text>
-          <View style={[ps.card, { padding: 14 }]}>
+        <View
+          style={[
+            ps.card,
+            { padding: 0, overflow: "hidden", borderColor: "#CDE3D7" },
+          ]}
+        >
+          <View style={{ backgroundColor: c.dark, padding: 18, gap: 16 }}>
             <View style={ps.between}>
-              <View style={{ flex: 1 }}>
-                <Text style={[ps.section, { color: c.green }]}>
+              <View style={[ps.row, { gap: 7 }]}>
+                <View
+                  style={{
+                    width: 7,
+                    height: 7,
+                    borderRadius: 4,
+                    backgroundColor:
+                      data.user.available && data.user.verified
+                        ? "#BCE59A"
+                        : "#D5E6DA",
+                  }}
+                />
+                <Text
+                  style={[
+                    ps.bannerSub,
+                    { fontSize: 10, letterSpacing: 1.3, fontWeight: "600" },
+                  ]}
+                >
+                  DRIVER STATUS
+                </Text>
+              </View>
+              <Icon
+                name={puj ? "bus-outline" : "bicycle-outline"}
+                size={26}
+                color="#D5E6DA"
+              />
+            </View>
+            <View style={ps.between}>
+              <View style={{ flex: 1, gap: 4 }}>
+                <Text
+                  style={[ps.bannerTitle, { fontSize: 25, lineHeight: 32 }]}
+                >
                   {!data.user.verified
                     ? "Awaiting approval"
                     : data.user.available
                       ? "You’re available"
                       : "You’re offline"}
                 </Text>
-                <Text style={ps.small}>
-                  {data.user.verified
-                    ? puj
-                      ? "Ready for assigned route service"
-                      : "Ready for nearby ride requests"
-                    : "Administrator review is required"}
+                <Text style={ps.bannerSub}>
+                  {!data.user.verified
+                    ? "Your application is under review"
+                    : data.user.available
+                      ? puj
+                        ? "Ready for your next route"
+                        : "Ready for your next passenger"
+                      : "Take a break. Go online when ready."}
                 </Text>
               </View>
               <Switch
@@ -563,23 +595,57 @@ export default function DriverApp({
                 onValueChange={(available) => {
                   void action("/availability", { available });
                 }}
-                trackColor={{ false: "#D9E6DE", true: c.green }}
+                trackColor={{ false: "#718E80", true: "#BCE59A" }}
                 thumbColor="white"
               />
             </View>
+            <View style={{ height: 1, backgroundColor: "#FFFFFF24" }} />
+            <View style={[ps.row, { flexWrap: "wrap", gap: 14 }]}>
+              <View style={[ps.row, { gap: 6 }]}>
+                <Icon name="car-outline" size={15} color="#D5E6DA" />
+                <Text style={ps.bannerSub}>
+                  {data.user.plate || "No plate added"}
+                </Text>
+              </View>
+              <View style={[ps.row, { gap: 6 }]}>
+                <Icon name="people-outline" size={15} color="#D5E6DA" />
+                <Text style={ps.bannerSub}>
+                  {data.user.capacity} seats · {puj ? "PUJ / PUV" : "Tricycle"}
+                </Text>
+              </View>
+            </View>
+          </View>
+          <View style={{ padding: 14, gap: 12, backgroundColor: "#F7FBF8" }}>
+            <View style={[ps.row, { alignItems: "flex-start" }]}>
+              <Icon
+                name={sharing ? "checkmark-circle-outline" : "location-outline"}
+                size={20}
+              />
+              <View style={{ flex: 1, gap: 2 }}>
+                <Text style={ps.label}>
+                  {sharing
+                    ? "Location preview enabled"
+                    : "Set up your availability"}
+                </Text>
+                <Text style={ps.small}>
+                  {sharing
+                    ? "Use the switch to update your availability."
+                    : "Enable the sample location to use the availability switch."}
+                </Text>
+              </View>
+            </View>
+            {!sharing && (
+              <Button
+                title="Enable location preview"
+                icon="navigate-outline"
+                disabled={locked || !data.user.verified}
+                onPress={() => {
+                  void toggleSharing();
+                }}
+              />
+            )}
           </View>
         </View>
-        {!sharing && (
-          <Button
-            title="Enable GPS to go online"
-            icon="navigate-outline"
-            light
-            disabled={locked || !data.user.verified}
-            onPress={() => {
-              void toggleSharing();
-            }}
-          />
-        )}
         {puj ? (
           routeCard()
         ) : (

@@ -97,7 +97,7 @@ export default function MobileAuth({
 }: {
   onSignedIn: () => Promise<boolean>;
 }) {
-  const scroll = useRef<ScrollView>(null);
+  const scroll = useRef<React.ComponentRef<typeof ScrollView>>(null);
 
   const [signup, setSignup] = useState(false),
     [step, setStep] = useState(1),

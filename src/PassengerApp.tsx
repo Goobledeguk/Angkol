@@ -257,7 +257,7 @@ export default function PassengerApp({
   const [report, setReport] = useState("");
   const [historyFilter, setHistoryFilter] = useState("All trips");
   const submitting = useRef(false);
-  const scroll = useRef<ScrollView>(null);
+  const scroll = useRef<React.ComponentRef<typeof ScrollView>>(null);
   const previousStatuses = useRef(
     new Map(data.trips.map((t) => [t.id, t.status])),
   );
