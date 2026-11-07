@@ -1,6 +1,6 @@
-import { createSampleTrips } from "./sampleTrips";
-import { createDriverRuns } from "./sampleDriverData";
-import type { Snapshot, User } from "./types";
+import { createSampleTrips } from "../services/sampleTrips";
+import { createDriverRuns } from "../driver/sampleDriverData";
+import type { Snapshot, User } from "../types/types";
 
 /** Populate administrator screens with one consistent, fictional local dataset. */
 export function populateAdministratorSamples(state: Snapshot) {
@@ -16,8 +16,8 @@ export function populateAdministratorSamples(state: Snapshot) {
     name,
     role,
     email: `${name.toLowerCase().replaceAll(" ", ".")}@example.invalid`,
-    available: role.includes("driver") && index < 3,
-    verified: index < 3,
+    available: role.includes("driver") && index < 4,
+    verified: index < 5,
     license: role.includes("driver") ? `N01-23-${456780 + index}` : "",
     association: role.includes("driver")
       ? "Calbayog Transport Cooperative"
@@ -36,7 +36,7 @@ export function populateAdministratorSamples(state: Snapshot) {
       : null,
   });
   const passengers = [
-    "Isabella Reyes",
+    "April Lentejas",
     "Camille Navarro",
     "Daniel Cruz",
     "Sofia Garcia",
@@ -44,8 +44,8 @@ export function populateAdministratorSamples(state: Snapshot) {
     makePerson(`sample-passenger-${index}`, name, "Passenger", index),
   );
   const drivers = [
-    "Miguel Santos",
-    "Rafael Mendoza",
+    "Meynard Salem",
+    "Limuel Rosino",
     "Gabriel Torres",
     "Andrea Castillo",
     "Paolo Ramos",
@@ -58,19 +58,32 @@ export function populateAdministratorSamples(state: Snapshot) {
     ),
   );
   state.users = [state.user, ...passengers, ...drivers];
+  const vehicleStatuses: ("Arrived" | "In Terminal" | "Broken / Inactive" | "In transit")[] = [
+    "Arrived",
+    "In Terminal",
+    "In transit",
+    "Broken / Inactive",
+    "In Terminal",
+  ];
+  const vehicleTypes = ["SUV", "Coaster", "Mini Van", "Bus"] as const;
+
   state.vehicles = drivers
-    .filter((driver) => driver.verified)
-    .map((driver) => ({
+    .filter((driver) => driver.verified && driver.role === "PUJ / PUV driver")
+    .map((driver, idx) => ({
       id: driver.id,
       name: driver.name,
       kind: driver.role,
+      vehicleType: vehicleTypes[idx % vehicleTypes.length],
       plate: driver.plate,
       routeId: driver.routeId,
       capacity: driver.capacity,
       location: driver.location!,
       stale: now - driver.location!.updatedAt > 60_000,
+      status: vehicleStatuses[idx % vehicleStatuses.length],
+      ownerId: "demo-owner",
+      ownerName: "Kent Ferrer",
+      currentDriver: driver.name,
     }));
-
   const date = new Date(now).toLocaleDateString("en-CA", {
     timeZone: "Asia/Manila",
   });

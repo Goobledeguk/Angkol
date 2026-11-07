@@ -4,22 +4,25 @@
     "slug": "angkol-static-prototype",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
+    "icon": "./assets/angkol-icon.png",
     "userInterfaceStyle": "light",
+    "splash": {
+      "image": "./assets/angkol-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0B5D45"
+    },
     "ios": {
       "supportsTablet": true
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
-        "foregroundImage": "./assets/android-icon-foreground.png",
-        "backgroundImage": "./assets/android-icon-background.png",
-        "monochromeImage": "./assets/android-icon-monochrome.png"
+        "backgroundColor": "#0B5D45",
+        "foregroundImage": "./assets/angkol-icon.png"
       },
       "predictiveBackGestureEnabled": false
     },
     "web": {
-      "favicon": "./assets/favicon.png"
+      "favicon": "./assets/angkol-icon.png"
     },
     "scheme": "angkol-prototype",
     "plugins": [

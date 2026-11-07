@@ -1,5 +1,5 @@
-import { createSampleTrips } from "./sampleTrips";
-import type { DriverRun, Point, Route, Trip, User } from "./types";
+import { createSampleTrips } from "../services/sampleTrips";
+import type { DriverRun, Point, Route, Trip, User } from "../types/types";
 
 const DAY_IN_MS = 24 * 60 * 60 * 1000;
 const MINUTE_IN_MS = 60 * 1000;

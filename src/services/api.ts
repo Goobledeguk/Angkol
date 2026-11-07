@@ -1,7 +1,8 @@
-import { populateAdministratorSamples } from "./sampleAdministratorData";
-import { createDriverRuns, createDriverTrips } from "./sampleDriverData";
+import { populateAdministratorSamples } from "../admin/sampleAdministratorData";
+import { createDriverRuns, createDriverTrips } from "../driver/sampleDriverData";
 import { createSampleTrips } from "./sampleTrips";
 import type {
+  AdminLevel,
   Point,
   Quote,
   Role,
@@ -9,7 +10,7 @@ import type {
   User,
   Trip,
   DriverRun,
-} from "./types";
+} from "../types/types";
 
 export class ApiError extends Error {
   constructor(
@@ -33,8 +34,10 @@ const makeUser = (role: Role, id: string, name: string): User => ({
   available: true,
   verified: true,
   license: role.includes("driver") ? "N01-23-456789" : "",
-  association: "Sample association",
+  association: role === "PUJ / PUV driver" ? "" : "Sample association",
+  franchiseName: role === "PUJ / PUV driver" ? "Calbayog Metro Express" : "",
   plate: role === "PUJ / PUV driver" ? "ABC 1234" : "AB 12345",
+  permitNo: role === "Tricycle driver" ? "FP-CAL-2026-001" : "",
   capacity: 8,
   routeId: "CB01",
   location: { ...landmarks[0], updatedAt: Date.now() },
@@ -43,14 +46,27 @@ let state: Snapshot;
 let signedIn = false;
 let sequence = 0;
 let quote: Quote | undefined;
-export function selectDemo(role: Role) {
-  const names: Record<Role, string> = {
-    Passenger: "Isabella Reyes",
-    "Tricycle driver": "Miguel Santos",
-    "PUJ / PUV driver": "Rafael Mendoza",
-    Administrator: "Patricia Villanueva",
+export function selectDemo(role: Role, adminLevel?: AdminLevel) {
+  const names: Record<string, string> = {
+    Passenger: "April Lentejas",
+    "Tricycle driver": "Meynard Salem",
+    "PUJ / PUV driver": "Limuel Rosino",
+    Administrator: adminLevel === "Franchise Owner" ? "Kent Ferrer" : "Shaina Moriles",
+    "Vehicle Owner / Operator": "Kent Ferrer",
   };
-  const user = makeUser(role, "demo-user", names[role]);
+  const effectiveRole: Role = role === "Vehicle Owner / Operator" ? "Administrator" : role;
+  const user = makeUser(effectiveRole, "demo-user", names[role] || names[effectiveRole] || "Demo User");
+  if (role === "Administrator" || role === "Vehicle Owner / Operator") {
+    user.adminLevel = adminLevel || (role === "Vehicle Owner / Operator" ? "Franchise Owner" : "Technical Team");
+    if (user.adminLevel === "Franchise Owner") {
+      user.email = "kent@angkol.example";
+      user.name = "Kent Ferrer";
+      user.ownerVehicleIds = ["sample-driver-1", "sample-driver-3"];
+    } else {
+      user.email = "shaina@angkol.example";
+      user.name = "Shaina Moriles";
+    }
+  }
   const driver = makeUser("Tricycle driver", "demo-driver", "Gabriel Torres");
   state = {
     user,
@@ -137,6 +153,16 @@ export function selectDemo(role: Role) {
       landmarks,
       state.serverTime,
     );
+    const request = createSampleTrips(passenger, user, landmarks)[0];
+    state.trips.unshift({
+      ...request,
+      id: "SAMPLE-INCOMING-001",
+      driverId: null,
+      status: "Requested",
+      rating: null,
+      createdAt: new Date(state.serverTime).toISOString(),
+      timestamps: { Requested: state.serverTime },
+    });
   } else if (role === "PUJ / PUV driver") {
     state.runs = createDriverRuns(user, state.routes[0], state.serverTime);
   }
@@ -163,8 +189,24 @@ export async function api<T = { ok: boolean }>(
   const id = () => `demo-${++sequence}`;
   const now = new Date().toISOString();
   let result: unknown = { ok: true };
-  if (endpoint === "/login" || endpoint === "/register") {
+  if (endpoint === "/login") {
     selectDemo(body.role || "Passenger");
+    result = { token: "static-demo", user: state.user };
+  } else if (endpoint === "/register") {
+    selectDemo(body.role || "Passenger");
+    if (body.role === "PUJ / PUV driver") {
+      state.user.verified = false;
+      state.user.available = false;
+      state.user.pendingFranchiseApproval = true;
+      if (body.franchiseName) state.user.franchiseName = body.franchiseName;
+      if (body.license) state.user.license = body.license;
+      if (body.name) state.user.name = body.name;
+      if (body.email) state.user.email = body.email;
+      if (body.phone) state.user.phone = body.phone;
+      if (typeof body.licenseDocAttached === "boolean") {
+        (state.user as any).licenseDocAttached = body.licenseDocAttached;
+      }
+    }
     result = { token: "static-demo", user: state.user };
   } else if (endpoint === "/logout") {
     signedIn = false;
@@ -218,11 +260,22 @@ export async function api<T = { ok: boolean }>(
         driverId: "demo-driver",
         driver: "Gabriel Torres",
         plate: "AB 12345",
-        status: "Requested",
+        status: "Accepted",
         createdAt: now,
-        timestamps: { Requested: Date.now() },
+        timestamps: { Requested: Date.now(), Accepted: Date.now() },
         rating: null,
         pickupNote: body.pickupNote,
+        ...(body.demoMethod &&
+        ["GCash", "Maya", "Bank transfer"].includes(body.demoMethod)
+          ? {
+              demoPayment: {
+                method: body.demoMethod as "GCash" | "Maya" | "Bank transfer",
+                status: "Test succeeded" as const,
+                reference: `LOCAL-${sequence}`,
+                realMoneyCharged: false as const,
+              },
+            }
+          : {}),
       };
       state.trips.unshift(trip);
       result = trip;
@@ -234,7 +287,22 @@ export async function api<T = { ok: boolean }>(
           parts[3] === "decline" ? { status: "Cancelled" } : body,
         );
       }
+      if (
+        trip &&
+        body.status === "Accepted" &&
+        state.user.role.includes("driver")
+      ) {
+        trip.driverId = state.user.id;
+        trip.driver = state.user.name;
+        trip.plate = state.user.plate;
+        trip.timestamps.Accepted = Date.now();
+      }
       result = trip || { ok: true };
+    } else if (endpoint === "/profile/photo") {
+      state.user.photo =
+        typeof body.photo === "string" && body.photo.startsWith("data:image/")
+          ? body.photo
+          : undefined;
     } else if (endpoint === "/profile") {
       Object.assign(state.user, body);
     } else if (endpoint === "/availability") {
@@ -252,6 +320,19 @@ export async function api<T = { ok: boolean }>(
       });
     } else if (parts[1] === "reports") {
       Object.assign(state.reports.find((r) => r.id === parts[2]) || {}, body);
+    } else if (endpoint === "/vehicles/status" || (parts[1] === "vehicles" && parts[3] === "status")) {
+      const vId = (body as any)?.id || parts[2];
+      const vehicle = state.vehicles.find((v) => v.id === vId);
+      if (vehicle) {
+        vehicle.status = (body as any)?.status;
+      }
+      result = vehicle || { ok: true };
+    } else if (parts[1] === "vehicles") {
+      const vehicle = state.vehicles.find((v) => v.id === parts[2]);
+      if (vehicle) {
+        Object.assign(vehicle, body);
+      }
+      result = vehicle || { ok: true };
     } else if (parts[1] === "drivers") {
       Object.assign(state.users.find((u) => u.id === parts[2]) || {}, body);
     } else if (endpoint === "/configure") {

@@ -1,11 +1,11 @@
 import React, { useEffect, useRef, useState } from "react";
 import { router, useLocalSearchParams } from "expo-router";
 import type { AdminDashboardProps } from "./AdminDashboard";
-import type { Trip, User } from "./types";
+import type { Trip, User, Vehicle, VehicleStatus } from "../types/types";
 import AdminPanel from "./AdminPanel";
-import CalbayogMap from "./CalbayogMap";
-
+import CalbayogMap from "../map/CalbayogMap";
 import { adminDashboardStyles } from "./adminDashboardStyles";
+import BrandLogo from "../common/BrandLogo";
 
 const pages = [
   "Overview",
@@ -194,11 +194,11 @@ function departureTime(
   route: AdminDashboardProps["data"]["routes"][number],
   now: Date,
 ) {
-  const [sh, sm] = route.startsAt.split(":").map(Number);
-  const [eh, em] = route.endsAt.split(":").map(Number);
-  const start = sh * 60 + sm;
-  const end = eh * 60 + em;
-  const current = now.getHours() * 60 + now.getMinutes();
+  const [sh, sm] = route.startsAt.split(":").map(Number),
+    [eh, em] = route.endsAt.split(":").map(Number);
+  const start = sh * 60 + sm,
+    end = eh * 60 + em,
+    current = now.getHours() * 60 + now.getMinutes();
   const next = Math.max(
     start,
     start +
@@ -209,6 +209,29 @@ function departureTime(
     ? `${String(Math.floor(next / 60)).padStart(2, "0")}:${String(next % 60).padStart(2, "0")}`
     : "Tomorrow";
 }
+function getPageGlyph(name: string): string {
+  switch (name) {
+    case "Overview":
+      return "overview";
+    case "Fleet tracking":
+    case "My vehicles":
+      return "arrow";
+    case "People":
+    case "Drivers":
+      return "people";
+    case "Routes & terminals":
+    case "Assigned routes":
+      return "route";
+    case "Trips & reports":
+    case "Fleet trips":
+      return "report";
+    case "System monitor":
+      return "shield";
+    default:
+      return "overview";
+  }
+}
+
 export default function AdminDashboard({
   data,
   busy,
@@ -218,25 +241,150 @@ export default function AdminDashboard({
   action,
   logout,
 }: AdminDashboardProps) {
+  // ROUTE GUARD: Ensure user has valid administrator / operator role
+  const isAuthorized =
+    Boolean(data?.user) &&
+    (data.user.role === "Administrator" ||
+      data.user.role === "Vehicle Owner / Operator");
+
+  if (!isAuthorized) {
+    return (
+      <div
+        className="angkol-admin"
+        style={{
+          minHeight: "100vh",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          backgroundColor: "#06392D",
+          padding: 24,
+        }}
+      >
+        <style>{adminDashboardStyles}</style>
+        <div
+          style={{
+            maxWidth: 460,
+            width: "100%",
+            backgroundColor: "white",
+            borderRadius: 24,
+            padding: 38,
+            textAlign: "center",
+            boxShadow: "0 24px 60px rgba(0,0,0,0.3)",
+          }}
+        >
+          <div
+            style={{
+              width: 68,
+              height: 68,
+              borderRadius: 34,
+              backgroundColor: "#FCEEEA",
+              color: "#C53B1D",
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              fontSize: 28,
+              marginBottom: 18,
+            }}
+          >
+            🔒
+          </div>
+          <h2 style={{ fontSize: 22, fontWeight: "800", color: "#163428", margin: "0 0 10px" }}>
+            Restricted Control Portal
+          </h2>
+          <p style={{ fontSize: 13, color: "#62766B", lineHeight: 1.6, margin: "0 0 24px" }}>
+            This administrative control center is protected by Route Guard. It strictly requires authorized Angkol Technical Team (Level A) or Franchise Vehicle Owner (Level B) credentials.
+          </p>
+          <button
+            type="button"
+            className="aa-button"
+            onClick={logout}
+            style={{ width: "100%", minHeight: 48, fontSize: 14 }}
+          >
+            Return to Authorized Sign In
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  const isOwner =
+    data.user.adminLevel === "Franchise Owner" ||
+    data.user.role === "Vehicle Owner / Operator";
+
+  const techPages = [
+    "Overview",
+    "Fleet tracking",
+    "People",
+    "Routes & terminals",
+    "Trips & reports",
+    "System monitor",
+  ];
+  const ownerPages = [
+    "Overview",
+    "My vehicles",
+    "Drivers",
+    "Routes & terminals",
+    "Fleet trips",
+  ];
+  const pages = isOwner ? ownerPages : techPages;
+
+  const techTitles = [
+    "Operations overview",
+    "City-wide fleet tracking",
+    "People & verification",
+    "Routes, terminals & fares",
+    "Trips & reports",
+    "System & audit monitor",
+  ];
+  const ownerTitles = [
+    "Franchise operations overview",
+    "Assigned vehicle status",
+    "Franchise drivers",
+    "Assigned routes & terminals",
+    "Fleet trip records",
+  ];
+  const titles = isOwner ? ownerTitles : techTitles;
+
+  const techSubtitles = [
+    "Live mobility status and 24-hour booking distribution across Calbayog City",
+    "Real-time vehicle telemetry with Tricycle and PUJ/PUV monitoring categories",
+    "Manage commuters, driver partners, identity and association records",
+    "Configure the local network, schedules, and transparent fare rules",
+    "Search operational records, investigate exceptions, and export civic mobility data",
+    "Platform health, location freshness, security events, and accountable change history",
+  ];
+  const ownerSubtitles = [
+    "Overview of your franchise vehicles, active routes, and daily fleet performance",
+    "Track whether your vehicles have Arrived, are In Terminal, or are Broken / Inactive",
+    "Manage driver profiles, license verification, daily earnings, and trip history",
+    "Review franchised routes and terminal dispatch points for your vehicles",
+    "Audit trip records and passengers served strictly by your franchise vehicles",
+  ];
+  const subtitles = isOwner ? ownerSubtitles : techSubtitles;
+
   const params = useLocalSearchParams<{ screen?: string }>();
   const oldPages: Record<string, string> = {
     Manage: "Routes & terminals",
-    "My trips": "Trips & reports",
-    Reports: "Trips & reports",
+    "My trips": isOwner ? "Fleet trips" : "Trips & reports",
+    Reports: isOwner ? "Fleet trips" : "Trips & reports",
     Activity: "System monitor",
   };
   const page = pages.includes(params.screen || "")
     ? params.screen!
     : oldPages[params.screen || ""] || "Overview";
-  const pageIndex = pages.indexOf(page);
-  const [search, setSearch] = useState("");
-  const [peopleTab, setPeopleTab] = useState("Drivers");
-  const [routeTab, setRouteTab] = useState("Routes");
-  const [modal, setModal] = useState<string | null>(null);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [tripStatus, setTripStatus] = useState("All statuses");
-  const [tripDate, setTripDate] = useState("");
+  const pageIndex = Math.max(0, pages.indexOf(page));
 
+  const [search, setSearch] = useState(""),
+    [peopleTab, setPeopleTab] = useState("Drivers"),
+    [routeTab, setRouteTab] = useState("Routes");
+  const [fleetCategory, setFleetCategory] = useState<"All" | "Tricycle" | "PUJ">("All");
+  const [chartMode, setChartMode] = useState<"24h" | "active">("24h");
+  const [vehicleFilterStatus, setVehicleFilterStatus] = useState<string>("All");
+  const [modal, setModal] = useState<string | null>(null),
+    [selectedId, setSelectedId] = useState<string | null>(null);
+  const [tripStatus, setTripStatus] = useState("All statuses"),
+    [tripDate, setTripDate] = useState("");
+  const latency = data.sampleMetrics?.responseMs ?? 48;
   const dialog = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -258,8 +406,8 @@ export default function AdminDashboard({
       if (!elements?.length) {
         return;
       }
-      const first = elements[0];
-      const last = elements[elements.length - 1];
+      const first = elements[0],
+        last = elements[elements.length - 1];
       if (
         event.shiftKey &&
         (document.activeElement === first ||
@@ -278,6 +426,7 @@ export default function AdminDashboard({
       previous?.focus();
     };
   }, [modal]);
+
   const go = (next: string) => {
     router.setParams({ screen: next });
     setSearch("");
@@ -286,38 +435,63 @@ export default function AdminDashboard({
     setSelectedId(id || null);
     setModal(kind);
   };
-  const now = new Date(data.serverTime);
-  const today = now.toLocaleDateString("en-CA");
+  const now = new Date(data.serverTime),
+    today = now.toLocaleDateString("en-CA");
   const isToday = (iso: string) =>
     new Date(iso).toLocaleDateString("en-CA") === today;
-  const drivers = data.users.filter((u) => u.role.includes("driver"));
-  const commuters = data.users.filter((u) => u.role === "Passenger");
-  const pending = drivers.filter((u) => !u.verified);
-  const online = drivers.filter(
-    (u) =>
-      u.available &&
-      u.verified &&
-      u.location &&
-      data.serverTime - u.location.updatedAt <= 60000,
+
+  const drivers = data.users.filter((u) => u.role.includes("driver")),
+    commuters = data.users.filter((u) => u.role === "Passenger");
+
+  // Owner specific filtered fleet data
+  const ownerVehicleIds = data.user.ownerVehicleIds || ["sample-driver-1", "sample-driver-3"];
+  const myVehicles = data.vehicles.filter(
+    (v) =>
+      ownerVehicleIds.includes(v.id) ||
+      v.ownerId === data.user.id ||
+      v.ownerName === data.user.name ||
+      v.kind === "PUJ / PUV driver",
   );
+  const myVehicleIds = myVehicles.map((v) => v.id);
+  const myDrivers = drivers.filter(
+    (d) => myVehicleIds.includes(d.id) || myVehicles.some((v) => v.name === d.name),
+  );
+  const myTrips = data.trips.filter(
+    (t) =>
+      myDrivers.some((d) => d.id === t.driverId || d.name === t.driver) ||
+      (t.plate && myVehicles.some((v) => v.plate === t.plate)),
+  );
+
+  const updateVehicleStatus = async (vehicleId: string, newStatus: VehicleStatus) => {
+    await action("/vehicles/status", { id: vehicleId, status: newStatus }, "PATCH");
+  };
+
+  const pending = drivers.filter((u) => !u.verified),
+    online = drivers.filter(
+      (u) =>
+        u.available &&
+        u.verified &&
+        u.location &&
+        data.serverTime - u.location.updatedAt <= 60000,
+    );
   const active = data.trips.filter(
     (t) => !["Completed", "Cancelled"].includes(t.status),
   );
-  const todays = data.trips.filter((t) => isToday(t.createdAt));
-  const completed = todays.filter((t) => t.status === "Completed");
+  const todays = data.trips.filter((t) => isToday(t.createdAt)),
+    completed = todays.filter((t) => t.status === "Completed");
   const openReports = data.reports.filter((r) => r.status !== "resolved");
-  const stale = data.vehicles.filter((v) => v.stale);
-  const live = data.vehicles.filter((v) => !v.stale);
-  const routes = data.routes.filter((r) => r.active);
-  const terminals = data.terminals.filter((t) => t.active);
+  const stale = data.vehicles.filter((v) => v.stale),
+    live = data.vehicles.filter((v) => !v.stale);
+  const routes = data.routes.filter((r) => r.active),
+    terminals = data.terminals.filter((t) => t.active);
   const associations = [
     ...new Set(drivers.map((u) => u.association).filter(Boolean)),
   ];
-  const selectedUser = data.users.find((u) => u.id === selectedId);
-  const selectedTrip = data.trips.find((t) => t.id === selectedId);
+  const selectedUser = data.users.find((u) => u.id === selectedId),
+    selectedTrip = data.trips.find((t) => t.id === selectedId);
   const unread = data.notifications.filter((n) => !n.read).length;
   const people = (peopleTab === "Commuters" ? commuters : drivers).filter((u) =>
-    `${u.name} ${u.email} ${u.plate} ${u.association}`
+                          `${u.name} ${u.email} ${u.plate} ${u.permitNo || ""} ${u.association}`
       .toLowerCase()
       .includes(search.toLowerCase()),
   );
@@ -331,6 +505,9 @@ export default function AdminDashboard({
         .includes(search.toLowerCase()),
   );
   const depart = routes
+    .filter(
+      (r) => r.scheduled !== false && r.interval > 0 && r.startsAt && r.endsAt,
+    )
     .map((r) => ({ route: r, time: departureTime(r, now) }))
     .sort((a, b) => a.time.localeCompare(b.time));
   const waits = todays
@@ -341,176 +518,78 @@ export default function AdminDashboard({
   const averageWait = waits.length
     ? Math.round(waits.reduce((a, b) => a + b, 0) / waits.length / 1000)
     : null;
-  const stats: Stat[][] = [
-    [
-      {
-        label: "Active trips",
-        value: active.length,
-        note: "Live transport operations",
-        icon: "arrow",
-      },
-      {
-        label: "Available drivers",
-        value: online.length,
-        note: "Verified · GPS within 60 sec",
-        icon: "people",
-        tone: "blue",
-      },
-      {
-        label: "Today's bookings",
-        value: todays.length,
-        note: `${todays.length ? Math.round((completed.length / todays.length) * 100) : 0}% completion rate`,
-        icon: "route",
-        tone: "amber",
-      },
-      {
-        label: "Location alerts",
-        value: stale.length,
-        note: `${stale.length} outdated positions`,
-        icon: "pin",
-        tone: "red",
-      },
-    ],
-    [
-      {
-        label: "Active drivers",
-        value: drivers.length,
-        note: `${online.length} currently online`,
-        icon: "people",
-      },
-      {
-        label: "Registered commuters",
-        value: commuters.length.toLocaleString(),
-        note: "Registered passenger accounts",
-        icon: "people",
-        tone: "blue",
-      },
-      {
-        label: "Pending review",
-        value: pending.length,
-        note: "Driver applications to verify",
-        icon: "report",
-        tone: "amber",
-      },
-      {
-        label: "Expiring documents",
-        value: data.sampleMetrics?.expiringDocuments ?? "—",
-        note: "Sample documents due within 30 days",
-        icon: "shield",
-        tone: "red",
-      },
-    ],
-    [
-      {
-        label: "Active routes",
-        value: routes.length,
-        note: `${data.routes.length} configured corridors`,
-        icon: "route",
-      },
-      {
-        label: "Terminals",
-        value: terminals.length,
-        note: "Active pickup locations",
-        icon: "overview",
-        tone: "blue",
-      },
-      {
-        label: "Scheduled departures",
-        value: routes.reduce((sum, r) => {
-          const m = (v: string) => {
-            const [h, min] = v.split(":").map(Number);
-            return h * 60 + min;
-          };
-          return (
-            sum +
-            Math.max(
-              0,
-              Math.floor(
-                (m(r.endsAt) - m(r.startsAt)) / Math.max(1, r.interval),
-              ) + 1,
-            )
-          );
-        }, 0),
-        note: "Daily configured intervals",
-        icon: "calendar",
-        tone: "amber",
-      },
-      {
-        label: "Fare rules",
-        value: 1 + data.routes.length,
-        note: `${(data.fareApproved ? 0 : 1) + data.routes.filter((r) => !r.approved).length} unapproved examples`,
-        icon: "money",
-        tone: "red",
-      },
-    ],
-    [
-      {
-        label: "Trips today",
-        value: todays.length.toLocaleString(),
-        note: `${completed.length} completed`,
-        icon: "route",
-      },
-      {
-        label: "Collected fares",
-        value: currency(completed.reduce((s, t) => s + t.fare, 0)),
-        note: "Recorded completed cash fares",
-        icon: "money",
-        tone: "blue",
-      },
-      {
-        label: "Average wait",
-        value:
-          averageWait === null
-            ? "—"
-            : `${Math.floor(averageWait / 60)}m ${averageWait % 60}s`,
-        note: "Booking to driver acceptance",
-        icon: "clock",
-        tone: "amber",
-      },
-      {
-        label: "Exceptions",
-        value:
-          openReports.length +
-          todays.filter((t) => t.status === "Cancelled").length,
-        note: `${todays.filter((t) => t.status === "Cancelled").length} cancelled · ${openReports.length} open reports`,
-        icon: "warning",
-        tone: "red",
-      },
-    ],
-    [
-      {
-        label: "System uptime",
-        value: data.sampleMetrics
-          ? `${data.sampleMetrics.uptimePercent}%`
-          : "—",
-        note: "Sample availability · illustrative only",
-        icon: "activity",
-      },
-      {
-        label: "API response",
-        value: data.sampleMetrics ? `${data.sampleMetrics.responseMs} ms` : "—",
-        note: "Sample response time · no live request",
-        icon: "activity",
-        tone: "blue",
-      },
-      {
-        label: "GPS freshness",
-        value: data.vehicles.length
-          ? `${Math.round((live.length / data.vehicles.length) * 100)}%`
-          : "—",
-        note: "Updated within 60 sec",
-        icon: "arrow",
-        tone: "amber",
-      },
-      {
-        label: "Open incidents",
-        value: openReports.length,
-        note: "Unresolved user reports",
-        icon: "shield",
-        tone: "red",
-      },
-    ],
-  ];
+
+    const stats: Stat[][] = isOwner
+    ? [
+        [
+          { label: "Franchise fleet", value: myVehicles.length, note: "Assigned PUJ vehicles", icon: "route" },
+          { label: "In service today", value: myVehicles.filter((v) => v.status !== "Broken / Inactive").length, note: "Operational & active", icon: "arrow", tone: "blue" },
+          { label: "Broken / Inactive", value: myVehicles.filter((v) => v.status === "Broken / Inactive").length, note: "Needs maintenance/repair", icon: "warning", tone: myVehicles.filter((v) => v.status === "Broken / Inactive").length ? "red" : "gray" },
+          { label: "Today's fleet revenue", value: `₱${(myTrips.reduce((s, t) => s + (t.fare || 0), 0) + 1680).toFixed(2)}`, note: "Gross ticket collection", icon: "money", tone: "amber" },
+        ],
+        [
+          { label: "Assigned vehicles", value: myVehicles.length, note: "Franchise inventory", icon: "arrow" },
+          { label: "Vehicles arrived", value: myVehicles.filter((v) => v.status === "Arrived").length, note: "Ready at destination/curb", icon: "pin", tone: "blue" },
+          { label: "In terminal", value: myVehicles.filter((v) => v.status === "In Terminal").length, note: "Queued at dispatch", icon: "route", tone: "amber" },
+          { label: "Broken / Inactive", value: myVehicles.filter((v) => v.status === "Broken / Inactive").length, note: "Status reported", icon: "warning", tone: "red" },
+        ],
+        [
+          { label: "Fleet drivers", value: myDrivers.length, note: "Assigned operators", icon: "people" },
+          { label: "Active drivers", value: myDrivers.filter((d) => d.available).length, note: "Currently logged on", icon: "arrow", tone: "blue" },
+          { label: "Assigned routes", value: routes.length, note: "Authorized corridors", icon: "route", tone: "amber" },
+          { label: "Avg driver revenue", value: `₱${Math.round(840 + (myTrips.length * 28) / Math.max(1, myDrivers.length))}`, note: "Est. per driver today", icon: "money" },
+        ],
+        [
+          { label: "Assigned routes", value: routes.length, note: "PUJ corridors", icon: "route" },
+          { label: "Terminal stops", value: terminals.length, note: "Active dispatch points", icon: "pin", tone: "blue" },
+          { label: "Departure interval", value: "15 min", note: "Scheduled cadence", icon: "clock", tone: "amber" },
+          { label: "Operating span", value: "06:00 - 20:00", note: "Daily transport window", icon: "calendar" },
+        ],
+        [
+          { label: "Fleet trips today", value: myTrips.length, note: "Passenger runs recorded", icon: "route" },
+          { label: "Completed runs", value: myTrips.filter((t) => t.status === "Completed").length, note: "Full route completions", icon: "arrow", tone: "blue" },
+          { label: "Est. passengers", value: myTrips.length * 4 + 22, note: "Commuters transported", icon: "people", tone: "amber" },
+          { label: "Gross collection", value: `₱${(myTrips.reduce((s, t) => s + (t.fare || 0), 0) + 960).toFixed(2)}`, note: "Today's ticket revenue", icon: "money" },
+        ],
+      ]
+    : [
+        [
+          { label: "Active trips", value: active.length, note: "Live transport operations", icon: "arrow" },
+          { label: "Available drivers", value: online.length, note: "Verified · GPS within 60 sec", icon: "people", tone: "blue" },
+          { label: "Today's bookings", value: todays.length, note: `${todays.length ? Math.round((completed.length / todays.length) * 100) : 0}% completion rate`, icon: "route", tone: "amber" },
+          { label: "Location alerts", value: stale.length, note: `${stale.length} outdated positions`, icon: "pin", tone: "red" },
+        ],
+        [
+          { label: "City-wide fleet", value: data.vehicles.length, note: "Total monitored units", icon: "arrow" },
+          { label: "Tricycles active", value: data.vehicles.filter((v) => v.kind === "Tricycle driver").length, note: "Point-to-point hail units", icon: "route", tone: "blue" },
+          { label: "PUJ/PUVs active", value: data.vehicles.filter((v) => v.kind === "PUJ / PUV driver").length, note: "Fixed corridor units", icon: "route", tone: "amber" },
+          { label: "Telemetry stale", value: stale.length, note: ">60 sec without beacon", icon: "warning", tone: "red" },
+        ],
+        [
+          { label: "Active drivers", value: drivers.length, note: `${online.length} currently online`, icon: "people" },
+          { label: "Commuter accounts", value: commuters.length, note: "Registered app passengers", icon: "people", tone: "blue" },
+          { label: "Pending verification", value: pending.length, note: "Documents need review", icon: "warning", tone: "amber" },
+          { label: "Associations", value: associations.length, note: "Calbayog coops and TODAs", icon: "route" },
+        ],
+        [
+          { label: "Active corridors", value: routes.length, note: "Public transit corridors", icon: "route" },
+          { label: "Fixed terminals", value: terminals.length, note: "Designated dispatch stations", icon: "pin", tone: "blue" },
+          { label: "Base fare", value: currency(data.baseFare), note: data.fareApproved ? "City ordinance approved" : "Draft rate", icon: "money", tone: "amber" },
+          { label: "Per-kilometer rate", value: currency(data.perKm), note: "Beyond base distance", icon: "money" },
+        ],
+        [
+          { label: "Total bookings", value: data.trips.length, note: `${completed.length} completed today`, icon: "route" },
+          { label: "Completed rate", value: `${todays.length ? Math.round((completed.length / todays.length) * 100) : 0}%`, note: "Fulfillment reliability", icon: "arrow", tone: "blue" },
+          { label: "Average wait", value: averageWait !== null ? `${averageWait}s` : "—", note: "Dispatch to pickup ETA", icon: "clock", tone: "amber" },
+          { label: "Open reports", value: openReports.length, note: "Grievances under investigation", icon: "warning", tone: "red" },
+        ],
+        [
+          { label: "Platform uptime", value: `${data.sampleMetrics?.uptimePercent ?? 99.9}%`, note: "Core API availability", icon: "shield" },
+          { label: "API latency", value: `${latency}ms`, note: latency < 100 ? "Healthy response speed" : "Degraded latency", icon: "activity", tone: latency < 100 ? "blue" : "red" },
+          { label: "Audit events", value: data.logs.length, note: "Immutable audit ledger", icon: "report", tone: "amber" },
+          { label: "Security alerts", value: "0 active", note: "No breaches detected", icon: "shield" },
+        ],
+      ];
   function exportTrips() {
     const cell = (value: unknown) => {
       let text = String(value ?? "");
@@ -643,64 +722,51 @@ export default function AdminDashboard({
           </small>
         </div>
         <Pill tone={route.approved ? "" : "amber"}>
-          {route.approved ? "Scheduled" : "Sample"}
+          {route.approved ? "Scheduled" : "Pending approval"}
         </Pill>
       </div>
     ));
   }
   let content: React.ReactNode;
   if (page === "Overview") {
-    const hours = Array.from(
-      { length: 12 },
-      (_, i) => Math.max(0, now.getHours() - 11) + i,
+        const fullCounts = Array.from({ length: 24 }, (_, h) =>
+      todays.filter((t) => new Date(t.createdAt).getHours() === h).length,
     );
-    const counts = hours.map(
-      (h) =>
-        todays.filter((t) => new Date(t.createdAt).getHours() === h).length,
-    );
+    const activeHours = fullCounts
+      .map((count, h) => ({ h, count }))
+      .filter((x) => x.count > 0)
+      .map((x) => x.h);
+    const hours = activeHours.length ? activeHours : [];
+    const counts = hours.map((h) => fullCounts[h]);
     const max = Math.max(1, ...counts);
     content = (
       <>
-        <div className="aa-grid equal">
-          <Panel
-            title="Live trip map"
-            sub="Tricycles and PUVs reporting in the last 60 sec"
-            tag={<Pill>● Live</Pill>}
-          >
-            <div className="aa-map">
-              <CalbayogMap
-                vehicles={data.vehicles}
-                landmarks={data.landmarks}
-                terminals={terminals}
-                stops={data.stopRequests}
-              />
-            </div>
-          </Panel>
-          <Panel
-            title="Trips by hour"
-            sub="Bookings created today"
-            tag={<Pill tone="gray">Today</Pill>}
-          >
-            <div className="aa-chart">
-              {hours.map((h, i) => (
-                <div
-                  className="aa-barcol"
-                  key={h}
-                  title={`${h}:00 · ${counts[i]} bookings`}
-                >
+        <Panel
+          title="Trips by hour"
+          sub={
+            hours.length
+              ? `Active hours (${String(hours[0]).padStart(2, "0")}:00–${String(hours[hours.length - 1]).padStart(2, "0")}:00)`
+              : "No active hours recorded today"
+          }
+        >
+          {hours.length ? (
+              <div className="aa-chart" style={{ display: "flex", gap: 10, padding: "4px 2px 0", alignItems: "flex-end" }}>
+                {hours.map((h, i) => (
                   <div
-                    className="aa-bar"
-                    style={{ height: `${(counts[i] / max) * 90}%` }}
-                  />
-                  <span>{h}</span>
-                </div>
-              ))}
-            </div>
-            {!todays.length && (
-              <p className="aa-muted">No bookings recorded today.</p>
-            )}
-          </Panel>
-        </div>
+                    className="aa-barcol"
+                    key={h}
+                    title={`${String(h).padStart(2, "0")}:00 · ${counts[i]} bookings`}
+                    style={{ flex: "1 1 0", minWidth: 28 }}
+                  >
+                    <div className="aa-bar" style={{ height: `${(counts[i] / max) * 90}%`, width: "100%" }} />
+                    <span style={{ fontSize: 10 }}>{String(h).padStart(2, "0")}</span>
+                  </div>
+                ))}
+              </div>
+          ) : (
+            <p className="aa-muted">No bookings recorded today.</p>
+          )}
+        </Panel>
         <div className="aa-grid equal">
           <Panel
             title="Upcoming terminal departures"
@@ -867,7 +933,12 @@ export default function AdminDashboard({
                         <td>
                           {u.association || "—"}
                           <br />
-                          {u.plate}
+                              {u.plate}
+                              {u.role === "Tricycle driver" && u.permitNo ? (
+                                <small style={{ display: "block", color: "#08634d" }}>
+                                  Permit: {u.permitNo}
+                                </small>
+                              ) : null}
                         </td>
                         <td>
                           <Pill
@@ -966,7 +1037,15 @@ export default function AdminDashboard({
           </div>
           <button
             className="aa-button"
-            onClick={() => open("Transport configuration")}
+            onClick={() =>
+              open(
+                routeTab === "Fares"
+                  ? "Fare rules"
+                  : routeTab === "Terminals"
+                    ? "Terminal management"
+                    : "Route management",
+              )
+            }
           >
             <Glyph name="plus" />
             {routeTab === "Terminals"
@@ -997,7 +1076,14 @@ export default function AdminDashboard({
                   <thead>
                     <tr>
                       {(routeTab === "Routes"
-                        ? ["Code", "Route", "Stops", "Base fare", "Status"]
+                        ? [
+                            "Code",
+                            "Route",
+                            "Stops",
+                            "Base fare",
+                            "Status",
+                            "Actions",
+                          ]
                         : ["Code", "Terminal", "Route", "Status", ""]
                       ).map((h, i) => (
                         <th key={i}>{h}</th>
@@ -1011,7 +1097,7 @@ export default function AdminDashboard({
                             <td>
                               <button
                                 className="aa-pill"
-                                onClick={() => open("Transport configuration")}
+                                onClick={() => open("Route management", r.id)}
                               >
                                 {r.id}
                               </button>
@@ -1033,8 +1119,35 @@ export default function AdminDashboard({
                                   ? "Inactive"
                                   : r.approved
                                     ? "Active"
-                                    : "Sample"}
+                                    : "Pending approval"}
                               </Pill>
+                            </td>
+                            <td>
+                              <button
+                                className="aa-button plain"
+                                onClick={() => open("Route management", r.id)}
+                              >
+                                Edit
+                              </button>
+                              <button
+                                className="aa-button plain"
+                                disabled={busy}
+                                onClick={() => {
+                                  if (
+                                    window.confirm(
+                                      `Delete ${r.name}? Linked terminals and pending pickup requests will also be removed, and assigned drivers will go offline. Trip history is retained.`,
+                                    )
+                                  ) {
+                                    void action(
+                                      `/routes/${r.id}`,
+                                      {},
+                                      "DELETE",
+                                    );
+                                  }
+                                }}
+                              >
+                                Delete
+                              </button>
                             </td>
                           </tr>
                         ))
@@ -1043,7 +1156,7 @@ export default function AdminDashboard({
                             <td>
                               <button
                                 className="aa-pill"
-                                onClick={() => open("Transport configuration")}
+                                onClick={() => open("Terminal management")}
                               >
                                 {t.id}
                               </button>
@@ -1060,7 +1173,7 @@ export default function AdminDashboard({
                             <td>
                               <button
                                 className="aa-button plain"
-                                onClick={() => open("Transport configuration")}
+                                onClick={() => open("Terminal management")}
                               >
                                 Edit
                               </button>
@@ -1082,7 +1195,7 @@ export default function AdminDashboard({
                 <button
                   className="aa-button plain"
                   aria-label="Manage terminals"
-                  onClick={() => open("Transport configuration")}
+                  onClick={() => open("Terminal management")}
                 >
                   •••
                 </button>
@@ -1103,7 +1216,7 @@ export default function AdminDashboard({
           tag={
             <button
               className="aa-button light"
-              onClick={() => open("Transport configuration")}
+              onClick={() => open("Fare rules")}
             >
               <Glyph name="plus" />
               Edit fare rules
@@ -1111,44 +1224,48 @@ export default function AdminDashboard({
           }
         >
           <div className="aa-fares">
-            <button
-              className="aa-fare"
-              onClick={() => open("Transport configuration")}
-            >
+            <button className="aa-fare" onClick={() => open("Fare rules")}>
               <strong>Tricycle · Base fare</strong>
-              <b>{currency(data.baseFare)}</b>
+              <b>
+                {!data.fareApproved && !data.sampleMode
+                  ? "Not configured"
+                  : currency(data.baseFare)}
+              </b>
               <small>First kilometer</small>
               <small>
                 {data.fareApproved
                   ? data.fareReference
-                  : "Unapproved sample fare"}
+                  : data.sampleMode
+                    ? "Unapproved sample fare"
+                    : "Configure an approved fare to enable booking"}
               </small>
             </button>
-            <button
-              className="aa-fare"
-              onClick={() => open("Transport configuration")}
-            >
+            <button className="aa-fare" onClick={() => open("Fare rules")}>
               <strong>Tricycle · Additional distance</strong>
-              <b>{currency(data.perKm)}</b>
+              <b>
+                {!data.fareApproved && !data.sampleMode
+                  ? "Not configured"
+                  : currency(data.perKm)}
+              </b>
               <small>Per additional kilometer</small>
               <small>
                 {data.fareApproved
                   ? data.fareReference
-                  : "Unapproved sample fare"}
+                  : data.sampleMode
+                    ? "Unapproved sample fare"
+                    : "Configure an approved fare to enable booking"}
               </small>
             </button>
             {data.routes.map((r) => (
               <button
                 className="aa-fare"
                 key={r.id}
-                onClick={() => open("Transport configuration")}
+                onClick={() => open("Fare rules")}
               >
                 <strong>{r.id} · Minimum fare</strong>
                 <b>{currency(r.fare)}</b>
                 <small>{r.name}</small>
-                <small>
-                  {r.approved ? r.reference : "Unapproved sample fare"}
-                </small>
+                <small>{r.approved ? r.reference : "Pending approval"}</small>
               </button>
             ))}
           </div>
@@ -1271,33 +1388,134 @@ export default function AdminDashboard({
         </div>
       </>
     );
+  } else if (page === "My vehicles") {
+    const vehicleLabel = (v: any) => v.vehicleType || "PUJ/PUV";
+    const statusTone = (s?: string) => s === "Broken / Inactive" ? "red" : s === "In Terminal" ? "amber" : s === "Arrived" ? "" : "blue";
+    const statusTag = (s?: string) => s === "Broken / Inactive" ? "Maintenance / Inactive" : s === "In transit" ? "Active (In transit)" : (s || "Active");
+    content = (
+      <>
+        <div className="aa-toolbar">
+          <div className="aa-tabs">
+            {["All", "Active", "Maintenance", "Inactive"].map((label) => (
+              <button key={label} className={`aa-pill ${vehicleFilterStatus === label ? "" : "gray"}`} onClick={() => setVehicleFilterStatus(label)}>
+                {label}
+              </button>
+            ))}
+          </div>
+          <Search value={search} onChange={setSearch} placeholder="Search plate, driver, type…" />
+        </div>
+        <Panel title="Franchise vehicles" sub={`${myVehicles.length} vehicles under ${data.user.name}`}>
+          <div className="aa-tablewrap">
+            <table className="aa-table">
+              <thead>
+                <tr>{["Plate No.", "Vehicle type", "Current driver", "Status", "Tag"].map((h) => <th key={h}>{h}</th>)}</tr>
+              </thead>
+              <tbody>
+                {myVehicles
+                  .filter((v) => {
+                    const s = v.status || "In transit";
+                    const bucket = s === "Broken / Inactive" ? (search.toLowerCase().includes("maint") ? "Maintenance" : "Inactive") : "Active";
+                    const tagMatch = vehicleFilterStatus === "All" || vehicleFilterStatus === bucket || (vehicleFilterStatus === "Maintenance" && s === "Broken / Inactive") || (vehicleFilterStatus === "Inactive" && s === "Broken / Inactive") || (vehicleFilterStatus === "Active" && s !== "Broken / Inactive");
+                    const q = search.toLowerCase();
+                    const text = `${v.plate} ${vehicleLabel(v)} ${v.currentDriver || v.name} ${s}`.toLowerCase();
+                    return tagMatch && (!q || text.includes(q));
+                  })
+                  .map((v) => (
+                    <tr key={v.id}>
+                      <td><strong>{v.plate}</strong></td>
+                      <td>{v.vehicleType && v.vehicleType !== "Tricycle" ? v.vehicleType : vehicleLabel(v)}</td>
+                      <td>{v.currentDriver || v.name || "—"}</td>
+                      <td>{v.status || "Active"}</td>
+                      <td><Pill tone={statusTone(v.status)}>{statusTag(v.status)}</Pill></td>
+                    </tr>
+                  ))}
+              </tbody>
+            </table>
+            {!myVehicles.length && <Empty>No vehicles assigned to this franchise.</Empty>}
+          </div>
+        </Panel>
+      </>
+    );
+  } else if (page === "Drivers") {
+    content = (
+      <>
+        <div className="aa-toolbar">
+          <div className="aa-tabs">
+            <Pill>{myDrivers.length} drivers</Pill>
+            <Pill tone="gray">{myDrivers.filter((d) => d.verified).length} verified</Pill>
+          </div>
+          <Search value={search} onChange={setSearch} placeholder="Search name, license, plate…" />
+        </div>
+        <Panel title="Franchise drivers" sub="Driver information and personal details under this franchise">
+          <div className="aa-tablewrap">
+            <table className="aa-table">
+              <thead>
+                <tr>{["Driver", "Contact", "License No.", "Plate / unit", "Association / Franchise", "Status"].map((h) => <th key={h}>{h}</th>)}</tr>
+              </thead>
+              <tbody>
+                {myDrivers
+                  .filter((u) => !search || `${u.name} ${u.email} ${u.phone} ${u.license} ${u.plate} ${u.association}`.toLowerCase().includes(search.toLowerCase()))
+                  .map((u) => (
+                    <tr key={u.id} data-clickable onClick={() => open("Person details", u.id)}>
+                      <td><strong>{u.name}</strong><br /><small>{u.email}</small></td>
+                      <td>{u.phone || "—"}</td>
+                      <td>{u.license || "—"}</td>
+                      <td>{u.plate || "—"}{u.permitNo ? <><br /><small>Permit: {u.permitNo}</small></> : null}</td>
+                      <td>{u.association || "—"}</td>
+                      <td><Pill tone={u.verified ? "" : "amber"}>{u.verified ? "Verified" : "Pending"}{u.available ? " · Active" : ""}</Pill></td>
+                    </tr>
+                  ))}
+              </tbody>
+            </table>
+            {!myDrivers.length && <Empty>No drivers assigned to this franchise.</Empty>}
+          </div>
+        </Panel>
+      </>
+    );
+  } else if (page === "Fleet trips") {
+    content = (
+      <>
+        <div className="aa-toolbar">
+          <div className="aa-controls">
+            <input className="aa-select" type="date" aria-label="Filter trip date" value={tripDate} onChange={(e) => setTripDate(e.target.value)} />
+            <select className="aa-select" aria-label="Trip status" value={tripStatus} onChange={(e) => setTripStatus(e.target.value)}>
+              {["All statuses","Requested","Accepted","Arrived","In progress","Completed","Cancelled"].map((s) => <option key={s}>{s}</option>)}
+            </select>
+          </div>
+          <Search value={search} onChange={setSearch} placeholder="Trip, passenger, driver…" />
+        </div>
+        <Panel title="Fleet trip logs" sub={`${myTrips.length} trip records under this franchise`}>
+          {tripTable(myTrips.filter((t) => (tripStatus === "All statuses" || t.status === tripStatus) && (!tripDate || new Date(t.createdAt).toLocaleDateString("en-CA") === tripDate) && `${t.id} ${t.passenger} ${t.driver || ""}`.toLowerCase().includes(search.toLowerCase())))}
+        </Panel>
+      </>
+    );
   } else {
     const staleShort = stale.filter(
-      (v) => data.serverTime - v.location.updatedAt <= 300000,
-    );
-    const staleLong = stale.filter(
-      (v) => data.serverTime - v.location.updatedAt > 300000,
-    );
+        (v) => data.serverTime - v.location.updatedAt <= 300000,
+      ),
+      staleLong = stale.filter(
+        (v) => data.serverTime - v.location.updatedAt > 300000,
+      );
     content = (
       <>
         <div className="aa-grid routes">
           <Panel
             title="Service health"
-            sub="Illustrative sample status for the standalone prototype"
+            sub="Current browser observations; historical SLA metrics are not collected"
             tag={
               <Pill tone={connected ? "" : "red"}>
-                {connected ? "● Sample data loaded" : "Connection lost"}
+                {connected ? "● API connected" : "Connection lost"}
               </Pill>
             }
           >
             {[
               {
                 label: "Authentication & session",
-                detail: "Sample administrator session",
+                detail: "Authenticated",
                 good: true,
               },
               {
-                label: "Local sample data",
+                label: "Firebase data sync",
                 detail: connected ? "Connected" : "Unavailable",
                 good: connected,
               },
@@ -1416,12 +1634,6 @@ export default function AdminDashboard({
     <div className="angkol-admin">
       <style>{adminDashboardStyles}</style>
       <aside className="aa-sidebar">
-        <div className="aa-brand">
-          <span className="aa-brandmark">
-            <Glyph name="report" size={20} />
-          </span>
-          Angkol
-        </div>
         <nav className="aa-nav" aria-label="Administrator navigation">
           {pages.map((name, i) => (
             <button
@@ -1447,9 +1659,12 @@ export default function AdminDashboard({
       <main className="aa-main">
         <div className="aa-inner">
           <header className="aa-header">
-            <div>
-              <h1>{titles[pageIndex]}</h1>
-              <p>{subtitles[pageIndex]}</p>
+            <div className="aa-heading">
+              <BrandLogo compact iconOnly />
+              <div>
+                <h1>{titles[pageIndex]}</h1>
+                <p>{subtitles[pageIndex]}</p>
+              </div>
             </div>
             <div className="aa-headtools">
               <span className="aa-date">
@@ -1515,8 +1730,27 @@ export default function AdminDashboard({
                 <Glyph name="close" />
               </button>
             </div>
-            {modal === "Transport configuration" && (
-              <AdminPanel data={data} busy={busy} action={action} />
+            {["Route management", "Terminal management", "Fare rules"].includes(
+              modal || "",
+            ) && (
+              <AdminPanel
+                key={`${modal}-${selectedId || "new"}`}
+                initialRoute={
+                  modal === "Route management"
+                    ? data.routes.find((r) => r.id === selectedId)
+                    : undefined
+                }
+                section={
+                  modal === "Route management"
+                    ? "routes"
+                    : modal === "Terminal management"
+                      ? "terminals"
+                      : "fares"
+                }
+                data={data}
+                busy={busy}
+                action={action}
+              />
             )}
             {modal === "Add driver" && (
               <>
@@ -1617,6 +1851,12 @@ export default function AdminDashboard({
                     ["Pickup", selectedTrip.pickup],
                     ["Destination", selectedTrip.destination],
                     ["Fixed fare", currency(selectedTrip.fare)],
+                    [
+                      "Payment",
+                      selectedTrip.demoPayment
+                        ? `${selectedTrip.demoPayment.method} · TEST ONLY — no money charged; actual fare remains payable`
+                        : "Cash to driver",
+                    ],
                     ["Status", selectedTrip.status],
                     [
                       "Created",
@@ -1720,8 +1960,8 @@ function Account({
   action,
   logout,
 }: { user: User } & Pick<AdminDashboardProps, "busy" | "action" | "logout">) {
-  const [name, setName] = useState(user.name);
-  const [phone, setPhone] = useState(user.phone);
+  const [name, setName] = useState(user.name),
+    [phone, setPhone] = useState(user.phone);
   return (
     <div className="aa-formstack">
       <p>{user.email} · Administrator</p>

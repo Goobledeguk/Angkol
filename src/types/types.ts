@@ -1,18 +1,30 @@
 export type Role =
-  "Passenger" | "Tricycle driver" | "PUJ / PUV driver" | "Administrator";
+  | "Passenger"
+  | "Tricycle driver"
+  | "PUJ / PUV driver"
+  | "Administrator"
+  | "Vehicle Owner / Operator";
+export type AdminLevel = "Technical Team" | "Franchise Owner";
+export type VehicleStatus = "Arrived" | "In Terminal" | "Broken / Inactive" | "In transit";
 export type Point = { name: string; latitude: number; longitude: number };
 export type Geometry = { type: "LineString"; coordinates: number[][] };
 export type User = {
+  photo?: string;
   id: string;
   email: string;
   name: string;
   phone: string;
   role: Role;
+  adminLevel?: AdminLevel;
+  ownerVehicleIds?: string[];
   available: boolean;
   verified: boolean;
+  pendingFranchiseApproval?: boolean;
   license: string;
   association: string;
   plate: string;
+  permitNo?: string;
+  franchiseName?: string;
   capacity: number;
   routeId: string | null;
   location: (Point & { updatedAt: number }) | null;
@@ -39,6 +51,13 @@ export type Quote = {
   expires: number;
 };
 export type Trip = Quote & {
+  driverPhoto?: string;
+  demoPayment?: {
+    method: "GCash" | "Maya" | "Bank transfer";
+    status: "Test succeeded";
+    reference: string;
+    realMoneyCharged: false;
+  };
   passengerId: string;
   passenger: string;
   driverId: string | null;
@@ -53,6 +72,9 @@ export type Trip = Quote & {
   rating: number | null;
 };
 export type Route = {
+  destination?: string;
+  transportType?: "Tricycle" | "PUJ / PUV";
+  scheduled?: boolean;
   id: string;
   name: string;
   stops: Point[];
@@ -75,11 +97,16 @@ export type Vehicle = {
   id: string;
   name: string;
   kind: Role;
+  vehicleType?: "SUV" | "Coaster" | "Mini Van" | "Bus" | "Tricycle" | "Jeepney";
   plate: string;
   routeId: string | null;
   capacity: number;
   location: Point & { updatedAt: number };
   stale: boolean;
+  status?: VehicleStatus;
+  ownerId?: string;
+  ownerName?: string;
+  currentDriver?: string;
 };
 export type StopRequest = {
   id: string;

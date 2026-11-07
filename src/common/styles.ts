@@ -1,9 +1,8 @@
 import { StyleSheet } from "react-native";
-const green = "#176B48";
-const ink = "#172F26";
-const muted = "#748079";
+import { passengerColors } from "../passenger/passengerStyles";
+const { green, ink, muted } = passengerColors;
 export const s = StyleSheet.create({
-  app: { flex: 1, flexDirection: "row", backgroundColor: "#F7F9F6" },
+  app: { flex: 1, flexDirection: "row", backgroundColor: "#FFFFFF" },
   sidebar: {
     width: 248,
     backgroundColor: "#FFFFFF",
@@ -14,12 +13,19 @@ export const s = StyleSheet.create({
   },
   brand: { flexDirection: "row", alignItems: "center", gap: 6 },
   brandName: {
+    fontFamily: "Manrope",
     fontSize: 31,
     fontWeight: "800",
     letterSpacing: -1.5,
     color: green,
   },
-  kicker: { color: muted, fontSize: 9, letterSpacing: 1.6, marginTop: 12 },
+  kicker: {
+    color: muted,
+    fontFamily: "Manrope",
+    fontSize: 9,
+    letterSpacing: 1.6,
+    marginTop: 12,
+  },
   navItem: {
     padding: 15,
     borderRadius: 12,
@@ -28,7 +34,7 @@ export const s = StyleSheet.create({
     alignItems: "center",
   },
   navActive: { backgroundColor: "#EAF3EC" },
-  navText: { fontSize: 14, color: muted },
+  navText: { fontFamily: "Manrope", fontSize: 14, color: muted },
   sidebarNote: {
     padding: 18,
     backgroundColor: "#F5F7EF",
@@ -52,7 +58,12 @@ export const s = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
-  avatarText: { color: green, fontWeight: "700", fontSize: 18 },
+  avatarText: {
+    color: green,
+    fontWeight: "700",
+    fontFamily: "Manrope",
+    fontSize: 18,
+  },
   topbar: {
     paddingHorizontal: 32,
     paddingVertical: 20,
@@ -88,22 +99,46 @@ export const s = StyleSheet.create({
     gap: 14,
     overflow: "hidden",
   },
-  heroTitle: { fontSize: 36, fontWeight: "800", letterSpacing: -1, color: ink },
-  heroBody: { color: "#DBE8DF", fontSize: 14, lineHeight: 22 },
+  heroTitle: {
+    fontFamily: "Manrope",
+    fontSize: 36,
+    fontWeight: "800",
+    letterSpacing: -1,
+    color: ink,
+  },
+  heroBody: {
+    color: "#DBE8DF",
+    fontFamily: "Manrope",
+    fontSize: 14,
+    lineHeight: 22,
+  },
   heroArt: { gap: 16, alignItems: "center" },
-  heading: { fontSize: 26, fontWeight: "700", letterSpacing: -0.5, color: ink },
-  body: { color: muted, fontSize: 14, lineHeight: 22 },
-  small: { fontSize: 12, color: muted, lineHeight: 18 },
-  label: { fontSize: 13, color: ink, fontWeight: "600" },
+  heading: {
+    fontFamily: "Manrope",
+    fontSize: 26,
+    fontWeight: "700",
+    letterSpacing: -0.5,
+    color: ink,
+  },
+  body: { color: muted, fontFamily: "Manrope", fontSize: 14, lineHeight: 22 },
+  small: { fontFamily: "Manrope", fontSize: 12, color: muted, lineHeight: 18 },
+  label: { fontFamily: "Manrope", fontSize: 13, color: ink, fontWeight: "600" },
   card: {
     backgroundColor: "#FFFFFF",
-    borderRadius: 18,
+    borderRadius: 22,
+    boxShadow: "0px 6px 22px rgba(7, 44, 31, 0.07)",
     borderWidth: 1,
-    borderColor: "#E3E9E2",
+    borderColor: "#E3ECE5",
     padding: 24,
     gap: 16,
   },
-  cardTitle: { color: ink, fontSize: 18, fontWeight: "700", lineHeight: 26 },
+  cardTitle: {
+    color: ink,
+    fontFamily: "Manrope",
+    fontSize: 18,
+    fontWeight: "700",
+    lineHeight: 26,
+  },
   columns: { flexDirection: "row", gap: 22 },
   stack: { flexDirection: "column" },
   badge: {
@@ -115,28 +150,37 @@ export const s = StyleSheet.create({
   },
   badgeText: {
     color: green,
+    fontFamily: "Manrope",
     fontSize: 10,
     fontWeight: "700",
     letterSpacing: 0.4,
   },
   input: {
-    backgroundColor: "#F8FAF7",
+    backgroundColor: "#F3F7F3",
     borderWidth: 1,
     borderColor: "#E2E8E0",
-    borderRadius: 10,
+    borderRadius: 14,
+    minHeight: 52,
     padding: 14,
+    fontFamily: "Manrope",
     fontSize: 14,
     color: ink,
   },
   button: {
     backgroundColor: green,
     padding: 15,
-    borderRadius: 11,
+    borderRadius: 16,
+    minHeight: 54,
     alignItems: "center",
     justifyContent: "center",
   },
   secondary: { backgroundColor: "#EDF4EE" },
-  buttonText: { color: "#FFFFFF", fontSize: 14, fontWeight: "700" },
+  buttonText: {
+    color: "#FFFFFF",
+    fontFamily: "Manrope",
+    fontSize: 14,
+    fontWeight: "700",
+  },
   chips: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   chip: {
     minHeight: 44,
@@ -159,7 +203,12 @@ export const s = StyleSheet.create({
     justifyContent: "space-between",
     flexWrap: "wrap",
   },
-  fare: { fontSize: 24, fontWeight: "800", color: green },
+  fare: {
+    fontFamily: "Manrope",
+    fontSize: 24,
+    fontWeight: "800",
+    color: green,
+  },
   map: {
     height: 330,
     backgroundColor: "#EBF0E6",
@@ -193,6 +242,7 @@ export const s = StyleSheet.create({
   },
   mapLabel: {
     position: "absolute",
+    fontFamily: "Manrope",
     fontSize: 9,
     letterSpacing: 1,
     color: "#8D9C81",
@@ -262,5 +312,20 @@ export const s = StyleSheet.create({
     paddingBottom: 12,
     borderBottomWidth: 1,
     borderColor: "#EDF1EB",
+  },
+  popover: {
+    position: "absolute",
+    bottom: "100%",
+    left: "50%",
+    transform: [{ translateX: -75 }],
+    marginBottom: 8,
+    backgroundColor: "#13231B",
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    shadowColor: "#000",
+    shadowOpacity: 0.2,
+    shadowRadius: 6,
+    zIndex: 1000,
   },
 });

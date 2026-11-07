@@ -1,4 +1,4 @@
-import type { Point, Trip, User } from "./types";
+import type { Point, Trip, User } from "../types/types";
 
 /** Fictional past journeys for the passenger trip-history screens. */
 export function createSampleTrips(

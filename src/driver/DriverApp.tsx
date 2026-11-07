@@ -9,12 +9,16 @@ import {
   Alert,
   BackHandler,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { router, useLocalSearchParams } from "expo-router";
-import type { Snapshot, DriverRun } from "./types";
-import { api } from "./api";
-import { Icon, money } from "./ui";
-import CalbayogMap from "./CalbayogMap";
-import { ps, passengerColors as c } from "./passengerStyles";
+import type { Snapshot, DriverRun } from "../types/types";
+import { api } from "../services/api";
+import { Icon, money } from "../common/ui";
+import CalbayogMap from "../map/CalbayogMap";
+import { ps, passengerColors as c } from "../passenger/passengerStyles";
+import DriverAvatar from "../common/DriverAvatar";
+import { pickDriverPhoto, Share, Linking } from "../services/previewActions";
+import { Skeleton, CardSkeleton, ListSkeleton, StatsSkeleton } from "../common/Skeleton";
 
 type Props = {
   data: Snapshot;
@@ -52,10 +56,11 @@ function Button({
       accessibilityState={{ disabled: !!disabled }}
       disabled={disabled}
       onPress={onPress}
-      style={[
+      style={({ pressed }) => [
         ps.button,
         light && ps.buttonLight,
         disabled && { opacity: 0.45 },
+        pressed && ps.pressed,
       ]}
     >
       {icon && <Icon name={icon} color={light ? c.green : "white"} size={19} />}
@@ -85,9 +90,11 @@ function Hint({ text, warning = false }: { text: string; warning?: boolean }) {
 function Stat({ value, label }: { value: string | number; label: string }) {
   return (
     <View
-      style={[ps.card, { flex: 1, padding: 12, alignItems: "center", gap: 3 }]}
+      style={[ps.card, { flex: 1, padding: 12, alignItems: "center", gap: 3, minWidth: 0 }]}
     >
-      <Text style={[ps.section, { fontSize: 21 }]}>{value}</Text>
+      <Text style={[ps.section, { fontSize: 18, flexShrink: 1 }]} numberOfLines={1} adjustsFontSizeToFit>
+        {value}
+      </Text>
       <Text style={[ps.tiny, { textAlign: "center" }]}>{label}</Text>
     </View>
   );
@@ -122,49 +129,38 @@ const time = (at: string | number) =>
   });
 const date = (at: string | number) =>
   new Date(at).toLocaleDateString("en-CA", { timeZone: "Asia/Manila" });
-const initials = (name: string) =>
-  name
-    .split(" ")
-    .slice(0, 2)
-    .map((s) => s[0])
-    .join("")
-    .toUpperCase();
 function departure(route: Snapshot["routes"][number], now: number) {
+  if (
+    route.scheduled === false ||
+    !route.interval ||
+    !route.startsAt ||
+    !route.endsAt
+  ) {
+    return "No fixed schedule";
+  }
   const minute = (s: string) => {
     const [h, m] = s.split(":").map(Number);
     return h * 60 + m;
   };
   const current = minute(
-    new Date(now).toLocaleTimeString("en-GB", {
-      timeZone: "Asia/Manila",
-      hour12: false,
-      hour: "2-digit",
-      minute: "2-digit",
-    }),
-  );
-  const start = minute(route.startsAt);
-  const end = minute(route.endsAt);
-  const next = Math.max(
-    start,
-    start +
-      Math.ceil((current - start) / Math.max(1, route.interval)) *
-        Math.max(1, route.interval),
-  );
+      new Date(now).toLocaleTimeString("en-GB", {
+        timeZone: "Asia/Manila",
+        hour12: false,
+        hour: "2-digit",
+        minute: "2-digit",
+      }),
+    ),
+    start = minute(route.startsAt),
+    end = minute(route.endsAt),
+    next = Math.max(
+      start,
+      start +
+        Math.ceil((current - start) / Math.max(1, route.interval)) *
+          Math.max(1, route.interval),
+    );
   return next > end
     ? `Tomorrow ${route.startsAt}`
     : `${String(Math.floor(next / 60)).padStart(2, "0")}:${String(next % 60).padStart(2, "0")}`;
-}
-function departureCount(route: Snapshot["routes"][number]) {
-  const minute = (value: string) => {
-    const [hours, minutes] = value.split(":").map(Number);
-    return hours * 60 + minutes;
-  };
-  return (
-    Math.floor(
-      (minute(route.endsAt) - minute(route.startsAt)) /
-        Math.max(1, route.interval),
-    ) + 1
-  );
 }
 export default function DriverApp({
   data,
@@ -178,6 +174,8 @@ export default function DriverApp({
   action,
   logout,
 }: Props) {
+  const insets = useSafeAreaInsets();
+  const navLift = insets.bottom > 0 ? Math.max(insets.bottom - 8, 0) : 0;
   const params = useLocalSearchParams<{
     screen?: string;
     run?: string;
@@ -211,42 +209,30 @@ export default function DriverApp({
     "Notifications",
   ];
   const requested =
-    aliases[params.screen || ""] || params.screen || "Dashboard";
-  const page = allowed.includes(requested) ? requested : "Dashboard";
-  const [working, setWorking] = useState(false);
-  const [error, setError] = useState("");
-  const [boarded, setBoarded] = useState("0");
-  const [alighted, setAlighted] = useState("0");
-  const initialRoute =
-    data.routes.find((route) => route.id === data.user.routeId) ||
-    data.routes[0];
-  const [routeFrom, setRouteFrom] = useState(
-    initialRoute?.stops[0]?.name || "",
-  );
-  const [routeTo, setRouteTo] = useState(
-    initialRoute?.stops[initialRoute.stops.length - 1]?.name || "",
-  );
-  const [routeSearchActive, setRouteSearchActive] = useState(false);
-  const [assignedRoutesOnly, setAssignedRoutesOnly] = useState(false);
-  const [showAllTerminals, setShowAllTerminals] = useState(false);
-  const [name, setName] = useState(data.user.name);
-  const [phone, setPhone] = useState(data.user.phone);
-  const [report, setReport] = useState("");
-  const lock = useRef(false);
-  const scroll = useRef<React.ComponentRef<typeof ScrollView>>(null);
+      aliases[params.screen || ""] || params.screen || "Dashboard",
+    page = allowed.includes(requested) ? requested : "Dashboard";
+  const [working, setWorking] = useState(false),
+    [error, setError] = useState(""),
+    [boarded, setBoarded] = useState("0"),
+    [alighted, setAlighted] = useState("0"),
+    [query, setQuery] = useState(""),
+    [name, setName] = useState(data.user.name),
+    [phone, setPhone] = useState(data.user.phone),
+    [report, setReport] = useState("");
+  const lock = useRef(false),
+    scroll = useRef<React.ComponentRef<typeof ScrollView>>(null);
   const locked = busy || working;
-  const runs = data.runs || [];
-  const activeRun = runs.find((r) => r.status === "In progress");
-  const run = runs.find((r) => r.id === params.run) || activeRun || runs[0];
-  const trips = data.trips.filter((t) => t.driverId === data.user.id);
-  const requests = data.trips.filter((t) => t.status === "Requested");
-  const activeTrip = trips.find(
-    (t) => !["Completed", "Cancelled"].includes(t.status),
-  );
-  const trip =
-    trips.find((t) => t.id === params.trip) || activeTrip || trips[0];
-  const assigned = data.routes.find((r) => r.id === data.user.routeId);
-  const stops = activeRun?.stops || assigned?.stops || [];
+  const runs = data.runs || [],
+    activeRun = runs.find((r) => r.status === "In progress"),
+    run = runs.find((r) => r.id === params.run) || activeRun || runs[0];
+  const trips = data.trips.filter((t) => t.driverId === data.user.id),
+    requests = data.trips.filter((t) => t.status === "Requested"),
+    activeTrip = trips.find(
+      (t) => !["Completed", "Cancelled"].includes(t.status),
+    ),
+    trip = trips.find((t) => t.id === params.trip) || activeTrip || trips[0];
+  const assigned = data.routes.find((r) => r.id === data.user.routeId),
+    stops = activeRun?.stops || assigned?.stops || [];
   const fresh =
     !!data.user.location &&
     data.serverTime - data.user.location.updatedAt <= 60000;
@@ -274,29 +260,29 @@ export default function DriverApp({
           fare: r.cashFares,
         }))
     : trips
-        .filter((t) => t.status === "Completed")
+        .filter((t) => t.status === "Completed" && !t.demoPayment)
         .map((t) => ({
           id: t.id,
           name: `${t.pickup} → ${t.destination}`,
           at: new Date(t.timestamps.Completed || t.createdAt).toISOString(),
           fare: t.fare,
         }));
-  const today = completed.filter((r) => date(r.at) === date(data.serverTime));
-  const todayCash = today.reduce((s, r) => s + r.fare, 0);
-  const week = Array.from({ length: 7 }, (_, i) => {
-    const at = data.serverTime - (6 - i) * 86400000;
-    return {
-      at,
-      day: new Date(at).toLocaleDateString("en-PH", {
-        timeZone: "Asia/Manila",
-        weekday: "short",
-      }),
-      fare: completed
-        .filter((r) => date(r.at) === date(at))
-        .reduce((s, r) => s + r.fare, 0),
-    };
-  });
-  const weekCash = week.reduce((s, d) => s + d.fare, 0);
+  const today = completed.filter((r) => date(r.at) === date(data.serverTime)),
+    todayCash = today.reduce((s, r) => s + r.fare, 0),
+    week = Array.from({ length: 7 }, (_, i) => {
+      const at = data.serverTime - (6 - i) * 86400000;
+      return {
+        at,
+        day: new Date(at).toLocaleDateString("en-PH", {
+          timeZone: "Asia/Manila",
+          weekday: "short",
+        }),
+        fare: completed
+          .filter((r) => date(r.at) === date(at))
+          .reduce((s, r) => s + r.fare, 0),
+      };
+    }),
+    weekCash = week.reduce((s, d) => s + d.fare, 0);
   const go = (screen: string, id?: string) => {
     setError("");
     router.setParams({
@@ -383,7 +369,10 @@ export default function DriverApp({
   };
   const shareRecords = () =>
     perform(async () => {
-      Alert.alert("UI prototype", "Trip sharing preview. Nothing was shared.");
+      await Share.share({
+        title: "Angkol cash fare records",
+        message: `Angkol · ${data.user.name}\nCash fare records, not a payout or wallet balance\n${completed.map((r) => `${date(r.at)} · ${r.name} · ${money(r.fare)}`).join("\n") || "No completed records."}`,
+      });
     });
   const routeCard = () =>
     assigned || run ? (
@@ -419,13 +408,35 @@ export default function DriverApp({
   const map = (height = 260, forTrip = false) => (
     <CalbayogMap
       height={height}
-      pickup={forTrip ? trip?.pickupPoint : stops[0] || run?.stops[0]}
+      pickup={
+        forTrip
+          ? ["Accepted", "Arrived"].includes(trip?.status || "")
+            ? data.user.location
+            : trip?.pickupPoint
+          : stops[0] || run?.stops[0]
+      }
+      pickupLabel={
+        forTrip && ["Accepted", "Arrived"].includes(trip?.status || "")
+          ? "Driver location"
+          : undefined
+      }
+      destinationLabel={
+        forTrip && ["Accepted", "Arrived"].includes(trip?.status || "")
+          ? "Passenger pickup location"
+          : undefined
+      }
       destination={
         forTrip
-          ? trip?.destinationPoint
+          ? ["Accepted", "Arrived"].includes(trip?.status || "")
+            ? trip?.pickupPoint
+            : trip?.destinationPoint
           : stops[stops.length - 1] || run?.stops[(run?.stops.length || 1) - 1]
       }
-      geometry={forTrip ? trip?.geometry : null}
+      geometry={
+        forTrip && !["Accepted", "Arrived"].includes(trip?.status || "")
+          ? trip?.geometry
+          : null
+      }
       vehicles={ownVehicle}
       stops={puj ? data.stopRequests : []}
       landmarks={[]}
@@ -516,11 +527,11 @@ export default function DriverApp({
         )}
       </>
     );
-  let title = "Driver dashboard";
-  let subtitle = `${puj ? "PUJ / PUV" : "TRICYCLE"} DRIVER${data.user.plate ? ` · ${data.user.plate}` : ""}`;
-  let content: React.ReactNode;
-  let footer: React.ReactNode = null;
-  let back: string | null = null;
+  let title = "Driver dashboard",
+    subtitle = `${puj ? "PUJ / PUV" : "TRICYCLE"} DRIVER${data.user.plate ? ` · ${data.user.plate}` : ""}`,
+    content: React.ReactNode,
+    footer: React.ReactNode = null,
+    back: string | null = null;
   if (page === "Dashboard") {
     const hour = Number(
       new Date(data.serverTime).toLocaleTimeString("en-GB", {
@@ -532,60 +543,28 @@ export default function DriverApp({
     title = `${hour >= 5 && hour < 12 ? "Maupay nga aga" : hour < 18 && hour >= 12 ? "Maupay nga kulop" : "Maupay nga gab-i"}, ${data.user.name.split(" ")[0]}`;
     content = (
       <>
-        <View
-          style={[
-            ps.card,
-            { padding: 0, overflow: "hidden", borderColor: "#CDE3D7" },
-          ]}
-        >
-          <View style={{ backgroundColor: c.dark, padding: 18, gap: 16 }}>
+        <View style={ps.banner}>
+          <Text style={ps.bannerSub}>
+            {data.user.plate || "Vehicle plate not provided"} ·{" "}
+            {puj ? "PUJ / PUV" : "Tricycle"} · {data.user.capacity} passenger
+            capacity
+          </Text>
+          <View style={[ps.card, { padding: 14 }]}>
             <View style={ps.between}>
-              <View style={[ps.row, { gap: 7 }]}>
-                <View
-                  style={{
-                    width: 7,
-                    height: 7,
-                    borderRadius: 4,
-                    backgroundColor:
-                      data.user.available && data.user.verified
-                        ? "#BCE59A"
-                        : "#D5E6DA",
-                  }}
-                />
-                <Text
-                  style={[
-                    ps.bannerSub,
-                    { fontSize: 10, letterSpacing: 1.3, fontWeight: "600" },
-                  ]}
-                >
-                  DRIVER STATUS
-                </Text>
-              </View>
-              <Icon
-                name={puj ? "bus-outline" : "bicycle-outline"}
-                size={26}
-                color="#D5E6DA"
-              />
-            </View>
-            <View style={ps.between}>
-              <View style={{ flex: 1, gap: 4 }}>
-                <Text
-                  style={[ps.bannerTitle, { fontSize: 25, lineHeight: 32 }]}
-                >
+              <View style={{ flex: 1 }}>
+                <Text style={[ps.section, { color: c.green }]}>
                   {!data.user.verified
                     ? "Awaiting approval"
                     : data.user.available
                       ? "You’re available"
                       : "You’re offline"}
                 </Text>
-                <Text style={ps.bannerSub}>
-                  {!data.user.verified
-                    ? "Your application is under review"
-                    : data.user.available
-                      ? puj
-                        ? "Ready for your next route"
-                        : "Ready for your next passenger"
-                      : "Take a break. Go online when ready."}
+                <Text style={ps.small}>
+                  {data.user.verified
+                    ? puj
+                      ? "Ready for assigned route service"
+                      : "Ready for nearby ride requests"
+                    : "Administrator review is required"}
                 </Text>
               </View>
               <Switch
@@ -595,57 +574,23 @@ export default function DriverApp({
                 onValueChange={(available) => {
                   void action("/availability", { available });
                 }}
-                trackColor={{ false: "#718E80", true: "#BCE59A" }}
+                trackColor={{ false: "#D9E6DE", true: c.green }}
                 thumbColor="white"
               />
             </View>
-            <View style={{ height: 1, backgroundColor: "#FFFFFF24" }} />
-            <View style={[ps.row, { flexWrap: "wrap", gap: 14 }]}>
-              <View style={[ps.row, { gap: 6 }]}>
-                <Icon name="car-outline" size={15} color="#D5E6DA" />
-                <Text style={ps.bannerSub}>
-                  {data.user.plate || "No plate added"}
-                </Text>
-              </View>
-              <View style={[ps.row, { gap: 6 }]}>
-                <Icon name="people-outline" size={15} color="#D5E6DA" />
-                <Text style={ps.bannerSub}>
-                  {data.user.capacity} seats · {puj ? "PUJ / PUV" : "Tricycle"}
-                </Text>
-              </View>
-            </View>
-          </View>
-          <View style={{ padding: 14, gap: 12, backgroundColor: "#F7FBF8" }}>
-            <View style={[ps.row, { alignItems: "flex-start" }]}>
-              <Icon
-                name={sharing ? "checkmark-circle-outline" : "location-outline"}
-                size={20}
-              />
-              <View style={{ flex: 1, gap: 2 }}>
-                <Text style={ps.label}>
-                  {sharing
-                    ? "Location preview enabled"
-                    : "Set up your availability"}
-                </Text>
-                <Text style={ps.small}>
-                  {sharing
-                    ? "Use the switch to update your availability."
-                    : "Enable the sample location to use the availability switch."}
-                </Text>
-              </View>
-            </View>
-            {!sharing && (
-              <Button
-                title="Enable location preview"
-                icon="navigate-outline"
-                disabled={locked || !data.user.verified}
-                onPress={() => {
-                  void toggleSharing();
-                }}
-              />
-            )}
           </View>
         </View>
+        {!sharing && (
+          <Button
+            title="Enable GPS to go online"
+            icon="navigate-outline"
+            light
+            disabled={locked || !data.user.verified}
+            onPress={() => {
+              void toggleSharing();
+            }}
+          />
+        )}
         {puj ? (
           routeCard()
         ) : (
@@ -679,12 +624,7 @@ export default function DriverApp({
                 amber
               />
             </View>
-            <Text
-              style={[ps.bannerTitle, { fontSize: 34, lineHeight: 44 }]}
-              numberOfLines={1}
-              adjustsFontSizeToFit
-              minimumFontScale={0.7}
-            >
+            <Text style={[ps.bannerTitle, { fontSize: 34 }]}>
               {activeRun ? "In progress" : departure(assigned, data.serverTime)}
             </Text>
             <Text style={ps.bannerSub}>
@@ -745,7 +685,7 @@ export default function DriverApp({
           <>
             <View style={ps.card}>
               <Text style={ps.locationCaption}>Scheduled departure</Text>
-              <Text style={ps.fare}>
+              <Text style={[ps.fare, { flexShrink: 1, fontSize: 22, lineHeight: 28 }]} numberOfLines={1} adjustsFontSizeToFit>
                 {departure(assigned, data.serverTime)}
               </Text>
               <Text style={ps.body}>
@@ -775,7 +715,9 @@ export default function DriverApp({
                     <Tag text={departure(r, data.serverTime)} />
                   </View>
                   <Text style={ps.small}>
-                    {r.startsAt}–{r.endsAt} · Every {r.interval} minutes
+                    {r.scheduled === false
+                      ? "Use live driver location for updates"
+                      : `${r.startsAt}–${r.endsAt} · Every ${r.interval} minutes`}
                   </Text>
                 </View>
               ))}
@@ -1021,7 +963,7 @@ export default function DriverApp({
         <View style={ps.card}>
           <View style={ps.between}>
             <Text style={ps.section}>Cash fares recorded</Text>
-            <Text style={ps.fare}>{money(run.cashFares)}</Text>
+            <Text style={[ps.fare, { flexShrink: 1 }]} numberOfLines={1} adjustsFontSizeToFit>{money(run.cashFares)}</Text>
           </View>
           <Text style={ps.small}>
             {run.totalBoarded} passenger boardings × {money(run.fare)} ·{" "}
@@ -1071,7 +1013,7 @@ export default function DriverApp({
           <View style={ps.card} key={t.id}>
             <View style={ps.between}>
               <Tag text="New request" />
-              <Text style={ps.fare}>{money(t.fare)}</Text>
+              <Text style={[ps.fare, { flexShrink: 1 }]} numberOfLines={1} adjustsFontSizeToFit>{money(t.fare)}</Text>
             </View>
             <Text style={ps.section}>
               {t.pickup} → {t.destination}
@@ -1119,10 +1061,25 @@ export default function DriverApp({
     content = trip ? (
       <>
         {map(280, true)}
+        {["Accepted", "Arrived"].includes(trip.status) && (
+          <Button
+            title="Directions to passenger"
+            icon="navigate-outline"
+            disabled={locked || !data.user.location}
+            onPress={() => {
+              void perform(async () => {
+                const from = data.user.location!;
+                await Linking.openURL(
+                  `https://www.openstreetmap.org/directions?engine=fossgis_osrm_car&route=${from.latitude}%2C${from.longitude}%3B${trip.pickupPoint.latitude}%2C${trip.pickupPoint.longitude}`,
+                );
+              });
+            }}
+          />
+        )}
         <View style={ps.card}>
           <View style={ps.between}>
             <Tag text={trip.status} />
-            <Text style={ps.fare}>{money(trip.fare)}</Text>
+            <Text style={[ps.fare, { flexShrink: 1 }]} numberOfLines={1} adjustsFontSizeToFit>{money(trip.fare)}</Text>
           </View>
           <Text style={ps.section}>{trip.passenger}</Text>
           <Text style={ps.label}>Pickup · {trip.pickup}</Text>
@@ -1132,7 +1089,11 @@ export default function DriverApp({
           )}
           <Text style={ps.small}>
             {trip.distance} km · about {trip.minutes} min ·{" "}
-            {trip.sampleFare ? "Sample fixed fare" : "Configured fixed fare"}
+            {trip.demoPayment
+              ? `${trip.demoPayment.method} · Test payment only — no money received. Actual fare remains payable.`
+              : trip.sampleFare
+                ? "Sample fixed fare"
+                : "Configured fixed fare"}
           </Text>
         </View>
         <Hint text="Use trip controls only while safely stopped. Confirm each stage with your passenger." />
@@ -1154,7 +1115,9 @@ export default function DriverApp({
       const labels = {
         Accepted: "Mark arrived at pickup",
         Arrived: "Start passenger trip",
-        "In progress": "Complete trip · cash fare recorded",
+        "In progress": trip.demoPayment
+          ? "Complete trip · test payment only"
+          : "Complete trip · cash fare recorded",
       };
       footer = (
         <Button
@@ -1171,191 +1134,82 @@ export default function DriverApp({
     }
   } else if (page === "Routes") {
     title = "Routes & terminals";
-    subtitle = "Live local departure information";
+    subtitle = "Configured local departure information";
     back = "Route";
-    const from = routeFrom.trim().toLowerCase();
-    const to = routeTo.trim().toLowerCase();
-    const routeMatches = data.routes.filter((route) => {
-      if (
-        !route.active ||
-        (assignedRoutesOnly && route.id !== data.user.routeId)
-      ) {
-        return false;
-      }
-      if (!routeSearchActive) {
-        return true;
-      }
-      const stopNames = route.stops.map((stop) => stop.name.toLowerCase());
-      const fromIndex = stopNames.findIndex((stop) => stop.includes(from));
-      const toIndex = stopNames.findIndex((stop) => stop.includes(to));
-      return fromIndex >= 0 && toIndex >= fromIndex;
-    });
-    const nearbyTerminals = data.terminals.filter(
-      (terminal) => terminal.active,
-    );
-    const visibleTerminals = showAllTerminals
-      ? nearbyTerminals
-      : nearbyTerminals.slice(0, 1);
     content = (
       <>
-        <View style={[ps.card, { padding: 14, gap: 9 }]}>
-          <View style={ps.location}>
-            <View style={ps.dot} />
-            <View style={{ flex: 1 }}>
-              <Text style={ps.locationCaption}>From</Text>
-              <TextInput
-                accessibilityLabel="From"
-                style={[ps.label, { padding: 0 }]}
-                value={routeFrom}
-                onChangeText={(value) => {
-                  setRouteFrom(value);
-                  setRouteSearchActive(false);
-                }}
-                placeholder="Choose departure point"
-                placeholderTextColor={c.muted}
-              />
-            </View>
-            <Icon name="chevron-forward" size={18} color={c.muted} />
-          </View>
-          <View style={ps.location}>
-            <View style={[ps.dot, ps.square, { backgroundColor: c.amber }]} />
-            <View style={{ flex: 1 }}>
-              <Text style={ps.locationCaption}>To</Text>
-              <TextInput
-                accessibilityLabel="To"
-                style={[ps.label, { padding: 0 }]}
-                value={routeTo}
-                onChangeText={(value) => {
-                  setRouteTo(value);
-                  setRouteSearchActive(false);
-                }}
-                placeholder="Choose destination"
-                placeholderTextColor={c.muted}
-              />
-            </View>
-            <Icon name="chevron-forward" size={18} color={c.muted} />
-          </View>
-          <Button
-            title="Find PUJ/PUV routes"
-            icon="search-outline"
-            onPress={() => setRouteSearchActive(true)}
+        <View style={ps.search}>
+          <Icon name="search-outline" />
+          <TextInput
+            accessibilityLabel="Find PUJ/PUV routes"
+            style={ps.searchInput}
+            value={query}
+            onChangeText={setQuery}
+            placeholder="Search route or destination"
+            placeholderTextColor={c.muted}
           />
         </View>
-        <View style={ps.between}>
-          <Text style={ps.section}>Best matches</Text>
-          <Pressable accessibilityRole="button" onPress={() => go("Route")}>
-            <Text style={ps.textLink}>View map</Text>
-          </Pressable>
-        </View>
-        {routeMatches.map((route) => (
-          <Pressable
-            key={route.id}
-            accessibilityRole="button"
-            accessibilityLabel={`${route.id}, ${route.name}, departs ${departure(route, data.serverTime)}`}
-            onPress={() => {
-              setRouteFrom(route.stops[0]?.name || "");
-              setRouteTo(route.stops[route.stops.length - 1]?.name || "");
-              setRouteSearchActive(true);
-            }}
-            style={[
-              ps.card,
-              { padding: 13, gap: 10 },
-              route.id === data.user.routeId && ps.selected,
-            ]}
-          >
-            <View style={ps.row}>
-              <View style={ps.routeCode}>
-                <Text style={ps.routeCodeText}>{route.id}</Text>
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={ps.label}>{route.name}</Text>
-                <Text style={ps.small} numberOfLines={1}>
-                  {route.stops.map((stop) => stop.name).join(" · ")}
-                </Text>
-              </View>
-              <Icon name="chevron-forward" size={18} color={c.muted} />
-            </View>
-            <View style={ps.between}>
-              <View style={ps.pill}>
-                <Icon name="time-outline" size={14} color={c.green} />
-                <Text style={ps.pillText}>
-                  Departs {departure(route, data.serverTime)}
-                </Text>
-              </View>
-              <View style={[ps.pill, { backgroundColor: "#E8F2FA" }]}>
-                <Icon name="people" size={14} color="#3479B8" />
-                <Text style={[ps.pillText, { color: "#3479B8" }]}>
-                  {data.user.capacity} seats
-                </Text>
-              </View>
-            </View>
-          </Pressable>
-        ))}
-        {!routeMatches.length && (
-          <Hint text="No routes match those stops. Try another departure and destination." />
-        )}
-        <View style={ps.between}>
-          <Text style={ps.section}>Nearby terminals</Text>
-          {nearbyTerminals.length > 0 && (
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => setShowAllTerminals((showAll) => !showAll)}
+        {data.routes
+          .filter(
+            (r) =>
+              r.active &&
+              `${r.name} ${r.stops.map((p) => p.name).join(" ")}`
+                .toLowerCase()
+                .includes(query.toLowerCase()),
+          )
+          .map((r) => (
+            <View
+              key={r.id}
+              style={[ps.card, r.id === data.user.routeId && ps.selected]}
             >
-              <Text style={ps.textLink}>
-                {showAllTerminals ? "Show less" : "See all"}
-              </Text>
-            </Pressable>
-          )}
-        </View>
-        {visibleTerminals.map((terminal) => {
-          const terminalRoute = data.routes.find(
-            (route) => route.id === terminal.routeId,
-          );
-          const departures = terminalRoute ? departureCount(terminalRoute) : 0;
-          return (
-            <View key={terminal.id} style={[ps.banner, { padding: 13 }]}>
               <View style={ps.row}>
-                <View
-                  style={{
-                    width: 44,
-                    height: 44,
-                    borderRadius: 12,
-                    backgroundColor: "#155847",
-                    alignItems: "center",
-                    justifyContent: "center",
-                  }}
-                >
-                  <Icon name="business-outline" color="white" size={22} />
+                <View style={ps.routeCode}>
+                  <Text style={ps.routeCodeText}>{r.id}</Text>
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text
-                    style={[ps.bannerSub, { color: "white" }]}
-                    numberOfLines={1}
-                  >
-                    {terminal.name}
-                  </Text>
-                  <Text style={ps.tiny}>
-                    {terminal.routeId} · Local terminal
-                  </Text>
-                </View>
-                <View style={[ps.pill, { backgroundColor: "#FFF2D9" }]}>
-                  <Text style={[ps.pillText, { color: "#A85D10" }]}>
-                    {departures} departures
+                  <Text style={ps.label}>{r.name}</Text>
+                  {r.destination ? (
+                    <Text style={ps.tiny}>Destination: {r.destination}</Text>
+                  ) : null}
+                  <Text style={ps.small}>
+                    {r.stops.map((p) => p.name).join(" · ")}
                   </Text>
                 </View>
               </View>
+              <View style={ps.between}>
+                <Tag
+                  text={
+                    r.scheduled === false
+                      ? "Live driver location"
+                      : `Departs ${departure(r, data.serverTime)}`
+                  }
+                />
+                <Tag
+                  text={
+                    r.id === data.user.routeId
+                      ? "Assigned route"
+                      : "Not assigned"
+                  }
+                  amber={r.id !== data.user.routeId}
+                />
+              </View>
             </View>
-          );
-        })}
-        {!visibleTerminals.length && (
-          <Hint text="No active terminals are listed for the available routes." />
-        )}
-        <View style={[ps.row, { alignItems: "flex-start", gap: 7 }]}>
-          <Icon name="information-circle" size={16} color={c.muted} />
-          <Text style={[ps.small, { flex: 1 }]}>
-            Schedules are terminal-managed and may shift with loading time.
-          </Text>
-        </View>
+          ))}
+        <Text style={ps.section}>Nearby terminals</Text>
+        {data.terminals
+          .filter((t) => t.active)
+          .map((t) => (
+            <View key={t.id} style={ps.card}>
+              <View style={ps.row}>
+                <Icon name="business-outline" />
+                <View style={{ flex: 1 }}>
+                  <Text style={ps.label}>{t.name}</Text>
+                  <Text style={ps.small}>{t.routeId}</Text>
+                </View>
+              </View>
+            </View>
+          ))}
+        <Hint text="Route assignments are managed by the administrator. Schedules may shift with loading; confirm at the terminal." />
       </>
     );
   } else if (page === "Records") {
@@ -1375,12 +1229,7 @@ export default function DriverApp({
               text={`${date(week[0].at).slice(5)}–${date(data.serverTime).slice(5)}`}
             />
           </View>
-          <Text
-            style={[ps.bannerTitle, { fontSize: 35, lineHeight: 44 }]}
-            numberOfLines={1}
-            adjustsFontSizeToFit
-            minimumFontScale={0.7}
-          >
+          <Text style={[ps.bannerTitle, { fontSize: 35 }]}>
             {money(weekCash)}
           </Text>
           <Text style={ps.bannerSub}>
@@ -1476,15 +1325,11 @@ export default function DriverApp({
     back = page === "Documents" ? "Profile" : null;
     content = (
       <>
-        <View style={ps.banner}>
-          <View style={ps.row}>
-            <View style={[ps.avatar, { backgroundColor: "#DCEFE4" }]}>
-              <Text style={[ps.avatarText, { color: c.green }]}>
-                {initials(data.user.name)}
-              </Text>
-            </View>
+        <View style={[ps.banner, { backgroundColor: "#0B5942", paddingVertical: 30 }]}>
+          <View style={[ps.row, { gap: 16 }]}>
+            <DriverAvatar photo={data.user.photo} name={data.user.name} />
             <View style={{ flex: 1 }}>
-              <Text style={[ps.section, { color: "white" }]}>
+              <Text style={[ps.section, { color: "white", fontSize: 21, lineHeight: 29 }]}>
                 {data.user.name}
               </Text>
               <Text style={ps.bannerSub}>{data.user.role}</Text>
@@ -1496,6 +1341,32 @@ export default function DriverApp({
             </View>
           </View>
         </View>
+        <Button
+          title={data.user.photo ? "Update driver photo" : "Add driver photo"}
+          icon="camera-outline"
+          disabled={locked}
+          onPress={() => {
+            void perform(async () => {
+              const photo = await pickDriverPhoto();
+              if (photo) {
+                await action("/profile/photo", { photo }, "PATCH");
+              }
+            });
+          }}
+        />
+        {Boolean(data.user.photo) && (
+          <Button
+            title="Remove driver photo"
+            light
+            disabled={locked}
+            onPress={() => {
+              void perform(async () => {
+                await action("/profile/photo", { photo: "" }, "PATCH");
+              });
+            }}
+          />
+        )}
+        <Hint text="Use a clear photo of your face. It is shared with passengers when you accept a ride. Photos already saved with past rides are retained for identification. Uploading a photo does not verify your identity." />
         <View style={ps.card}>
           <Text style={ps.section}>Professional license & cooperative</Text>
           <View style={ps.between}>
@@ -1533,11 +1404,14 @@ export default function DriverApp({
         <View style={ps.banner}>
           <View style={ps.between}>
             <Text style={ps.bannerSub}>
-              TODAY · {today.length} COMPLETED {puj ? "RUNS" : "TRIPS"}
+              TODAY Â· {today.length} COMPLETED {puj ? "RUNS" : "TRIPS"}
             </Text>
-            <Text style={[ps.fare, { color: "white" }]}>
-              {money(todayCash)}
-            </Text>
+            <Text
+              style={[ps.fare, { color: "white", fontSize: 17, lineHeight: 22 }]}
+              numberOfLines={1}
+              adjustsFontSizeToFit
+            >
+              {money(todayCash)}</Text>
           </View>
           <Text style={ps.bannerSub}>
             Cash fare records only · not a wallet or payout balance
@@ -1558,11 +1432,11 @@ export default function DriverApp({
           onPress={() => go("Support")}
         />
         <Button
-          title="Sign out"
-          light
+          title="Log out"
+          icon="log-out-outline"
           disabled={locked}
           onPress={() => {
-            void logout();
+            void perform(logout);
           }}
         />
       </>
@@ -1593,14 +1467,6 @@ export default function DriverApp({
           disabled={locked || !name.trim()}
           onPress={() => {
             void action("/profile", { name, phone }, "PATCH");
-          }}
-        />
-        <Button
-          title="Sign out"
-          light
-          disabled={locked}
-          onPress={() => {
-            void logout();
           }}
         />
         <Hint text="Email/password sign-in is protected by Firebase. License, association, vehicle details, and route assignment require administrator review." />
@@ -1696,7 +1562,7 @@ export default function DriverApp({
   const tabs = puj
     ? [
         { label: "Dashboard", icon: "speedometer-outline" },
-        { label: "Route", icon: "git-network-outline" },
+        { label: "Route", icon: "navigate-outline" },
         { label: "Records", icon: "time-outline" },
         { label: "Earnings", icon: "wallet-outline" },
         { label: "Profile", icon: "person-outline" },
@@ -1731,44 +1597,23 @@ export default function DriverApp({
             {title}
           </Text>
         </View>
-        {(page === "Dashboard" ||
-          page === "Earnings" ||
-          (puj && page === "Routes")) && (
-          <Pressable
-            accessibilityRole="button"
-            accessibilityState={
-              page === "Routes" ? { selected: assignedRoutesOnly } : undefined
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={
+            page === "Earnings" ? "Share cash records" : "Notifications"
+          }
+          style={ps.iconButton}
+          onPress={() =>
+            page === "Earnings" ? void shareRecords() : go("Notifications")
+          }
+        >
+          <Icon
+            name={
+              page === "Earnings" ? "download-outline" : "notifications-outline"
             }
-            accessibilityLabel={
-              page === "Earnings"
-                ? "Share cash records"
-                : page === "Routes"
-                  ? assignedRoutesOnly
-                    ? "Show all routes"
-                    : "Show assigned route only"
-                  : "Notifications"
-            }
-            style={ps.iconButton}
-            onPress={() =>
-              page === "Earnings"
-                ? void shareRecords()
-                : page === "Routes"
-                  ? setAssignedRoutesOnly((assignedOnly) => !assignedOnly)
-                  : go("Notifications")
-            }
-          >
-            <Icon
-              name={
-                page === "Earnings"
-                  ? "download-outline"
-                  : page === "Routes"
-                    ? "options-outline"
-                    : "notifications-outline"
-              }
-              size={22}
-            />
-          </Pressable>
-        )}
+            size={22}
+          />
+        </Pressable>
       </View>
       <ScrollView
         ref={scroll}
@@ -1801,28 +1646,25 @@ export default function DriverApp({
         </View>
       )}
       {!back && (
-        <View style={ps.nav}>
+        <View style={[ps.nav, { marginBottom: navLift }]}>
           {tabs.map((tab) => (
             <Pressable
               key={tab.label}
               accessibilityRole="tab"
+              accessibilityLabel={tab.label === "Records" && !puj ? "Trips" : tab.label}
               accessibilityState={{ selected: page === tab.label }}
               onPress={() => go(tab.label)}
-              style={ps.navItem}
+              style={({ pressed }) => [
+                ps.navItem,
+                page === tab.label && ps.navSelected,
+                pressed && ps.pressed,
+              ]}
             >
               <Icon
                 name={tab.icon as IconName}
-                size={23}
-                color={page === tab.label ? c.green : "#93A79B"}
+                size={24}
+                color={page === tab.label ? c.green : "#71877A"}
               />
-              <Text
-                style={[
-                  ps.navLabel,
-                  page === tab.label && { color: c.green, fontWeight: "600" },
-                ]}
-              >
-                {tab.label === "Records" && !puj ? "Trips" : tab.label}
-              </Text>
             </Pressable>
           ))}
         </View>

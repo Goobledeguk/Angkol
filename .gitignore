@@ -42,3 +42,6 @@ yarn-error.*
 /ios
 /android
 
+
+# Local design recovery archive
+.recovery/

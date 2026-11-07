@@ -1,12 +1,15 @@
 import React, { useState } from "react";
-import { View } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { router } from "expo-router";
-import { api, clearSession } from "./api";
-import type { Snapshot } from "./types";
-import Auth from "./Auth";
-import PassengerApp from "./PassengerApp";
-import DriverApp from "./DriverApp";
-import AdminDashboard from "./AdminDashboard";
+import { View, Text, Pressable } from "react-native";
+import { api, clearSession } from "./services/api";
+import type { Snapshot } from "./types/types";
+import Auth from "./auth/Auth";
+import PassengerApp from "./passenger/PassengerApp";
+import DriverApp from "./driver/DriverApp";
+import AdminDashboard from "./admin/AdminDashboard";
+import { Icon } from "./common/ui";
+import { ps, passengerColors as c } from "./passenger/passengerStyles";
 
 export default function AngkolApp() {
   const [data, setData] = useState<Snapshot | null>(null);
@@ -39,7 +42,11 @@ export default function AngkolApp() {
   }
 
   if (!data) {
-    return <Auth onSignedIn={refresh} />;
+    return (
+      <SafeAreaView style={{ flex: 1 }}>
+        <Auth onSignedIn={refresh} />
+      </SafeAreaView>
+    );
   }
 
   const props = {
@@ -53,8 +60,34 @@ export default function AngkolApp() {
     logout,
   };
   return (
-    <View style={{ flex: 1 }}>
-      {data.user.role === "Administrator" ? (
+    <SafeAreaView
+      style={{
+        flex: 1,
+      }}
+    >
+      {data.user.pendingFranchiseApproval && data.user.role === "PUJ / PUV driver" ? (
+        <View style={{ flex: 1, backgroundColor: c.background, padding: 24, justifyContent: "center" }}>
+          <View style={[ps.card, { gap: 14, padding: 22 }]}>
+            <View style={{ width: 64, height: 64, borderRadius: 32, backgroundColor: "#FFF2D9", alignItems: "center", justifyContent: "center", alignSelf: "center" }}>
+              <Icon name="time-outline" size={30} color="#B37A2A" />
+            </View>
+            <Text style={[ps.heading, { fontSize: 24, textAlign: "center" }]}>Pending franchise approval</Text>
+            <Text style={[ps.body, { textAlign: "center", flexWrap: "wrap" }]}>
+              {data.user.name}, your PUJ/PUV driver account for{" "}
+              <Text style={{ fontWeight: "700", color: c.ink }}>{data.user.franchiseName || "your franchise"}</Text>{" "}
+              is waiting for the franchise admin to accept you.
+            </Text>
+            <Pressable
+              accessibilityRole="button"
+              onPress={logout}
+              style={[ps.button, { backgroundColor: c.green }]}
+            >
+              <Icon name="log-out-outline" size={20} color="white" />
+              <Text style={ps.buttonText}>Sign out</Text>
+            </Pressable>
+          </View>
+        </View>
+      ) : data.user.role === "Administrator" || data.user.role === "Vehicle Owner / Operator" ? (
         <AdminDashboard {...props} />
       ) : data.user.role === "Passenger" ? (
         <PassengerApp {...props} />
@@ -68,6 +101,6 @@ export default function AngkolApp() {
           }}
         />
       )}
-    </View>
+    </SafeAreaView>
   );
 }

@@ -1,5 +1,5 @@
 import React from "react";
-import { Image, Pressable, StyleSheet, Text, View } from "react-native";
+import { Image, Pressable, StyleSheet, View, Text } from "react-native";
 import type { MapProps } from "./mapTypes";
 
 /** A bundled map preview from the existing design, with no remote tiles or GPS. */
@@ -20,7 +20,7 @@ export default function StaticMap({
   return (
     <View style={[styles.container, { height }]}>
       <Image
-        source={require("../assets/calbayog-map.png")}
+        source={require("../../assets/calbayog-map.png")}
         style={[StyleSheet.absoluteFill, { width: "100%", height: "100%" }]}
         resizeMode="cover"
         accessibilityLabel="Calbayog City map"
@@ -35,11 +35,11 @@ export default function StaticMap({
           }
         }}
       />
-      <View pointerEvents="none" style={styles.hint}>
-        <Text style={styles.hintText}>
-          {mode ? `Tap to select ${mode}` : "Calbayog, Samar"}
-        </Text>
-      </View>
+      {mode ? (
+        <View pointerEvents="none" style={styles.hint}>
+          <Text style={styles.hintText}>Tap to select {mode}</Text>
+        </View>
+      ) : null}
     </View>
   );
 }

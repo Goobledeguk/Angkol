@@ -1,3 +1,9 @@
+import {
+  PassengerHomeScreen,
+  PassengerRoutesScreen,
+  PassengerTripsScreen,
+  PassengerProfileScreen,
+} from "./passengerScreens";
 import React, { useEffect, useRef, useState } from "react";
 import {
   View,
@@ -8,13 +14,16 @@ import {
   Alert,
   BackHandler,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { router, useLocalSearchParams } from "expo-router";
-
-import { api } from "./api";
-import type { Point, Quote, Snapshot, Trip } from "./types";
-import CalbayogMap from "./CalbayogMap";
-import { Icon, money } from "./ui";
+import { Share, Linking } from "../services/previewActions";
+import { api } from "../services/api";
+import type { Point, Quote, Snapshot, Trip } from "../types/types";
+import CalbayogMap from "../map/CalbayogMap";
+import { Icon, money } from "../common/ui";
 import { ps, passengerColors as c } from "./passengerStyles";
+import DriverAvatar from "../common/DriverAvatar";
+import { Skeleton, CardSkeleton, ListSkeleton } from "../common/Skeleton";
 
 type Props = {
   data: Snapshot;
@@ -50,10 +59,11 @@ function Action({
       accessibilityState={{ disabled: !!disabled }}
       onPress={onPress}
       disabled={disabled}
-      style={[
+      style={({ pressed }) => [
         ps.button,
         light && ps.buttonLight,
         disabled && { opacity: 0.45 },
+        pressed && ps.pressed,
       ]}
     >
       {icon && <Icon name={icon} size={19} color={light ? c.green : "white"} />}
@@ -158,13 +168,6 @@ function SummaryRow({
     </View>
   );
 }
-const initials = (name: string) =>
-  name
-    .split(" ")
-    .slice(0, 2)
-    .map((n) => n[0])
-    .join("")
-    .toUpperCase();
 const stamp = (at: number | string) =>
   new Date(at).toLocaleTimeString("en-PH", {
     timeZone: "Asia/Manila",
@@ -179,6 +182,14 @@ const fullDate = (at: number | string) =>
     year: "numeric",
   });
 function nextDeparture(route: Snapshot["routes"][number], now: number) {
+  if (
+    route.scheduled === false ||
+    !route.interval ||
+    !route.startsAt ||
+    !route.endsAt
+  ) {
+    return "No fixed schedule";
+  }
   const clock = new Date(now).toLocaleTimeString("en-GB", {
     timeZone: "Asia/Manila",
     hour12: false,
@@ -189,9 +200,9 @@ function nextDeparture(route: Snapshot["routes"][number], now: number) {
     const [h, m] = v.split(":").map(Number);
     return h * 60 + m;
   };
-  const start = minutes(route.startsAt);
-  const end = minutes(route.endsAt);
-  const current = minutes(clock);
+  const start = minutes(route.startsAt),
+    end = minutes(route.endsAt),
+    current = minutes(clock);
   const next = Math.max(
     start,
     start +
@@ -201,6 +212,9 @@ function nextDeparture(route: Snapshot["routes"][number], now: number) {
   return next > end
     ? `Tomorrow ${route.startsAt}`
     : `${String(Math.floor(next / 60)).padStart(2, "0")}:${String(next % 60).padStart(2, "0")}`;
+}
+function tripText(trip: Trip) {
+  return `Angkol · ${trip.id}\n${trip.status}\n${trip.pickup} → ${trip.destination}\nDriver: ${trip.driver || "Awaiting assignment"}${trip.plate ? ` · ${trip.plate}` : ""}\n${trip.demoPayment ? `${trip.demoPayment.method} TEST ONLY — no money charged; actual fare remains payable. Demo reference: ${trip.demoPayment.reference}\nFare` : "Fixed cash fare"}: ${money(trip.fare)}${trip.sampleFare ? " (sample fare)" : ""}\n${fullDate(trip.createdAt)} · ${stamp(trip.createdAt)}`;
 }
 
 export default function PassengerApp({
@@ -213,6 +227,8 @@ export default function PassengerApp({
   action,
   logout,
 }: Props) {
+  const insets = useSafeAreaInsets();
+  const navLift = insets.bottom > 0 ? Math.max(insets.bottom - 8, 0) : 0;
   const params = useLocalSearchParams<{ screen?: string; trip?: string }>();
   const aliases: Record<string, string> = {
     "My trips": "Trips",
@@ -237,45 +253,37 @@ export default function PassengerApp({
   ];
   const requested = aliases[params.screen || ""] || params.screen || "Home";
   const page = validPages.includes(requested) ? requested : "Home";
-  const [pickup, setPickup] = useState<Point | null>(data.landmarks[0] || null);
-  const [destination, setDestination] = useState<Point | null>(null);
-  const [quote, setQuote] = useState<Quote | null>(null);
-  const [pickupNote, setPickupNote] = useState("");
-  const [working, setWorking] = useState(false);
-  const [error, setError] = useState("");
-  const [gpsAt, setGpsAt] = useState<number | null>(null);
+  const [pickup, setPickup] = useState<Point | null>(data.landmarks[0] || null),
+    [destination, setDestination] = useState<Point | null>(null);
+  const [quote, setQuote] = useState<Quote | null>(null),
+    [pickupNote, setPickupNote] = useState("");
+  const [working, setWorking] = useState(false),
+    [error, setError] = useState(""),
+    [gpsAt, setGpsAt] = useState<number | null>(null);
   const [editing, setEditing] = useState<"pickup" | "destination">(
-    "destination",
-  );
-  const [search, setSearch] = useState("");
-  const [results, setResults] = useState<Point[]>([]);
-  const [routeSearch, setRouteSearch] = useState("");
-  const [routeId, setRouteId] = useState<string | null>(null);
-  const [terminalId, setTerminalId] = useState<string | null>(null);
-  const [name, setName] = useState(data.user.name);
-  const [phone, setPhone] = useState(data.user.phone);
-  const [report, setReport] = useState("");
-  const [historyFilter, setHistoryFilter] = useState("All trips");
-  const submitting = useRef(false);
-  const scroll = useRef<React.ComponentRef<typeof ScrollView>>(null);
-  const previousStatuses = useRef(
-    new Map(data.trips.map((t) => [t.id, t.status])),
-  );
+      "destination",
+    ),
+    [search, setSearch] = useState(""),
+    [results, setResults] = useState<Point[]>([]);
+  const [routeId, setRouteId] = useState<string | null>(null),
+    [terminalId, setTerminalId] = useState<string | null>(null);
+  const [name, setName] = useState(data.user.name),
+    [phone, setPhone] = useState(data.user.phone),
+    [report, setReport] = useState("");
+  const [paymentMethod, setPaymentMethod] = useState("Cash");
+  const submitting = useRef(false),
+    scroll = useRef<React.ComponentRef<typeof ScrollView>>(null),
+    previousStatuses = useRef(new Map(data.trips.map((t) => [t.id, t.status])));
   const active = data.trips.find(
     (t) => !["Completed", "Cancelled"].includes(t.status),
   );
   const trip =
     data.trips.find((t) => t.id === params.trip) || active || data.trips[0];
   const vehicle = data.vehicles.find((v) => v.id === trip?.driverId);
-  const routes = data.routes.filter((r) => r.active);
-  const terminals = data.terminals.filter((t) => t.active);
-  const filteredRoutes = routes.filter((r) =>
-    `${r.name} ${r.stops.map((p) => p.name).join(" ")}`
-      .toLowerCase()
-      .includes(routeSearch.toLowerCase()),
-  );
+  const routes = data.routes.filter((r) => r.active),
+    terminals = data.terminals.filter((t) => t.active);
   const selectedRoute =
-    routes.find((r) => r.id === routeId) || filteredRoutes[0];
+    routes.find((route) => route.id === routeId) || routes[0];
   const terminal = terminals.find((t) => t.id === terminalId) || terminals[0];
   const locked = working || busy;
   const go = (next: string, id?: string) => {
@@ -341,7 +349,7 @@ export default function PassengerApp({
   }
   const gps = () =>
     perform(async () => {
-      setPickup({ ...data.landmarks[0], name: "Sample pickup location" });
+      setPickup(data.landmarks[0] || null);
       setGpsAt(Date.now());
       setQuote(null);
     });
@@ -375,6 +383,7 @@ export default function PassengerApp({
       const created = await api<Trip>("/book", {
         quoteId: quote.id,
         pickupNote,
+        ...(paymentMethod !== "Cash" ? { demoMethod: paymentMethod } : {}),
       });
       setQuote(null);
       await refresh();
@@ -408,18 +417,39 @@ export default function PassengerApp({
       if (!trip) {
         return;
       }
-      Alert.alert("UI prototype", "Trip sharing preview. Nothing was shared.");
+      await Share.share({
+        title: receipt ? "Angkol trip receipt" : "My Angkol trip status",
+        message:
+          tripText(trip) +
+          (receipt
+            ? `\nBooking fee: ${money(0)}\nPaid directly to driver · Cash`
+            : vehicle
+              ? `\nDriver location last updated ${stamp(vehicle.location.updatedAt)}. This is a status snapshot, not a live tracking link.`
+              : "\nLive driver location is not currently available."),
+      });
     });
   function map(
     height: number,
     journey?: "quote" | "trip" | "route" | "terminal" | "select",
   ) {
     const selectedTrip = journey === "trip" ? trip : null;
+    const approaching =
+      selectedTrip && ["Accepted", "Arrived"].includes(selectedTrip.status);
     return (
       <CalbayogMap
         height={height}
+        pickupLabel={
+          journey === "route"
+            ? selectedRoute?.name
+            : approaching
+              ? "Driver location"
+              : undefined
+        }
+        destinationLabel={approaching ? "Your pickup location" : undefined}
         pickup={
-          selectedTrip?.pickupPoint ||
+          (approaching
+            ? vehicle?.location || selectedTrip.pickupPoint
+            : selectedTrip?.pickupPoint) ||
           (journey === "route"
             ? selectedRoute?.stops[0]
             : journey === "terminal"
@@ -427,11 +457,17 @@ export default function PassengerApp({
               : pickup)
         }
         destination={
-          selectedTrip?.destinationPoint ||
-          (journey === "route" ? selectedRoute?.stops.at(-1) : destination)
+          (approaching
+            ? selectedTrip.pickupPoint
+            : selectedTrip?.destinationPoint) ||
+          (journey === "route"
+            ? selectedRoute && selectedRoute.stops.length > 1
+              ? selectedRoute.stops.at(-1)
+              : null
+            : destination)
         }
         geometry={
-          selectedTrip?.geometry ||
+          (approaching ? null : selectedTrip?.geometry) ||
           (journey === "quote" ? quote?.geometry : null)
         }
         vehicles={
@@ -463,11 +499,11 @@ export default function PassengerApp({
       : cityHour >= 12 && cityHour < 18
         ? "MAUPAY NGA KULOP"
         : "MAUPAY NGA GAB-I";
-  let title = "Where to today?";
-  let subtitle = `${greeting}, ${data.user.name.split(" ")[0].toUpperCase()}`;
-  let back: string | null = null;
-  let content: React.ReactNode;
-  let footer: React.ReactNode = null;
+  let title = "Where to today?",
+    subtitle = `${greeting}, ${data.user.name.split(" ")[0].toUpperCase()}`,
+    back: string | null = null;
+  let content: React.ReactNode,
+    footer: React.ReactNode = null;
   function receiptDetails(value: Trip | Quote) {
     return (
       <View style={ps.card}>
@@ -495,6 +531,7 @@ export default function PassengerApp({
     );
   }
   function fares(value: Trip | Quote) {
+    const demo = "demoPayment" in value ? value.demoPayment : undefined;
     return (
       <View style={ps.card}>
         <Text style={ps.section}>Upfront fare</Text>
@@ -506,183 +543,43 @@ export default function PassengerApp({
         <SummaryRow label="Booking fee" value={money(0)} />
         <View style={ps.divider} />
         <View style={ps.between}>
-          <Text style={ps.body}>Total cash fare</Text>
+          <Text style={ps.body}>Total fare</Text>
           <Text style={ps.total}>{money(value.fare)}</Text>
         </View>
         <View style={ps.row}>
           <Icon name="cash-outline" size={16} />
           <Text style={[ps.small, { color: c.green }]}>
-            Cash to driver · no online payment
+            {demo
+              ? `${demo.method} · Test succeeded — no money charged`
+              : "Cash to driver"}
           </Text>
         </View>
+        {demo && (
+          <Text style={ps.small}>
+            Demo reference: {demo.reference}. This is not proof of payment. The
+            actual fare remains payable to your driver.
+          </Text>
+        )}
       </View>
     );
   }
-  function history(limit: number) {
-    const list =
-      historyFilter === "PUJ / PUV" ? [] : data.trips.slice(0, limit);
-    return (
-      <>
-        {list.map((value) => (
-          <Pressable
-            key={value.id}
-            accessibilityRole="button"
-            onPress={() =>
-              go(
-                ["Completed", "Cancelled"].includes(value.status)
-                  ? "Receipt"
-                  : "Track ride",
-                value.id,
-              )
-            }
-            style={[ps.card, value === list[0] && ps.selected]}
-          >
-            <View style={ps.row}>
-              <Icon name="bicycle-outline" size={25} />
-              <View style={{ flex: 1 }}>
-                <Text style={ps.label}>
-                  {value.pickup} → {value.destination}
-                </Text>
-                <Text style={ps.small}>
-                  {fullDate(value.createdAt)} · {stamp(value.createdAt)}
-                </Text>
-                <Text style={ps.tiny}>
-                  Tricycle · {value.driver || "Awaiting driver"}
-                </Text>
-              </View>
-              <View style={{ alignItems: "flex-end" }}>
-                <Text style={[ps.label, { color: c.green }]}>
-                  {money(value.fare)}
-                </Text>
-                <Text
-                  style={[
-                    ps.tiny,
-                    {
-                      color: value.status === "Cancelled" ? "#C87856" : c.green,
-                    },
-                  ]}
-                >
-                  {value.status}
-                </Text>
-              </View>
-            </View>
-            <View style={ps.between}>
-              <Text style={ps.tiny}>{value.id.slice(0, 17)}</Text>
-              <Text style={ps.tiny}>
-                {value.distance} km · {value.minutes} min
-              </Text>
-            </View>
-            {value === list[0] && (
-              <Action
-                title="View trip & receipt"
-                light
-                onPress={() =>
-                  go(
-                    value.status === "Completed" || value.status === "Cancelled"
-                      ? "Receipt"
-                      : "Track ride",
-                    value.id,
-                  )
-                }
-              />
-            )}
-          </Pressable>
-        ))}
-        {!list.length && (
-          <View style={ps.card}>
-            <Text style={ps.body}>
-              {historyFilter === "PUJ / PUV"
-                ? "PUJ/PUV pickup requests are shown on the Routes screen. Paid PUJ/PUV receipts are not recorded in Angkol."
-                : "Your trips and receipts will appear here after you book a ride."}
-            </Text>
-          </View>
-        )}
-      </>
-    );
-  }
   if (page === "Home") {
+    title = "Your next journey";
+    subtitle = "Calbayog City, Samar";
     content = (
-      <>
-        <View>
-          {map(220, "quote")}
-          <View style={ps.topMapBadge}>
-            <Icon name={gpsAt ? "navigate" : "location-outline"} size={13} />
-            <Text style={[ps.small, { color: c.green }]}>
-              {gpsAt ? `Your GPS · checked ${stamp(gpsAt)}` : "Calbayog City"}
-            </Text>
-          </View>
-        </View>
-        {active && (
-          <Action
-            title={`${active.status} · View your active ride`}
-            icon="navigate-outline"
-            onPress={() => go("Track ride", active.id)}
-          />
-        )}
-        <Locations
-          pickup={pickup?.name}
-          destination={destination?.name}
-          onPickup={() => {
-            setEditing("pickup");
-            go("Journey");
-          }}
-          onDestination={() => {
-            setEditing("destination");
-            go("Journey");
-          }}
-        />
-        <Text style={ps.section}>Choose how to go</Text>
-        <View style={ps.modes}>
-          {[
-            {
-              label: "Tricycle",
-              detail: "Point to point",
-              icon: "bicycle-outline" as IconName,
-              next: "Journey",
-              selected: true,
-            },
-            {
-              label: "PUJ / PUV",
-              detail: "Find a route",
-              icon: "bus-outline" as IconName,
-              next: "Routes",
-              selected: false,
-            },
-            {
-              label: "Terminals",
-              detail: "Nearby stops",
-              icon: "location-outline" as IconName,
-              next: "Terminals",
-              selected: false,
-            },
-          ].map((mode) => (
-            <Pressable
-              key={mode.label}
-              accessibilityRole="button"
-              onPress={() => go(mode.next)}
-              style={[ps.mode, mode.selected && ps.modeSelected]}
-            >
-              <Icon
-                name={mode.icon}
-                size={26}
-                color={mode.selected ? "white" : c.green}
-              />
-              <Text style={[ps.label, mode.selected && { color: "white" }]}>
-                {mode.label}
-              </Text>
-              <Text style={[ps.tiny, mode.selected && { color: "#C6E6D7" }]}>
-                {mode.detail}
-              </Text>
-            </Pressable>
-          ))}
-        </View>
-        <Hint
-          icon="cash-outline"
-          text="See your fare before you book. Pay cash directly to your driver."
-        />
-        <View style={{ flex: 1 }} />
-        <Text style={ps.disclaimer}>{disclaimer}</Text>
-      </>
+      <PassengerHomeScreen
+        data={data}
+        active={active}
+        onBook={() => go("Journey")}
+        onRoutes={() => go("Routes")}
+        onTerminals={() => go("Terminals")}
+        onTrack={() => go("Track ride", active?.id)}
+        onDestination={(point) => {
+          setDestination(point);
+          setQuote(null);
+          go("Journey");
+        }}
+      />
     );
   } else if (page === "Journey") {
     title = "Set your journey";
@@ -899,6 +796,44 @@ export default function PassengerApp({
           </View>
           {receiptDetails(quote)}
           {fares(quote)}
+          <View style={ps.card}>
+            <Text style={ps.section}>Payment method</Text>
+            <Text style={ps.small}>
+              Electronic options are demos only. No account details, PIN, or OTP
+              are needed.
+            </Text>
+            {["Cash", "GCash", "Maya", "Bank transfer"].map((method) => (
+              <Pressable
+                key={method}
+                accessibilityRole="radio"
+                accessibilityState={{ checked: paymentMethod === method }}
+                disabled={locked}
+                onPress={() => setPaymentMethod(method)}
+                style={[ps.card, paymentMethod === method && ps.selected]}
+              >
+                <View style={ps.between}>
+                  <Text style={ps.label}>
+                    {method === "Cash"
+                      ? "Cash to driver"
+                      : `${method} · Test payment`}
+                  </Text>
+                  <Icon
+                    name={
+                      paymentMethod === method
+                        ? "radio-button-on"
+                        : "radio-button-off"
+                    }
+                    size={20}
+                  />
+                </View>
+              </Pressable>
+            ))}
+            {paymentMethod !== "Cash" && (
+              <Hint
+                text={`Test payment — no money charged. Confirming simulates a successful ${paymentMethod} payment and requests a ride. The actual fare remains payable to your driver.`}
+              />
+            )}
+          </View>
           <Hint
             info
             icon="shield-checkmark-outline"
@@ -916,7 +851,9 @@ export default function PassengerApp({
           title={
             working
               ? "Sending your request…"
-              : `Confirm ride request · ${money(quote.fare)}`
+              : paymentMethod === "Cash"
+                ? `Confirm ride request · ${money(quote.fare)}`
+                : `Simulate ${paymentMethod} & request ride · ${money(quote.fare)}`
           }
           icon="checkmark-circle-outline"
           disabled={locked}
@@ -1074,9 +1011,11 @@ export default function PassengerApp({
           {trip.driver && (
             <View style={ps.card}>
               <View style={ps.row}>
-                <View style={ps.avatar}>
-                  <Text style={ps.avatarText}>{initials(trip.driver)}</Text>
-                </View>
+                <DriverAvatar
+                  photo={trip.driverPhoto}
+                  name={trip.driver}
+                  size={68}
+                />
                 <View style={{ flex: 1 }}>
                   <Text style={ps.section}>{trip.driver}</Text>
                   <Text style={ps.small}>Administrator-approved driver</Text>
@@ -1084,6 +1023,11 @@ export default function PassengerApp({
                 <Icon name="shield-checkmark-outline" size={24} />
               </View>
               <Tag icon="checkmark" text="Driver approval recorded" />
+              <Text style={ps.small}>
+                {trip.driverPhoto
+                  ? "Driver-uploaded photo. Match the person and plate before boarding."
+                  : "Driver photo not provided. Confirm the driver’s name and plate before boarding."}
+              </Text>
               <View style={[ps.location, { paddingVertical: 10 }]}>
                 <Icon name="bicycle-outline" size={25} />
                 <View style={{ flex: 1 }}>
@@ -1115,9 +1059,8 @@ export default function PassengerApp({
                       icon="call-outline"
                       onPress={() => {
                         void perform(async () => {
-                          Alert.alert(
-                            "UI prototype",
-                            "This action is a preview only. No external app is opened.",
+                          await Linking.openURL(
+                            `tel:${trip.driverPhone!.replace(/[^\d+]/g, "")}`,
                           );
                         });
                       }}
@@ -1184,127 +1127,32 @@ export default function PassengerApp({
       );
     }
   } else if (page === "Routes") {
-    title = "Find your route";
-    subtitle = "PUJ / PUV · Search by destination";
+    title = "Routes near you";
+    subtitle = "Your connection to the city";
     content = (
-      <>
-        <View style={ps.search}>
-          <Icon name="search-outline" size={20} />
-          <TextInput
-            accessibilityLabel="Search route destination"
-            style={ps.searchInput}
-            placeholder="Barangay or destination in Calbayog"
-            placeholderTextColor={c.muted}
-            value={routeSearch}
-            onChangeText={setRouteSearch}
-          />
-          {Boolean(routeSearch) && (
-            <Pressable
-              accessibilityLabel="Clear route search"
-              onPress={() => setRouteSearch("")}
-            >
-              <Icon name="close" size={20} />
-            </Pressable>
-          )}
-        </View>
-        {map(170, "route")}
-        {filteredRoutes.map((route) => (
-          <Pressable
-            key={route.id}
-            accessibilityRole="button"
-            onPress={() => setRouteId(route.id)}
-            style={[ps.card, selectedRoute?.id === route.id && ps.selected]}
-          >
-            <View style={ps.row}>
-              <View style={ps.routeCode}>
-                <Text style={ps.routeCodeText}>{route.id}</Text>
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={ps.label}>{route.name}</Text>
-                <Text style={ps.tiny}>
-                  Shared route · {route.stops.length} stops
-                </Text>
-              </View>
-              <Text style={ps.fare}>{money(route.fare)}</Text>
-            </View>
-            {selectedRoute?.id === route.id && (
-              <>
-                <View>
-                  {route.stops.map((point, i) => (
-                    <View key={`${point.name}-${i}`} style={ps.stopRow}>
-                      <View style={ps.stopLine} />
-                      <View
-                        style={[
-                          ps.dot,
-                          i === route.stops.length - 1 && ps.square,
-                        ]}
-                      />
-                      <Text style={[ps.small, { flex: 1, color: c.ink }]}>
-                        {point.name}
-                      </Text>
-                      <Text style={ps.tiny}>
-                        {i === 0
-                          ? "Board here"
-                          : i === route.stops.length - 1
-                            ? "Get off here"
-                            : "Stop"}
-                      </Text>
-                    </View>
-                  ))}
-                </View>
-                <Tag
-                  icon="time-outline"
-                  text={`Est. departure ${nextDeparture(route, data.serverTime)}`}
-                />
-                <Text style={ps.tiny}>
-                  {route.approved
-                    ? route.reference
-                    : "Sample route and fare · not an official tariff"}
-                </Text>
-                <Action
-                  title="Request pickup on this route"
-                  light
-                  disabled={locked || !pickup}
-                  onPress={() => {
-                    void perform(async () => {
-                      await action("/stop", {
-                        routeId: route.id,
-                        point: pickup,
-                      });
-                    });
-                  }}
-                />
-              </>
-            )}
-          </Pressable>
-        ))}
-        {!filteredRoutes.length && (
-          <Hint text="No matching routes. Try a different place name." />
-        )}
-        {data.stopRequests.map((request) => (
-          <View key={request.id} style={ps.card}>
-            <Text style={ps.label}>
-              Pickup requested · {request.point.name}
-            </Text>
-            <Text style={ps.small}>
-              Waiting for a driver assigned to {request.routeId}
-            </Text>
-            <Action
-              title="Cancel pickup request"
-              light
-              disabled={locked}
-              onPress={() => {
-                void action(`/stops/${request.id}`, {}, "DELETE");
-              }}
-            />
-          </View>
-        ))}
-        <Action
-          title="Nearby terminals & departures"
-          icon="location-outline"
-          onPress={() => go("Terminals")}
-        />
-      </>
+      <PassengerRoutesScreen
+        data={data}
+        selectedId={routeId}
+        onSelect={setRouteId}
+        busy={locked}
+        onTerminals={() => go("Terminals")}
+        onCancel={(id) => {
+          void action(`/stops/${id}`, {}, "DELETE");
+        }}
+        onPickup={(route) => {
+          if (route.transportType === "Tricycle") {
+            setQuote(null);
+            go("Journey");
+            return;
+          }
+          void perform(async () => {
+            await action("/stop", {
+              routeId: route.id,
+              point: pickup || data.landmarks[0],
+            });
+          });
+        }}
+      />
     );
   } else if (page === "Terminals") {
     title = "Nearby terminals";
@@ -1351,9 +1199,8 @@ export default function PassengerApp({
                       light
                       onPress={() => {
                         void perform(async () => {
-                          Alert.alert(
-                            "UI prototype",
-                            "This action is a preview only. No external app is opened.",
+                          await Linking.openURL(
+                            `https://www.openstreetmap.org/directions?engine=fossgis_osrm_car&route=${pickup ? `${pickup.latitude}%2C${pickup.longitude}` : ""}%3B${item.point.latitude}%2C${item.point.longitude}`,
                           );
                         });
                       }}
@@ -1371,31 +1218,36 @@ export default function PassengerApp({
           <Text style={ps.section}>Today’s departures</Text>
           <Text style={ps.tiny}>Updated {stamp(data.serverTime)}</Text>
         </View>
-        {routes.map((route) => (
-          <Pressable
-            key={route.id}
-            accessibilityRole="button"
-            onPress={() => {
-              setRouteId(route.id);
-              go("Routes");
-            }}
-            style={ps.depart}
-          >
-            <View>
-              <Text style={ps.departTime}>
-                {nextDeparture(route, data.serverTime)}
-              </Text>
-              <Text style={ps.tiny}>ESTIMATED</Text>
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={ps.label}>{route.name}</Text>
-              <Text style={ps.tiny}>
-                {route.id} · Every {route.interval} min
-              </Text>
-            </View>
-            <Icon name="chevron-forward" size={20} />
-          </Pressable>
-        ))}
+        {routes
+          .filter((route) => route.scheduled !== false && route.interval > 0)
+          .map((route) => (
+            <Pressable
+              key={route.id}
+              accessibilityRole="button"
+              onPress={() => {
+                setRouteId(route.id);
+                go("Routes");
+              }}
+              style={ps.depart}
+            >
+              <View>
+                <Text style={ps.departTime}>
+                  {nextDeparture(route, data.serverTime)}
+                </Text>
+                <Text style={ps.tiny}>ESTIMATED</Text>
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={ps.label}>{route.name}</Text>
+                {route.destination ? (
+                  <Text style={ps.tiny}>Destination: {route.destination}</Text>
+                ) : null}
+                <Text style={ps.tiny}>
+                  {route.id} · Every {route.interval} min
+                </Text>
+              </View>
+              <Icon name="chevron-forward" size={20} />
+            </Pressable>
+          ))}
         <Hint
           icon="time-outline"
           text="Estimated, not guaranteed. Departure may shift with loading; confirm at the terminal."
@@ -1499,80 +1351,38 @@ export default function PassengerApp({
         </View>
       </View>
     );
-  } else if (page === "Profile" || page === "Trips") {
-    title = page === "Profile" ? "Your passenger profile" : "Your trips";
-    subtitle = "Your details, preferences and past journeys";
+  } else if (page === "Profile") {
+    title = "Your account";
+    subtitle = "Make every journey feel like yours";
     content = (
-      <>
-        {page === "Profile" && (
-          <View style={ps.card}>
-            <View style={ps.row}>
-              <View style={ps.avatar}>
-                <Text style={ps.avatarText}>{initials(data.user.name)}</Text>
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={ps.section}>{data.user.name}</Text>
-                <Text style={ps.small}>
-                  {data.user.phone || "No phone number added"}
-                </Text>
-                <Text style={ps.tiny}>{data.user.email}</Text>
-              </View>
-            </View>
-            <Action
-              title="Edit passenger profile"
-              icon="pencil-outline"
-              light
-              onPress={() => go("Edit profile")}
-            />
-          </View>
-        )}
-        <View style={ps.between}>
-          <Text style={ps.section}>Trip history</Text>
-          {page === "Profile" && (
-            <Pressable accessibilityRole="button" onPress={() => go("Trips")}>
-              <Text style={ps.textLink}>See all</Text>
-            </Pressable>
-          )}
-        </View>
-        <View style={ps.tabRow}>
-          {["All trips", "Tricycle", "PUJ / PUV"].map((filter) => (
-            <Pressable
-              accessibilityRole="button"
-              key={filter}
-              onPress={() => setHistoryFilter(filter)}
-              style={[
-                ps.pill,
-                historyFilter !== filter && { backgroundColor: "transparent" },
-              ]}
-            >
-              <Text
-                style={[
-                  ps.pillText,
-                  historyFilter !== filter && { color: c.muted },
-                ]}
-              >
-                {filter}
-              </Text>
-            </Pressable>
-          ))}
-        </View>
-        {history(page === "Profile" ? 3 : 100)}
-        {page === "Profile" && (
-          <Pressable
-            accessibilityRole="button"
-            onPress={() => go("Support")}
-            style={[ps.between, { paddingVertical: 10 }]}
-          >
-            <View style={ps.row}>
-              <Icon name="shield-checkmark-outline" size={22} />
-              <Text style={ps.textLink}>
-                Privacy, safety & passenger support
-              </Text>
-            </View>
-            <Icon name="chevron-forward" size={20} />
-          </Pressable>
-        )}
-      </>
+      <PassengerProfileScreen
+        data={data}
+        busy={locked}
+        onEdit={() => go("Edit profile")}
+        onTrips={() => go("Trips")}
+        onNotifications={() => go("Notifications")}
+        onSupport={() => go("Support")}
+        onSignOut={() => {
+          void logout();
+        }}
+      />
+    );
+  } else if (page === "Trips") {
+    title = "Your trips";
+    subtitle = "Every local journey, in one place";
+    content = (
+      <PassengerTripsScreen
+        trips={data.trips}
+        onBook={() => go("Journey")}
+        onOpen={(trip) =>
+          go(
+            ["Completed", "Cancelled"].includes(trip.status)
+              ? "Receipt"
+              : "Track ride",
+            trip.id,
+          )
+        }
+      />
     );
   } else if (page === "Edit profile") {
     title = "Edit passenger profile";
@@ -1661,7 +1471,7 @@ export default function PassengerApp({
         <Hint
           info
           icon="shield-checkmark-outline"
-          text="This standalone prototype uses fictional locations and drivers. GPS, calls, directions, and sharing are simulated; no information leaves the preview."
+          text="Location access is optional. Driver positions are shown only when available, and stale positions are labeled. Share trip status only with people you choose."
         />
         {params.trip ? <Text style={ps.small}>Trip: {params.trip}</Text> : null}
         <Text style={ps.label}>Tell us what happened</Text>
@@ -1737,15 +1547,11 @@ export default function PassengerApp({
         {!back && (
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel={
-              page === "Profile" ? "Edit profile" : "Notifications and settings"
-            }
+            accessibilityLabel="Notifications"
             style={ps.iconButton}
-            onPress={() =>
-              go(page === "Profile" ? "Edit profile" : "Notifications")
-            }
+            onPress={() => go("Notifications")}
           >
-            <Icon name="options-outline" size={22} />
+            <Icon name="notifications-outline" size={22} />
           </Pressable>
         )}
       </View>
@@ -1777,10 +1583,10 @@ export default function PassengerApp({
         </View>
       )}
       {tabPages.includes(page) && (
-        <View style={ps.nav}>
+        <View style={[ps.nav, { marginBottom: navLift }]}>
           {[
             { label: "Home", icon: "home-outline" as IconName },
-            { label: "Routes", icon: "git-network-outline" as IconName },
+            { label: "Routes", icon: "navigate-outline" as IconName },
             { label: "Trips", icon: "time-outline" as IconName },
             { label: "Profile", icon: "person-outline" as IconName },
           ].map((tab) => {
@@ -1791,23 +1597,20 @@ export default function PassengerApp({
               <Pressable
                 key={tab.label}
                 accessibilityRole="tab"
+                accessibilityLabel={tab.label}
                 accessibilityState={{ selected }}
                 onPress={() => go(tab.label)}
-                style={ps.navItem}
+                style={({ pressed }) => [
+                  ps.navItem,
+                  selected && ps.navSelected,
+                  pressed && ps.pressed,
+                ]}
               >
                 <Icon
                   name={tab.icon}
-                  size={24}
-                  color={selected ? c.green : "#93A79B"}
+                  size={25}
+                  color={selected ? c.green : "#71877A"}
                 />
-                <Text
-                  style={[
-                    ps.navLabel,
-                    selected && { color: c.green, fontWeight: "600" },
-                  ]}
-                >
-                  {tab.label}
-                </Text>
               </Pressable>
             );
           })}
