@@ -394,7 +394,7 @@ export function PassengerRoutesScreen({
         <View style={v.mapNote}>
           <Icon name="bus-outline" size={16} />
           <Text style={v.caption}>
-            {routes.length} local routes · Sample positions
+            {routes.length} local routes
           </Text>
         </View>
       </View>
@@ -715,8 +715,8 @@ export function PassengerProfileScreen({
         <View style={{ width: 1, backgroundColor: c.line }} />
         <View style={{ flex: 1, gap: 5 }}>
           <Icon name="wallet-outline" size={21} color={c.green} />
-          <Text style={v.statValue}>Cash</Text>
-          <Text style={v.small}>Your payment method</Text>
+          <Text style={v.statValue}>₱101</Text>
+          <Text style={v.small}>Your total spent</Text>
         </View>
       </View>
       <Section

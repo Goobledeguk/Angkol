@@ -1,4 +1,4 @@
-﻿import React, { useRef } from "react";
+import React, { useRef, useState } from "react";
 import { View, Text, Pressable, TextInput, Animated } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { s } from "./styles";
@@ -25,33 +25,33 @@ export function Button({
   secondary?: boolean;
   disabled?: boolean;
 }) {
-  const scale = useRef(new Animated.Value(1)).current;
+  const [scale] = useState(() => new Animated.Value(1));
+  const [pulse] = useState(() => new Animated.Value(1));
+  const pulseAnim = useRef<Animated.CompositeAnimation | null>(null);
+
+  React.useEffect(() => () => { pulseAnim.current?.stop(); }, []);
 
   const handlePress = () => {
-    if (disabled) return;
+    if (disabled) { return; }
+    pulseAnim.current?.stop();
     Animated.sequence([
-      Animated.timing(scale, {
-        toValue: 0.94,
-        duration: 90,
-        useNativeDriver: true,
-      }),
-      Animated.spring(scale, {
-        toValue: 1.04,
-        friction: 3,
-        tension: 110,
-        useNativeDriver: true,
-      }),
-      Animated.spring(scale, {
-        toValue: 1,
-        friction: 4,
-        useNativeDriver: true,
-      }),
+      Animated.timing(scale, { toValue: 0.94, duration: 90, useNativeDriver: true }),
+      Animated.spring(scale, { toValue: 1.04, friction: 3, tension: 110, useNativeDriver: true }),
+      Animated.spring(scale, { toValue: 1, friction: 4, useNativeDriver: true }),
     ]).start();
+    pulse.setValue(1);
+    pulseAnim.current = Animated.sequence([
+      Animated.timing(pulse, { toValue: 1.03, duration: 180, useNativeDriver: true }),
+      Animated.timing(pulse, { toValue: 1, duration: 220, useNativeDriver: true }),
+      Animated.timing(pulse, { toValue: 1.015, duration: 180, useNativeDriver: true }),
+      Animated.timing(pulse, { toValue: 1, duration: 220, useNativeDriver: true }),
+    ]);
+    pulseAnim.current.start();
     onPress();
   };
 
   return (
-    <Animated.View style={{ transform: [{ scale }] }}>
+    <Animated.View style={{ transform: [{ scale: Animated.multiply(scale, pulse) }] }}>
       <Pressable
         accessibilityRole="button"
         disabled={disabled}
@@ -64,7 +64,7 @@ export function Button({
           pressed && { opacity: 0.76 },
         ]}
       >
-        <Text style={[s.buttonText, secondary && { color: "#176B48" }]}>
+        <Text style={[s.buttonText, secondary && { color: "#176B48" }]} numberOfLines={2} adjustsFontSizeToFit>
           {title}
         </Text>
       </Pressable>
@@ -80,31 +80,26 @@ export function Popover({
   content: React.ReactNode;
   children: React.ReactNode;
 }) {
-  const [show, setShow] = React.useState(false);
-  const scale = React.useRef(new Animated.Value(0.95)).current;
-  const opacity = React.useRef(new Animated.Value(0)).current;
+  const [scale] = useState(() => new Animated.Value(0.95));
+  const [opacity] = useState(() => new Animated.Value(0));
   React.useEffect(() => {
-    let timer: ReturnType<typeof setTimeout> | undefined;
     if (visible) {
-      timer = setTimeout(() => {
-        setShow(true);
-        Animated.parallel([
-          Animated.spring(scale, { toValue: 1, friction: 7, tension: 120, useNativeDriver: true }),
-          Animated.timing(opacity, { toValue: 1, duration: 140, useNativeDriver: true }),
-        ]).start();
-      }, 950);
+      scale.setValue(0.95);
+      opacity.setValue(0);
+      Animated.parallel([
+        Animated.spring(scale, { toValue: 1, friction: 7, tension: 120, useNativeDriver: true }),
+        Animated.timing(opacity, { toValue: 1, duration: 140, useNativeDriver: true }),
+      ]).start();
     } else {
-      setShow(false);
       scale.setValue(0.95);
       opacity.setValue(0);
     }
-    return () => { if (timer) clearTimeout(timer); };
   }, [visible, scale, opacity]);
 
   return (
     <View style={{ position: "relative" }}>
       {children}
-      {show && <Animated.View style={[s.popover, { transform: [{ scale }], opacity }]}>{content}</Animated.View>}
+      {visible ? <Animated.View style={[s.popover, { transform: [{ scale }], opacity }]}>{content}</Animated.View> : null}
     </View>
   );
 }

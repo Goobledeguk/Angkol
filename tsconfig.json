@@ -1,9 +1,1 @@
-{
-  "extends": "expo/tsconfig.base",
-  "compilerOptions": {
-    "strict": true,
-    "allowImportingTsExtensions": true,
-    "types": ["react", "node"]
-  },
-  "exclude": ["node_modules", "dist", "dist-native"]
-}
+﻿{"extends":"expo/tsconfig.base","compilerOptions":{"strict":true,"jsx":"react-jsx","module":"ESNext","moduleResolution":"Bundler","target":"ES2022","lib":["ES2022","DOM"],"allowImportingTsExtensions":true,"esModuleInterop":true,"skipLibCheck":true,"resolveJsonModule":true,"types":["react","node"],"noEmit":true},"include":["src/**/*.ts","src/**/*.tsx","app.config.ts","app.config.js"],"exclude":["node_modules","dist","dist-native"]}

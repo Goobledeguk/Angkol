@@ -7,7 +7,6 @@ import {
   ScrollView,
   Pressable,
   TextInput,
-  Alert,
   KeyboardAvoidingView,
   Platform,
   BackHandler,
@@ -29,6 +28,43 @@ import { ps, passengerColors as c } from "../passenger/passengerStyles";
 
 type IconName = React.ComponentProps<typeof Icon>["name"];
 
+function formatBirthday(raw: string): string {
+  const d = raw.replace(/\D/g, "").slice(0, 8);
+  if (d.length <= 2) {
+    return d;
+  }
+  if (d.length <= 4) {
+    return `${d.slice(0, 2)}-${d.slice(2)}`;
+  }
+  return `${d.slice(0, 2)}-${d.slice(2, 4)}-${d.slice(4)}`;
+}
+
+function isValidBirthday(value: string): boolean {
+  if (!/^\d{2}-\d{2}-\d{4}$/.test(value)) {
+    return false;
+  }
+  const [mm, dd, yyyy] = value.split("-").map(Number);
+  if (mm < 1 || mm > 12 || dd < 1 || dd > 31 || yyyy < 1900 || yyyy > 2026) {
+    return false;
+  }
+  const date = new Date(yyyy, mm - 1, dd);
+  return date.getFullYear() === yyyy && date.getMonth() === mm - 1 && date.getDate() === dd;
+}
+
+function formatPlate(raw: string): string {
+  const clean = raw.toUpperCase().replace(/[^A-Z0-9]/g, "");
+  const letters = clean.replace(/[^A-Z]/g, "").slice(0, 2);
+  const digits = clean.replace(/[^0-9]/g, "").slice(0, 5);
+  if (letters.length < 2) {
+    return letters + digits.slice(0, 0);
+  }
+  return `${letters}-${digits}`;
+}
+
+function isValidPlate(value: string): boolean {
+  return /^[A-Z]{2}-\d{5}$/.test(value);
+}
+
 function AuthField({
   label,
   icon,
@@ -37,6 +73,9 @@ function AuthField({
   secret,
   phone,
   number,
+  maxLength,
+  autoCapitalize,
+  placeholder,
 }: {
   label: string;
   icon: IconName;
@@ -45,6 +84,9 @@ function AuthField({
   secret?: boolean;
   phone?: boolean;
   number?: boolean;
+  maxLength?: number;
+  autoCapitalize?: "none" | "sentences" | "words" | "characters";
+  placeholder?: string;
 }) {
   return (
     <View style={{ gap: 7 }}>
@@ -60,9 +102,10 @@ function AuthField({
           value={value}
           onChangeText={onChange}
           style={{ flex: 1, paddingVertical: 15, fontSize: 14, color: c.ink }}
-          placeholder={label === "Email address" ? "you@example.com" : label}
+          placeholder={placeholder ?? (label === "Email address" ? "you@example.com" : label)}
           placeholderTextColor="#A2B0A7"
           secureTextEntry={secret}
+          maxLength={maxLength}
           keyboardType={
             phone
               ? "phone-pad"
@@ -73,7 +116,7 @@ function AuthField({
                   : "default"
           }
           autoCapitalize={
-            secret || label === "Email address" ? "none" : "words"
+            autoCapitalize ?? (secret || label === "Email address" ? "none" : "words")
           }
           autoCorrect={!secret && label !== "Email address"}
         />
@@ -123,18 +166,16 @@ export default function MobileAuth({
   const [signup, setSignup] = useState(false),
     [step, setStep] = useState(1),
     [busy, setBusy] = useState(false),
-    [error, setError] = useState("");
+    [fieldErr, setFieldErr] = useState<Record<string, string>>({});
+  const [verifyPhase, setVerifyPhase] = useState<"idle" | "tricycle-loading" | "puj-pending">("idle");
+  const [pendingInfo, setPendingInfo] = useState<{ name: string; franchiseName: string } | null>(null);
   const [role, setRole] = useState<"Commuter" | "Driver">("Commuter"),
     [driverType, setDriverType] = useState<Role>("Tricycle driver");
   const [assocOpen, setAssocOpen] = useState(false);
   const [franchiseOpen, setFranchiseOpen] = useState(false);
-  const [franchiseSubmitted, setFranchiseSubmitted] = useState<{
-    name: string;
-    franchiseName: string;
-  } | null>(null);
   const [licenseDoc, setLicenseDoc] = useState(false);
-  const [orcrDoc, setOrcrDoc] = useState(false);
   const [name, setName] = useState(""),
+    [birthday, setBirthday] = useState(""),
     [phone, setPhone] = useState(""),
     [email, setEmail] = useState(""),
     [password, setPassword] = useState("");
@@ -185,62 +226,100 @@ export default function MobileAuth({
     };
   });
 
-  function changeMode(create: boolean) {
-    setSignup(create);
-    setStep(1);
-    setError("");
-    translateY.value = withSpring(0);
+  function clearErr(key: string) {
+    setFieldErr((e) => (e[key] ? { ...e, [key]: "" } : e));
+  }
+  function fieldError(key: string) {
+    const msg = fieldErr[key];
+    return msg ? (
+      <View accessibilityRole="alert" accessibilityLiveRegion="polite">
+        <Text style={[ps.small, { color: "#C53B1D", flexWrap: "wrap", paddingHorizontal: 4 }]}>
+          {msg}
+        </Text>
+      </View>
+    ) : null;
   }
 
+  const changeMode = React.useCallback((create: boolean) => {
+    setSignup(create);
+    setStep(1);
+    setFieldErr({});
+    // eslint-disable-next-line react-hooks/immutability -- Reanimated SharedValue is mutated via .value by design
+    translateY.value = withSpring(0);
+  }, [translateY]);
+
+  const KENT_OWNER_FRANCHISE = "Calbayog Metro Express";
+
   function next() {
-    setError("");
-    if (!name.trim() || !phone.trim() || !email.trim() || !password) {
-      setError("Complete your name, phone number, email, and password.");
-      return;
+    const e: Record<string, string> = {};
+    if (!name.trim()) {
+      e.name = "Full name is required.";
     }
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
-      setError("Enter a valid email address.");
-      return;
+    if (!birthday.trim()) {
+      e.birthday = "Birthday is required.";
+    } else if (!isValidBirthday(birthday)) {
+      e.birthday = "Enter a valid birthday in MM-DD-YYYY format.";
     }
-    if (password.length < 10) {
-      setError("Use at least 10 characters for your password.");
-      return;
+    if (!phone.trim()) {
+      e.phone = "Phone number is required.";
+    }
+    if (!email.trim()) {
+      e.email = "Email address is required.";
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+      e.email = "Enter a valid email address.";
+    }
+    if (!password) {
+      e.password = "Password is required.";
+    } else if (password.length < 10) {
+      e.password = "Use at least 10 characters for your password.";
     }
     if (!consent) {
-      setError(
-        "Please review and acknowledge the account and location information.",
-      );
-      return;
+      e.consent = "Please review and acknowledge this information.";
     }
-    setStep(2);
+    setFieldErr(e);
+    if (Object.keys(e).length === 0) {
+      setStep(2);
+    }
   }
 
   async function submit() {
     if (busy) {
       return;
     }
+    const e: Record<string, string> = {};
     if (signup && role === "Driver") {
+      if (!license.trim()) {
+        e.license = "License No. is required.";
+      }
       if (driverType === "PUJ / PUV driver") {
-        if (!license.trim()) {
-          setError("Enter your License No.");
-          return;
+        if (!franchiseName.trim()) {
+          e.franchise = "Select a business / franchise.";
         }
       } else {
-        if (!license.trim() || !plate.trim()) {
-          setError("Enter your License No. and Plate No.");
-          return;
+        if (!plate.trim()) {
+          e.plate = "Plate No. is required.";
+        } else if (!isValidPlate(plate)) {
+          e.plate = "Enter a valid Plate No. in LL-DDDDD format (2 letters, 5 numbers).";
         }
         if (!permitNo.trim()) {
-          setError("Enter your tricycle Permit No. (Prangkisa / Franchise Permit).");
-          return;
+          e.permit = "Permit No. (Prangkisa) is required.";
         }
       }
     }
+    if (Object.keys(e).length) {
+      setFieldErr(e);
+      return;
+    }
     setBusy(true);
-    setError("");
+    setFieldErr({});
     try {
       if (signup) {
         if (role === "Driver" && driverType === "PUJ / PUV driver") {
+          // Prototype-only approval simulation: show "Waiting for approval" for 5 seconds,
+          // then create the local session and proceed to the PUJ/PUV driver dashboard.
+          setPendingInfo({ name: name.trim(), franchiseName: franchiseName.trim() || KENT_OWNER_FRANCHISE });
+          setVerifyPhase("puj-pending");
+          await new Promise<void>((resolve) => setTimeout(resolve, 5000));
           await api("/register", {
             email,
             password,
@@ -248,10 +327,29 @@ export default function MobileAuth({
             role: "PUJ / PUV driver",
             phone: phone.trim(),
             license: license.trim(),
-            franchiseName: franchiseName.trim(),
+            franchiseName: franchiseName.trim() || KENT_OWNER_FRANCHISE,
             licenseDocAttached: licenseDoc,
           });
-          setFranchiseSubmitted({ name: name.trim(), franchiseName: franchiseName.trim() });
+          setPassword("");
+          await onSignedIn();
+          return;
+        }
+        if (role === "Driver" && driverType === "Tricycle driver") {
+          setVerifyPhase("tricycle-loading");
+          await registerSampleAccount({
+            email,
+            password,
+            name: name.trim(),
+            role: "Tricycle driver",
+            phone: phone.trim(),
+            license: license.trim(),
+            association: association.trim(),
+            plate: plate.trim(),
+            permitNo: permitNo.trim(),
+            capacity: Number(capacity) || 3,
+          });
+          await new Promise<void>((resolve) => setTimeout(resolve, 3000));
+          await onSignedIn();
           setPassword("");
           return;
         }
@@ -259,14 +357,8 @@ export default function MobileAuth({
           email,
           password,
           name: name.trim(),
-          role: role === "Driver" ? driverType : "Passenger",
+          role: "Passenger",
           phone: phone.trim(),
-          license: license.trim(),
-          association: driverType === "Tricycle driver" ? association.trim() : "",
-          franchiseName: driverType === "PUJ / PUV driver" ? franchiseName.trim() : "",
-          plate: driverType === "Tricycle driver" ? plate.trim() : "",
-          permitNo: driverType === "Tricycle driver" ? permitNo.trim() : "",
-          capacity: driverType === "PUJ / PUV driver" ? 12 : Number(capacity) || 3,
         });
       } else {
         await signInSampleAccount(email, password);
@@ -274,20 +366,18 @@ export default function MobileAuth({
       await onSignedIn();
       setPassword("");
     } catch (error) {
-      setError((error as Error).message);
+      if (verifyPhase !== "idle") {
+        setVerifyPhase("idle");
+      }
+      const err = error as any;
+      const msg = err?.message || "Something went wrong.";
+      setFieldErr({ password: msg });
     } finally {
       setBusy(false);
     }
   }
 
   
-
-  const requirements = [
-    "Valid government-issued driver's license for public utility operation.",
-    "Active transport association or cooperative membership in Calbayog.",
-    "Registered plate or body number matching authorized local franchise.",
-    "Tricycle drivers: valid Prangkisa / Franchise Permit (Permit No.).",
-  ];
 
   useEffect(() => {
     scroll.current?.scrollTo({ y: 0, animated: true });
@@ -306,13 +396,46 @@ export default function MobileAuth({
       return false;
     });
     return () => sub.remove();
-  }, [step, signup]);
+  }, [step, signup, changeMode]);
 
   return (
     <KeyboardAvoidingView
       style={{ flex: 1, backgroundColor: c.background }}
       behavior={Platform.OS === "ios" ? "padding" : "height"}
     >
+      {verifyPhase === "tricycle-loading" ? (
+        <View style={{ flex: 1, alignItems: "center", justifyContent: "center", padding: 28, gap: 16 }}>
+          <View style={{ width: 84, height: 84, borderRadius: 42, backgroundColor: "#EAF6EF", alignItems: "center", justifyContent: "center" }}>
+            <Icon name="shield-checkmark-outline" size={38} color={c.green} />
+          </View>
+          <Text style={[ps.heading, { fontSize: 26, textAlign: "center" }]}>Verifying your account</Text>
+          <Text style={[ps.body, { textAlign: "center", flexWrap: "wrap" }]}>
+            Please wait while we verify your Tricycle driver registration. You’ll be taken to your dashboard shortly.
+          </Text>
+          <View style={{ height: 6, width: "78%", borderRadius: 4, backgroundColor: "#D8EEE3", marginTop: 6, overflow: "hidden" }}>
+            <View style={{ height: 6, width: "66%", borderRadius: 4, backgroundColor: c.green }} />
+          </View>
+          <Text style={[ps.small, { color: c.green }]}>Verifying details…</Text>
+        </View>
+      ) : verifyPhase === "puj-pending" ? (
+        <ScrollView contentContainerStyle={{ flexGrow: 1, padding: 24, justifyContent: "center" }}>
+          <View style={[ps.card, { gap: 14, padding: 22 }]}>
+            <View style={{ width: 64, height: 64, borderRadius: 32, backgroundColor: "#FFF2D9", alignItems: "center", justifyContent: "center", alignSelf: "center" }}>
+              <Icon name="time-outline" size={30} color="#B37A2A" />
+            </View>
+            <Text style={[ps.heading, { fontSize: 24, textAlign: "center" }]}>Waiting for approval</Text>
+            <Text style={[ps.body, { textAlign: "center", flexWrap: "wrap" }]}>
+              {(pendingInfo?.name || name || "Driver")}, your PUJ/PUV driver application for{" "}
+              <Text style={{ fontWeight: "700", color: c.ink }}>{pendingInfo?.franchiseName || franchiseName || "your franchise"}</Text>{" "}
+              has been submitted. Please wait while the application is reviewed.
+            </Text>
+            <View style={{ height: 6, width: "78%", alignSelf: "center", borderRadius: 4, backgroundColor: "#F3E3BF", marginTop: 6, overflow: "hidden" }}>
+              <View style={{ height: 6, width: "66%", borderRadius: 4, backgroundColor: "#B37A2A" }} />
+            </View>
+            <Text style={[ps.small, { color: "#B37A2A", textAlign: "center" }]}>Checking approval status…</Text>
+          </View>
+        </ScrollView>
+      ) : (
       <ScrollView
         ref={scroll}
         keyboardShouldPersistTaps="handled"
@@ -401,7 +524,7 @@ export default function MobileAuth({
                   Create your account
                 </Text>
                 <Text style={[ps.body, { flexWrap: "wrap" }]}>
-                  {role} registration Â· Step {step} of 2
+                  {role} registration · Step {step} of 2
                 </Text>
               </View>
             </View>
@@ -449,133 +572,152 @@ export default function MobileAuth({
                 >
                   I am registering as a
                 </Text>
-                {(
-                  [
-                    {
-                      name: "Commuter",
-                      sub: "Book rides & check routes in Calbayog",
-                      icon: "person",
-                    },
-                    {
-                      name: "Driver",
-                      sub: "Accept hails & operate routes with Angkol",
-                      icon: "steering",
-                    },
-                  ] as const
-                ).map((item) => (
-                  <Pressable
-                    key={item.name}
-                    accessibilityRole="radio"
-                    accessibilityState={{ checked: role === item.name }}
-                    disabled={busy}
-                    onPress={() => setRole(item.name)}
-                    style={[
-                      ps.card,
-                      { padding: 12 },
-                      role === item.name && {
-                        borderColor: c.green,
-                        borderWidth: 1.5,
-                        backgroundColor: "#EEF6F0",
+                <View style={{ flexDirection: "row", gap: 10 }}>
+                  {(
+                    [
+                      {
+                        name: "Commuter",
+                        sub: "Book rides & check routes in Calbayog",
+                        icon: "person-outline",
                       },
-                    ]}
-                  >
-                    <View style={ps.row}>
+                      {
+                        name: "Driver",
+                        sub: "Accept hails & operate routes with Angkol",
+                        icon: "bicycle-outline",
+                      },
+                    ] as const
+                  ).map((item) => (
+                    <Pressable
+                      key={item.name}
+                      accessibilityRole="radio"
+                      accessibilityState={{ checked: role === item.name }}
+                      disabled={busy}
+                      onPress={() => setRole(item.name)}
+                      style={[
+                        ps.card,
+                        {
+                          flex: 1,
+                          padding: 12,
+                          gap: 6,
+                          minHeight: 104,
+                          borderWidth: role === item.name ? 2 : 1,
+                          borderColor: role === item.name ? c.green : "#E3ECE5",
+                          backgroundColor: role === item.name ? "#EEF6F0" : "#FFFFFF",
+                        },
+                      ]}
+                    >
                       <View
-                        style={[
-                          ps.iconButton,
-                          {
-                            backgroundColor:
-                              role === item.name ? c.green : "#F4F8F5",
-                            width: 40,
-                            minHeight: 40,
-                          },
-                        ]}
+                        style={{
+                          width: 40,
+                          height: 40,
+                          borderRadius: 12,
+                          backgroundColor: role === item.name ? c.green : "#F0F4F2",
+                          alignItems: "center",
+                          justifyContent: "center",
+                        }}
                       >
                         <Icon
-                          name={
-                            item.name === "Commuter"
-                              ? "person-outline"
-                              : "bicycle-outline"
-                          }
-                          size={23}
+                          name={item.icon as IconName}
+                          size={22}
                           color={role === item.name ? "white" : "#84978B"}
                         />
                       </View>
-                      <View style={{ flex: 1, paddingRight: 6 }}>
-                        <Text style={[ps.section, { fontSize: 16, flexWrap: "wrap" }]}>
-                          {item.name}
-                        </Text>
-                        <Text style={[ps.body, { flexWrap: "wrap" }]}>{item.sub}</Text>
-                      </View>
-                      {role === item.name && (
-                        <Icon name="checkmark-circle-outline" size={20} />
-                      )}
-                    </View>
-                  </Pressable>
-                ))}
-              </View>
-            )}
-
-            {Boolean(error) && (
-              <View accessibilityRole="alert" style={ps.hint}>
-                <Text style={[ps.hintText, { flexWrap: "wrap" }]}>{error}</Text>
+                      <Text style={[ps.label, { fontSize: 15, color: role === item.name ? c.green : c.ink }]}>
+                        {item.name}
+                      </Text>
+                      <Text style={[ps.small, { fontSize: 10, flexWrap: "wrap" }]}>{item.sub}</Text>
+                      {role === item.name ? (
+                        <View style={{ position: "absolute", top: 8, right: 8 }}>
+                          <Icon name="checkmark-circle" size={18} color={c.green} />
+                        </View>
+                      ) : null}
+                    </Pressable>
+                  ))}
+                </View>
               </View>
             )}
 
             {step === 1 && (
               <>
-                <AuthField
-                  label="Full name"
-                  icon="person-outline"
-                  value={name}
-                  onChange={setName}
-                />
-                <AuthField
-                  label="Phone number"
-                  icon="call-outline"
-                  value={phone}
-                  onChange={setPhone}
-                  phone
-                />
-                <AuthField
-                  label="Email address"
-                  icon="mail-outline"
-                  value={email}
-                  onChange={setEmail}
-                />
-                <AuthField
-                  label="Password"
-                  icon="lock-closed-outline"
-                  value={password}
-                  onChange={setPassword}
-                  secret
-                />
-                <Pressable
-                  accessibilityRole="checkbox"
-                  accessibilityState={{ checked: consent }}
-                  onPress={() => setConsent((value) => !value)}
-                  style={[ps.row, { alignItems: "flex-start", gap: 12 }]}
-                >
-                  <View
-                    style={{
-                      width: 22,
-                      height: 22,
-                      borderRadius: 6,
-                      borderWidth: 2,
-                      borderColor: consent ? c.green : "#A4B5AC",
-                      backgroundColor: consent ? c.green : "transparent",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      marginTop: 2,
-                    }}
+                <View style={{ gap: 4 }}>
+                  <AuthField
+                    label="Full name"
+                    icon="person-outline"
+                    value={name}
+                    onChange={(v) => { setName(v); clearErr("name"); }}
+                  />
+                  {fieldError("name")}
+                </View>
+                <View style={{ gap: 4 }}>
+                  <AuthField
+                    label="Birthday"
+                    icon="calendar-outline"
+                    value={birthday}
+                    onChange={(v) => { setBirthday(formatBirthday(v)); clearErr("birthday"); }}
+                    placeholder="MM-DD-YYYY"
+                    maxLength={10}
+                    number
+                  />
+                  {fieldError("birthday")}
+                </View>
+                <View style={{ gap: 4 }}>
+                  <AuthField
+                    label="Phone number"
+                    icon="call-outline"
+                    value={phone}
+                    onChange={(v) => { setPhone(v); clearErr("phone"); }}
+                    phone
+                  />
+                  {fieldError("phone")}
+                </View>
+                <View style={{ gap: 4 }}>
+                  <AuthField
+                    label="Email address"
+                    icon="mail-outline"
+                    value={email}
+                    onChange={(v) => { setEmail(v); clearErr("email"); }}
+                  />
+                  {fieldError("email")}
+                </View>
+                <View style={{ gap: 4 }}>
+                  <AuthField
+                    label="Password"
+                    icon="lock-closed-outline"
+                    value={password}
+                    onChange={(v) => { setPassword(v); clearErr("password"); }}
+                    secret
+                  />
+                  {fieldError("password")}
+                </View>
+                <View style={{ gap: 4 }}>
+                  <Pressable
+                    accessibilityRole="checkbox"
+                    accessibilityState={{ checked: consent }}
+                    onPress={() => { setConsent((value) => !value); clearErr("consent"); }}
+                    style={[ps.row, { alignItems: "flex-start", gap: 12 }]}
                   >
-                    {consent && <Icon name="checkmark" size={16} color="white" />}
-                  </View>
-                  <Text style={[ps.body, { flex: 1, flexWrap: "wrap" }]}>
-                    I understand how Angkol uses my account and optional location
-                    information for trips.
-                  </Text>
-                </Pressable>
+                    <View
+                      style={{
+                        width: 22,
+                        height: 22,
+                        borderRadius: 6,
+                        borderWidth: 2,
+                        borderColor: consent ? c.green : "#A4B5AC",
+                        backgroundColor: consent ? c.green : "transparent",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        marginTop: 2,
+                      }}
+                    >
+                      {consent && <Icon name="checkmark" size={16} color="white" />}
+                    </View>
+                    <Text style={[ps.body, { flex: 1, flexWrap: "wrap" }]}>
+                      I understand how Angkol uses my account and optional location
+                      information for trips.
+                    </Text>
+                  </Pressable>
+                  {fieldError("consent")}
+                </View>
 
                 <SolidButton
                   title="Continue"
@@ -593,8 +735,8 @@ export default function MobileAuth({
                   <Text style={ps.body}>{phone}</Text>
                   <Text style={ps.body}>{email}</Text>
                   <Text style={[ps.small, { color: c.green, flexWrap: "wrap" }]}>
-                    {role === "Driver" ? "Driver partner" : "Commuter account"} Ã‚Â·
-                    Email/password sign-in
+                    {role === "Driver" ? "Driver partner" : "Commuter account"}
+                    
                   </Text>
                 </View>
                 {role === "Driver" && (
@@ -629,28 +771,42 @@ export default function MobileAuth({
                         })}
                       </View>
                     </View>
-                    <AuthField label="License No." icon="card-outline" value={license} onChange={setLicense} />
+                    <View style={{ gap: 4 }}>
+                      <AuthField label="License No." icon="card-outline" value={license} onChange={(v) => { setLicense(v); clearErr("license"); }} />
+                      {fieldError("license")}
+                    </View>
                     {driverType === "PUJ / PUV driver" ? (
                       <View style={{ gap: 7 }}>
                         <Text style={[ps.small, { fontWeight: "700", textTransform: "uppercase" }]}>Business / Franchise</Text>
-                        <Pressable accessibilityRole="button" onPress={() => setFranchiseOpen((v) => !v)} style={[ps.input, ps.row, { paddingVertical: 0, minHeight: 54, justifyContent: "space-between" }]}>
+                        <Pressable accessibilityRole="button" onPress={() => setFranchiseOpen((v) => !v)} style={[ps.input, ps.row, { paddingVertical: 0, minHeight: 54, justifyContent: "space-between", borderColor: fieldErr.franchise ? "#C53B1D" : undefined }]}>
                           <Text style={{ flex: 1, color: franchiseName ? c.ink : "#A2B0A7", fontSize: 14 }} numberOfLines={1}>{franchiseName || "Select business / franchise"}</Text>
                           <Icon name={franchiseOpen ? "chevron-up-outline" : "chevron-down-outline"} size={20} color="#6A7E73" />
                         </Pressable>
                         {franchiseOpen ? (
                           <View style={[ps.input, { paddingVertical: 4, gap: 2 }]}>
-                            {["Calbayog Metro Express", "North Samar Transport Coop", "Samar PUJ Operators Association", "Visayas Commuter Lines"].map((item) => (
-                              <Pressable key={item} onPress={() => { setFranchiseName(item); setFranchiseOpen(false); }} style={{ paddingVertical: 11, paddingHorizontal: 10, borderRadius: 10, backgroundColor: franchiseName === item ? "#E5F4ED" : "transparent" }}>
+                            {[KENT_OWNER_FRANCHISE, "North Samar Transport Coop", "Samar PUJ Operators Association", "Visayas Commuter Lines"].map((item) => (
+                              <Pressable key={item} onPress={() => { setFranchiseName(item); setFranchiseOpen(false); clearErr("franchise"); }} style={{ paddingVertical: 11, paddingHorizontal: 10, borderRadius: 10, backgroundColor: franchiseName === item ? "#E5F4ED" : "transparent" }}>
                                 <Text style={[ps.body, { color: franchiseName === item ? c.green : c.ink, fontWeight: franchiseName === item ? "700" : "500" }]}>{item}</Text>
                               </Pressable>
                             ))}
                           </View>
                         ) : null}
-                        <Text style={[ps.small, { color: "#5B7468", flexWrap: "wrap" }]}>PUJ/PUV requirements: License No. and Business/Franchise.</Text>
+                        {fieldError("franchise")}
                       </View>
                     ) : (
                       <>
-                        <AuthField label="Plate No." icon="bicycle-outline" value={plate} onChange={setPlate} />
+                        <View style={{ gap: 4 }}>
+                          <AuthField
+                            label="Plate No."
+                            icon="bicycle-outline"
+                            value={plate}
+                            onChange={(v) => { setPlate(formatPlate(v)); clearErr("plate"); }}
+                            placeholder="LL-DDDDD"
+                            maxLength={8}
+                            autoCapitalize="characters"
+                          />
+                          {fieldError("plate")}
+                        </View>
                         <View style={{ gap: 7 }}>
                           <Text style={[ps.small, { fontWeight: "700", textTransform: "uppercase" }]}>TODA (optional)</Text>
                           <Pressable accessibilityRole="button" onPress={() => setAssocOpen((v) => !v)} style={[ps.input, ps.row, { paddingVertical: 0, minHeight: 54, justifyContent: "space-between" }]}>
@@ -663,7 +819,7 @@ export default function MobileAuth({
                                 { value: "", label: "Not part of an association / TODA" },
                                 { value: "Magsaysay TODA", label: "Magsaysay TODA" },
                                 { value: "Capoocan Tricycle Operators & Drivers Assn.", label: "Capoocan Tricycle Operators & Drivers Assn." },
-                                { value: "Rawisâ€“Nijaga TODA", label: "Rawisâ€“Nijaga TODA" },
+                                { value: "Rawis Nijaga TODA", label: "Rawis \u201cNijaga TODA" },
                                 { value: "Obrero Transport Cooperative", label: "Obrero Transport Cooperative" },
                                 { value: "San Policarpo TODA", label: "San Policarpo TODA" },
                                 { value: "Gadgaran Drivers Association", label: "Gadgaran Drivers Association" },
@@ -675,31 +831,45 @@ export default function MobileAuth({
                             </View>
                           ) : null}
                         </View>
-                        <AuthField label="Permit No. (Prangkisa)" icon="document-text-outline" value={permitNo} onChange={setPermitNo} />
-                        <Text style={[ps.small, { color: "#5B7468", flexWrap: "wrap" }]}>Prangkisa / Franchise Permit number. Required for every tricycle driver.</Text>
+                        <View style={{ gap: 4 }}>
+                          <AuthField label="Permit No. (Prangkisa)" icon="document-text-outline" value={permitNo} onChange={(v) => { setPermitNo(v); clearErr("permit"); }} />
+                          <Text style={[ps.small, { color: "#5B7468", flexWrap: "wrap" }]}>Prangkisa / Franchise Permit number. Required for every tricycle driver.</Text>
+                          {fieldError("permit")}
+                        </View>
                         <AuthField label="Passenger capacity" icon="people-outline" value={capacity} onChange={setCapacity} number />
                       </>
                     )}
                   </>
                 )}
-                                        <View style={{ gap: 8 }}>
-                          <Text style={[ps.small, { fontWeight: "700", textTransform: "uppercase" }]}>Documents (prototype)</Text>
-                          <Pressable accessibilityRole="button" onPress={() => { setLicenseDoc((v) => !v); Alert.alert("Prototype", "License ID attached (demo)."); }} style={[ps.buttonLight, ps.row, { minHeight: 48, justifyContent: "center", borderRadius: 14 }]}>
-                            <Icon name={licenseDoc ? "checkmark-circle" : "cloud-upload-outline"} size={20} color={c.green} />
-                            <Text style={[ps.buttonText, { color: c.green }]}>{licenseDoc ? "License ID attached" : "Submit file / take photo (License ID)"}</Text>
-                          </Pressable>
-                          {driverType === "Tricycle driver" ? (
-                            <Pressable accessibilityRole="button" onPress={() => { setOrcrDoc((v) => !v); Alert.alert("Prototype", "OR/CR attached (demo). Tricycle only."); }} style={[ps.buttonLight, ps.row, { minHeight: 48, justifyContent: "center", borderRadius: 14 }]}>
-                              <Icon name={orcrDoc ? "checkmark-circle" : "camera-outline"} size={20} color={c.green} />
-                              <Text style={[ps.buttonText, { color: c.green }]}>{orcrDoc ? "OR/CR attached" : "Submit file / take photo (OR/CR – Tricycle only)"}</Text>
-                            </Pressable>
-                          ) : (
-                            <Text style={[ps.small, { color: "#5B7468" }]}>OR/CR is required for Tricycle registration only.</Text>
-                          )}
-                        </View>
+                {role === "Driver" && (
+                  <View style={{ gap: 8 }}>
+                    <Text style={[ps.small, { fontWeight: "700", textTransform: "uppercase" }]}>Documents</Text>
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel={licenseDoc ? "License ID attached" : "Attach License ID"}
+                      accessibilityHint="Prototype action. Toggles a demo attachment state."
+                      onPress={() => { const next = !licenseDoc; setLicenseDoc(next); setFieldErr((e) => ({ ...e, doc: next ? "License ID attached." : "" })); }}
+                      style={[ps.buttonLight, ps.row, { minHeight: 48, justifyContent: "center", borderRadius: 14 }]}
+                    >
+                      <Icon name={licenseDoc ? "checkmark-circle" : "card-outline"} size={20} color={c.green} />
+                      <Text style={[ps.buttonText, { color: c.green, fontSize: 10 }]}>{licenseDoc ? "License ID attached" : "Submit file / take photo (License ID)"}</Text>
+                    </Pressable>
+                    {fieldErr.doc ? (
+                      <View accessibilityRole={String(fieldErr.doc).toLowerCase().includes("attached") ? undefined : "alert"} accessibilityLiveRegion="polite">
+                        <Text style={[ps.small, { color: String(fieldErr.doc).toLowerCase().includes("attached") ? c.green : "#C53B1D", flexWrap: "wrap", paddingHorizontal: 4 }]}>{fieldErr.doc}</Text>
+                      </View>
+                    ) : null}
+                  </View>
+                )}
 <SolidButton
                   title={
-                    busy ? "Creating your account…" : "Create account securely"
+                    busy
+                      ? role === "Driver"
+                        ? "Processing application…"
+                        : "Creating your account…"
+                      : role === "Driver"
+                        ? "Process Application"
+                        : "Create account securely"
                   }
                   icon="shield-checkmark-outline"
                   disabled={busy}
@@ -758,28 +928,28 @@ export default function MobileAuth({
                 </Text>
               </View>
 
-              {Boolean(error) && (
-                <View accessibilityRole="alert" style={ps.hint}>
-                  <Text style={[ps.hintText, { flexWrap: "wrap" }]}>{error}</Text>
-                </View>
-              )}
-
-              <AuthField
-                label="Email address"
-                icon="mail-outline"
-                value={email}
-                onChange={setEmail}
-              />
-              <AuthField
-                label="Password"
-                icon="lock-closed-outline"
-                value={password}
-                onChange={setPassword}
-                secret
-              />
+              <View style={{ gap: 4 }}>
+                <AuthField
+                  label="Email address"
+                  icon="mail-outline"
+                  value={email}
+                  onChange={(v) => { setEmail(v); clearErr("email"); }}
+                />
+                {fieldError("email")}
+              </View>
+              <View style={{ gap: 4 }}>
+                <AuthField
+                  label="Password"
+                  icon="lock-closed-outline"
+                  value={password}
+                  onChange={(v) => { setPassword(v); clearErr("password"); }}
+                  secret
+                />
+                {fieldError("password")}
+              </View>
 
               <SolidButton
-                title={busy ? "Signing inâ€¦" : "Sign in"}
+                title={busy ? "Signing in..." : "Sign in"}
                 onPress={submit}
                 disabled={busy}
               />
@@ -801,6 +971,7 @@ export default function MobileAuth({
           </GestureDetector>
         )}
       </ScrollView>
+      )}
     </KeyboardAvoidingView>
   );
 }

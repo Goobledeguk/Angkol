@@ -3,6 +3,7 @@ import { createDriverRuns, createDriverTrips } from "../driver/sampleDriverData"
 import { createSampleTrips } from "./sampleTrips";
 import type {
   AdminLevel,
+  ApplicationStatus,
   Point,
   Quote,
   Role,
@@ -46,7 +47,45 @@ let state: Snapshot;
 let signedIn = false;
 let sequence = 0;
 let quote: Quote | undefined;
-export function selectDemo(role: Role, adminLevel?: AdminLevel) {
+const normalizeEmail = (email: string) => String(email || "").trim().toLowerCase();
+
+type PendingApplication = User & { applicationStatus: ApplicationStatus; registeredAt: string };
+
+const g = globalThis as any;
+function pendingStore(): Map<string, PendingApplication> {
+  if (!g.__angkolPendingApplications) {g.__angkolPendingApplications = new Map<string, PendingApplication>();}
+  return g.__angkolPendingApplications;
+}
+const pendingApplications = pendingStore();
+
+function injectPendingApplications() {
+  if (!state || !pendingApplications.size) {
+    return;
+  }
+  const existing = new Set(state.users.map((u) => u.id));
+  for (const app of pendingApplications.values()) {
+    if (existing.has(app.id)) {
+      const idx = state.users.findIndex((u) => u.id === app.id);
+      if (idx >= 0) {state.users[idx] = { ...state.users[idx], ...app };}
+    } else {
+      state.users.push(structuredClone(app));
+    }
+  }
+}
+
+function syncPendingUserFromRegistry() {
+  if (!state?.user?.id) {
+    return;
+  }
+  const app = pendingApplications.get(state.user.id);
+  if (app) {
+    state.user = { ...state.user, ...app };
+    const idx = state.users.findIndex((u) => u.id === state.user.id);
+    if (idx >= 0) {state.users[idx] = { ...state.users[idx], ...state.user };}
+  }
+}
+
+export async function selectDemo(role: Role, adminLevel?: AdminLevel) {
   const names: Record<string, string> = {
     Passenger: "April Lentejas",
     "Tricycle driver": "Meynard Salem",
@@ -61,6 +100,7 @@ export function selectDemo(role: Role, adminLevel?: AdminLevel) {
     if (user.adminLevel === "Franchise Owner") {
       user.email = "kent@angkol.example";
       user.name = "Kent Ferrer";
+      user.franchiseName = "Calbayog Metro Express";
       user.ownerVehicleIds = ["sample-driver-1", "sample-driver-3"];
     } else {
       user.email = "shaina@angkol.example";
@@ -170,6 +210,8 @@ export function selectDemo(role: Role, adminLevel?: AdminLevel) {
   if (role === "Administrator") {
     populateAdministratorSamples(state);
   }
+  injectPendingApplications();
+  syncPendingUserFromRegistry();
 
   signedIn = true;
 }
@@ -178,6 +220,7 @@ export async function clearSession() {
   signedIn = false;
   quote = undefined;
 }
+
 /** Local UI adapter. Never reads credentials, environment URLs, storage, or a network. */
 export async function api<T = { ok: boolean }>(
   endpoint: string,
@@ -190,32 +233,50 @@ export async function api<T = { ok: boolean }>(
   const now = new Date().toISOString();
   let result: unknown = { ok: true };
   if (endpoint === "/login") {
-    selectDemo(body.role || "Passenger");
+    await selectDemo(body.role || "Passenger");
     result = { token: "static-demo", user: state.user };
   } else if (endpoint === "/register") {
-    selectDemo(body.role || "Passenger");
     if (body.role === "PUJ / PUV driver") {
-      state.user.verified = false;
-      state.user.available = false;
-      state.user.pendingFranchiseApproval = true;
-      if (body.franchiseName) state.user.franchiseName = body.franchiseName;
-      if (body.license) state.user.license = body.license;
-      if (body.name) state.user.name = body.name;
-      if (body.email) state.user.email = body.email;
-      if (body.phone) state.user.phone = body.phone;
-      if (typeof body.licenseDocAttached === "boolean") {
-        (state.user as any).licenseDocAttached = body.licenseDocAttached;
-      }
+      // Prototype: PUJ/PUV registration proceeds locally after the UI's approval wait.
+      // Do not pass registrations to the franchise owner admin-web drivers tab.
+      const appId = `puj-${normalizeEmail(body.email || String(++sequence))}-${Date.now()}`;
+      const user: User = {
+        ...makeUser("PUJ / PUV driver", appId, body.name?.trim() || "PUJ / PUV Driver"),
+        email: body.email || `${appId}@example.invalid`,
+        phone: body.phone?.trim() || "",
+        license: body.license?.trim() || "",
+        franchiseName: body.franchiseName?.trim() || "Calbayog Metro Express",
+        licenseDocAttached: !!body.licenseDocAttached,
+        association: "",
+        plate: body.plate?.trim() || "ABC 1234",
+        verified: true,
+        available: false,
+        pendingFranchiseApproval: false,
+        applicationStatus: "accepted",
+        location: { ...landmarks[0], updatedAt: Date.now() },
+      };
+      await selectDemo("PUJ / PUV driver");
+      state.user = { ...state.user, ...user, id: appId };
+      // Keep a non-admin local user record only; do not expose to franchise owner drivers tab.
+      state.runs = createDriverRuns(state.user, state.routes[0], state.serverTime);
+      signedIn = true;
+      result = { token: "static-demo", user: state.user };
+    } else {
+      await selectDemo(body.role || "Passenger");
+      result = { token: "static-demo", user: state.user };
     }
-    result = { token: "static-demo", user: state.user };
   } else if (endpoint === "/logout") {
     signedIn = false;
   } else {
     if (!signedIn) {
-      throw new ApiError("Choose a demo screen.", 401);
+      throw new ApiError("Down Server", 401);
     }
     if (endpoint === "/state") {
+      injectPendingApplications();
+      syncPendingUserFromRegistry();
       result = state;
+    } else if (endpoint === "/debug/pending-applications") {
+      result = { count: pendingApplications.size, items: [...pendingApplications.values()] };
     } else if (endpoint.startsWith("/search")) {
       result = landmarks.filter((p) =>
         p.name
@@ -320,21 +381,44 @@ export async function api<T = { ok: boolean }>(
       });
     } else if (parts[1] === "reports") {
       Object.assign(state.reports.find((r) => r.id === parts[2]) || {}, body);
+    } else if (endpoint === "/vehicles" && (method === "POST" || !method)) {
+      const vId = (body.id as string) || `vehicle-${++sequence}`;
+      const vehicle = {
+        id: vId,
+        name: String(body.name || body.plate || "Franchise vehicle"),
+        kind: "PUJ / PUV driver" as Role,
+        vehicleType: (body.vehicleType as any) || "Jeepney",
+        plate: String(body.plate || "").trim(),
+        routeId: String(body.routeId || state.routes?.[0]?.id || "CB01"),
+        capacity: Number(body.capacity) || 18,
+        location: (body.location as any) || (state.landmarks?.[0] ? { ...state.landmarks[0], updatedAt: Date.now() } : null),
+        stale: false,
+        status: (body.status as any) || "In Terminal",
+        ownerId: state.user?.id,
+        ownerName: state.user?.name,
+        currentDriver: String(body.currentDriver || ""),
+      };
+      const idx = state.vehicles.findIndex((v) => v.id === vId || (vehicle.plate && v.plate === vehicle.plate));
+      if (idx >= 0) {state.vehicles[idx] = { ...state.vehicles[idx], ...vehicle };} else {state.vehicles.unshift(vehicle as any);}
+      if (state.user?.adminLevel === "Franchise Owner") {
+        const ids = new Set(state.user.ownerVehicleIds || []);
+        ids.add(vehicle.id);
+        state.user.ownerVehicleIds = [...ids];
+      }
+      result = vehicle;
     } else if (endpoint === "/vehicles/status" || (parts[1] === "vehicles" && parts[3] === "status")) {
       const vId = (body as any)?.id || parts[2];
       const vehicle = state.vehicles.find((v) => v.id === vId);
-      if (vehicle) {
-        vehicle.status = (body as any)?.status;
-      }
+      if (vehicle) {vehicle.status = (body as any)?.status;}
       result = vehicle || { ok: true };
     } else if (parts[1] === "vehicles") {
       const vehicle = state.vehicles.find((v) => v.id === parts[2]);
-      if (vehicle) {
-        Object.assign(vehicle, body);
-      }
+      if (vehicle) {Object.assign(vehicle, body);}
       result = vehicle || { ok: true };
     } else if (parts[1] === "drivers") {
-      Object.assign(state.users.find((u) => u.id === parts[2]) || {}, body);
+      const target = state.users.find((u) => u.id === parts[2]);
+      if (target) {Object.assign(target, body);}
+      result = target || { ok: true };
     } else if (endpoint === "/configure") {
       Object.assign(state, body);
     } else if (endpoint === "/stop") {
@@ -352,6 +436,7 @@ export async function api<T = { ok: boolean }>(
       const route =
         state.routes.find((r) => r.id === state.user.routeId) ||
         state.routes[0];
+      const boarded = Number(body.boarded || 0);
       const run: DriverRun = {
         id: id(),
         driverId: state.user.id,
@@ -363,32 +448,67 @@ export async function api<T = { ok: boolean }>(
         stops: route.stops,
         fare: route.fare,
         sampleFare: true,
-        reference: "Static sample",
+        reference: "Prototype trip record",
         status: "In progress",
         startedAt: now,
         endedAt: null,
         stopIndex: 0,
-        onboard: Number(body.boarded || 0),
-        totalBoarded: Number(body.boarded || 0),
-        cashFares: 0,
+        onboard: boarded,
+        totalBoarded: boarded,
+        cashFares: boarded * route.fare,
         revision: 1,
-        events: [],
+        events: [
+          {
+            at: new Date(now).toISOString(),
+            stop: route.stops[0]?.name || "Terminal",
+            boarded,
+            alighted: 0,
+            onboard: boarded,
+            type: "departure",
+          },
+        ],
       };
       state.runs!.unshift(run);
       result = run;
     } else if (parts[1] === "runs") {
       const run = state.runs!.find((r) => r.id === parts[2]);
       if (run) {
-        run.stopIndex = Math.min(run.stopIndex + 1, run.stops.length - 1);
-        run.onboard = Math.max(
-          0,
-          run.onboard + Number(body.boarded || 0) - Number(body.alighted || 0),
-        );
-        run.totalBoarded += Number(body.boarded || 0);
-        run.revision++;
-        if (body.status === "Completed") {
+        if (body.action === "complete" || body.status === "Completed") {
           run.status = "Completed";
           run.endedAt = now;
+          run.stopIndex = run.stops.length - 1;
+          run.onboard = 0;
+          run.cashFares = run.totalBoarded * run.fare;
+          run.events = run.events || [];
+          if (!run.events.some((e: any) => e.type === "complete")) {
+            run.events.push({
+              at: new Date(now).toISOString(),
+              stop: run.stops[run.stops.length - 1]?.name || "Final stop",
+              boarded: 0,
+              alighted: run.totalBoarded,
+              onboard: 0,
+              type: "complete",
+            });
+          }
+          run.revision++;
+        } else {
+          run.stopIndex = Math.min(run.stopIndex + 1, run.stops.length - 1);
+          run.onboard = Math.max(
+            0,
+            run.onboard + Number(body.boarded || 0) - Number(body.alighted || 0),
+          );
+          run.totalBoarded += Number(body.boarded || 0);
+          run.cashFares = run.totalBoarded * run.fare;
+          run.events = run.events || [];
+          run.events.push({
+            at: new Date(now).toISOString(),
+            stop: run.stops[run.stopIndex]?.name || "Stop",
+            boarded: Number(body.boarded || 0),
+            alighted: Number(body.alighted || 0),
+            onboard: run.onboard,
+            type: "stop",
+          });
+          run.revision++;
         }
       }
       result = run;

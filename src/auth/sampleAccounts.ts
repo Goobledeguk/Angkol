@@ -28,6 +28,7 @@ export const sampleAccountsList: SampleAccount[] = [
     password: "Angkol123!",
     badge: "Commuter",
     description: "Book point-to-point tricycle rides, view fares & transit corridors",
+    phone: "0917 123 4567",
   },
   {
     email: "meynard@angkol.example",
@@ -36,6 +37,12 @@ export const sampleAccountsList: SampleAccount[] = [
     password: "Angkol123!",
     badge: "Tricycle Driver",
     description: "Accept and manage on-demand ride hail requests",
+    phone: "0918 234 5678",
+    license: "N01-23-456780",
+    association: "Magsaysay TODA",
+    plate: "AB-12345",
+    permitNo: "PRK-2026-0142",
+    capacity: 3,
   },
   {
     email: "limuel@angkol.example",
@@ -44,6 +51,12 @@ export const sampleAccountsList: SampleAccount[] = [
     password: "Angkol123!",
     badge: "PUJ Driver",
     description: "Operate corridor routes, count stops & passengers",
+    phone: "0919 345 6789",
+    license: "N01-23-456781",
+    association: "Calbayog Transport Cooperative",
+    franchiseName: "Calbayog Metro Express",
+    plate: "ABC 1231",
+    capacity: 18,
   },
   {
     email: "shaina@angkol.example",
@@ -53,6 +66,7 @@ export const sampleAccountsList: SampleAccount[] = [
     password: "Angkol123!",
     badge: "Tech Team (Level A)",
     description: "Full system-wide access: health, latency, audit logs & fleet tracking",
+    phone: "0920 456 7890",
   },
   {
     email: "kent@angkol.example",
@@ -60,9 +74,11 @@ export const sampleAccountsList: SampleAccount[] = [
     role: "Administrator",
     adminLevel: "Franchise Owner",
     ownerVehicleIds: ["sample-driver-1", "sample-driver-3"],
+    franchiseName: "Calbayog Metro Express",
     password: "Angkol123!",
     badge: "Vehicle Owner (Level B)",
-    description: "Franchise owner: monitor assigned PUJ fleet, status, drivers & routes",
+    description: "Franchise owner: Kent Ferrer (Calbayog Metro Express) — reviews and accepts/declines PUJ/PUV driver applications; monitors assigned fleet, status, drivers & routes",
+    phone: "0921 567 8901",
   },
 ];
 
@@ -73,7 +89,7 @@ const accounts = new Map<string, SampleAccount>(
 const normalizeEmail = (email: string) => email.trim().toLowerCase();
 
 async function openAccount(account: SampleAccount) {
-  selectDemo(account.role, account.adminLevel);
+  await selectDemo(account.role, account.adminLevel);
   await api(
     "/profile",
     {
@@ -100,7 +116,7 @@ export async function signInSampleAccount(
 ) {
   const account = accounts.get(normalizeEmail(email));
   if (!account || account.password !== password) {
-    throw new Error("Email or password does not match a sample account.");
+    throw new Error("Invalid email or password. Please try again.");
   }
   const isAccountAdmin = account.role === "Administrator" || account.role === "Vehicle Owner / Operator";
   if (isAccountAdmin !== administrator) {
@@ -117,7 +133,7 @@ export async function registerSampleAccount(account: SampleAccount) {
   const email = normalizeEmail(account.email);
   if (accounts.has(email)) {
     throw new Error(
-      "This email already has a sample account. Sign in instead.",
+      "This email already has a registered account. Please sign in or use a different email address.",
     );
   }
   if (account.role === "Administrator" || account.role === "Vehicle Owner / Operator") {

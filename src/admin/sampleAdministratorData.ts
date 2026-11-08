@@ -58,6 +58,41 @@ export function populateAdministratorSamples(state: Snapshot) {
     ),
   );
   state.users = [state.user, ...passengers, ...drivers];
+  // Seed a pending PUJ/PUV application for Kent Ferrer's franchise (Calbayog Metro Express)
+  // so the franchise-owner accept/decline flow is visible in the web admin demo.
+  const pendingPujApplicant: User = {
+    ...state.user,
+    id: "sample-pending-puj-1",
+    name: "Rico Dela Cruz",
+    role: "PUJ / PUV driver",
+    email: "rico.delacruz@example.invalid",
+    phone: "0917 555 0142",
+    available: false,
+    verified: false,
+    pendingFranchiseApproval: true,
+    applicationStatus: "pending",
+    license: "N01-26-884210",
+    licenseDocAttached: true,
+    franchiseName: "Calbayog Metro Express",
+    association: "",
+    plate: "",
+    permitNo: "",
+    capacity: 18,
+    routeId: null,
+    location: null,
+  };
+  const declinedPujApplicant: User = {
+    ...pendingPujApplicant,
+    id: "sample-pending-puj-2",
+    name: "Marco Villanueva",
+    email: "marco.villanueva@example.invalid",
+    phone: "0918 555 0199",
+    license: "N01-25-110044",
+    licenseDocAttached: false,
+    pendingFranchiseApproval: false,
+    applicationStatus: "declined",
+  };
+  state.users.push(pendingPujApplicant, declinedPujApplicant);
   const vehicleStatuses: ("Arrived" | "In Terminal" | "Broken / Inactive" | "In transit")[] = [
     "Arrived",
     "In Terminal",
@@ -81,7 +116,7 @@ export function populateAdministratorSamples(state: Snapshot) {
       stale: now - driver.location!.updatedAt > 60_000,
       status: vehicleStatuses[idx % vehicleStatuses.length],
       ownerId: "demo-owner",
-      ownerName: "Kent Ferrer",
+      ownerName: "Kent Ferrer (Calbayog Metro Express)",
       currentDriver: driver.name,
     }));
   const date = new Date(now).toLocaleDateString("en-CA", {
@@ -170,7 +205,7 @@ export function populateAdministratorSamples(state: Snapshot) {
     "Updated route schedule",
     "Resolved passenger report",
     "Approved vehicle details",
-    "Updated sample fare matrix",
+    "Updated fare matrix",
     "Recorded completed trip",
   ].map((action, index) => ({
     id: index + 1,

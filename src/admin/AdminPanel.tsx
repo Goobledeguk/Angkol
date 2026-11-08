@@ -49,9 +49,7 @@ export default function AdminPanel({
     initialRoute?.stops[0] || null,
   );
   const [routeError, setRouteError] = useState("");
-  const [transportType, setTransportType] = useState<
-    "" | "Tricycle" | "PUJ / PUV"
-  >(initialRoute?.transportType || "");
+  const [transportType, setTransportType] = useState<"PUJ / PUV">("PUJ / PUV");
   const [feedback, setFeedback] = useState("");
   const [routeDestination, setRouteDestination] = useState(
     initialRoute?.destination || "",
@@ -98,70 +96,10 @@ export default function AdminPanel({
       {section === "all" && <Heading title="Calbayog transport management" />}
       {(section === "all" || section === "fares") && (
         <>
-          <Card>
-            <Text style={s.cardTitle}>Tricycle fare matrix</Text>
-            <Field
-              label="Base fare (first kilometer)"
-              value={base}
-              onChange={setBase}
-              numeric
-            />
-            <Field
-              label="Additional fare per kilometer"
-              value={rate}
-              onChange={setRate}
-              numeric
-            />
-            <Field
-              label="Ordinance / approval reference"
-              value={reference}
-              onChange={setReference}
-            />
-            <View style={s.rowBetween}>
-              <Text style={s.label}>Approved fare matrix</Text>
-              <Switch
-                value={approved}
-                onValueChange={setApproved}
-                accessibilityLabel="Approved fare matrix"
-              />
-            </View>
-            <Text style={s.small}>
-              Turn on approval, then save to enable bookings. Turn it off and
-              save to revoke approval.
-            </Text>
-            <Button
-              title="Save fare matrix"
-              disabled={busy}
-              onPress={async () => {
-                if (
-                  !base.trim() ||
-                  !rate.trim() ||
-                  !Number.isFinite(+base) ||
-                  !Number.isFinite(+rate) ||
-                  +base < 0 ||
-                  +rate < 0 ||
-                  !reference.trim()
-                ) {
-                  setFeedback(
-                    "Enter a valid base fare, additional fare (0 is allowed), and approval reference before saving.",
-                  );
-                  return;
-                }
-                await save(
-                  {
-                    type: "fare",
-                    baseFare: +base,
-                    perKm: +rate,
-                    approved,
-                    reference,
-                  },
-                  approved
-                    ? "Fare matrix saved and approved."
-                    : "Fare matrix saved. Approval is off.",
-                );
-              }}
-            />
-          </Card>
+            <Card>
+              <Text style={s.cardTitle}>Route fare configuration</Text>
+              <Text style={s.small}>Set minimum fares per PUJ/PUV route below. Save to publish.</Text>
+            </Card>
         </>
       )}
       {section === "all" && (
@@ -282,13 +220,8 @@ export default function AdminPanel({
             <Text style={s.label}>Vehicle type</Text>
             <View style={s.chips}>
               <Choice
-                label="Tricycle"
-                selected={transportType === "Tricycle"}
-                onPress={() => setTransportType("Tricycle")}
-              />
-              <Choice
                 label="PUJ / PUV"
-                selected={transportType === "PUJ / PUV"}
+                selected
                 onPress={() => setTransportType("PUJ / PUV")}
               />
             </View>
@@ -369,7 +302,7 @@ export default function AdminPanel({
                   setRouteApproved(false);
                   setRouteRef("");
                   setRouteFare("");
-                  setTransportType("");
+                  setTransportType("PUJ / PUV");
                 } else {
                   setRouteError(
                     "The route was not saved. Check your connection and route details, then try again.",

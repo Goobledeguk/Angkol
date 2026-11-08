@@ -11,6 +11,7 @@ export type AdminDashboardProps = {
     method?: string,
   ) => Promise<boolean>;
   logout: () => Promise<void>;
+  refresh?: () => Promise<boolean>;
 };
 // Administrator pages are available on the web only.
 export default function AdminDashboard(_props: AdminDashboardProps) {

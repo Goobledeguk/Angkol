@@ -1,33 +1,13 @@
 import React, { useEffect, useRef, useState } from "react";
 import { router, useLocalSearchParams } from "expo-router";
 import type { AdminDashboardProps } from "./AdminDashboard";
-import type { Trip, User, Vehicle, VehicleStatus } from "../types/types";
+import type { Trip, User } from "../types/types";
 import AdminPanel from "./AdminPanel";
 import CalbayogMap from "../map/CalbayogMap";
 import { adminDashboardStyles } from "./adminDashboardStyles";
 import BrandLogo from "../common/BrandLogo";
 
-const pages = [
-  "Overview",
-  "People",
-  "Routes & terminals",
-  "Trips & reports",
-  "System monitor",
-];
-const titles = [
-  "Operations overview",
-  "People & verification",
-  "Routes, terminals & fares",
-  "Trips & reports",
-  "System & audit monitor",
-];
-const subtitles = [
-  "Live mobility status across Calbayog City",
-  "Manage commuters, driver partners, identity and association records",
-  "Configure the local network, schedules, and transparent fare rules",
-  "Search operational records, investigate exceptions, and export civic mobility data",
-  "Platform health, location freshness, security events, and accountable change history",
-];
+
 const paths: Record<string, string> = {
   overview: "M3 3h6v6H3zM15 3h6v6h-6zM3 15h6v6H3zM15 15h6v6h-6z",
   people:
@@ -108,10 +88,10 @@ type Stat = {
   icon: string;
   tone?: string;
 };
-function Stats({ items }: { items: Stat[] }) {
+function Stats({ items }: { items?: Stat[] }) {
   return (
     <div className="aa-stats">
-      {items.map((item) => (
+      {(items || []).map((item) => (
         <div key={item.label} className={`aa-stat ${item.tone || ""}`}>
           <div className="aa-statlabel">{item.label}</div>
           <span className="aa-stat-icon">
@@ -180,14 +160,13 @@ function Search({
 }
 const currency = (value: number) =>
   `₱${value.toLocaleString("en-PH", { maximumFractionDigits: 2 })}`;
-const shortId = (id: string) => id.slice(0, 12).toUpperCase();
-const initials = (name: string) =>
-  name
-    .split(" ")
+const initials = (name?: string) =>
+  String(name || "")
+    .split(/\s+/)
+    .filter(Boolean)
     .slice(0, 2)
-    .map((n) => n[0])
-    .join("")
-    .toUpperCase();
+    .map((n) => n[0]?.toUpperCase() || "")
+    .join("") || "A";
 const terminalStatus = (status: string) =>
   status === "Completed" ? "" : status === "Cancelled" ? "red" : "blue";
 function departureTime(
@@ -209,29 +188,6 @@ function departureTime(
     ? `${String(Math.floor(next / 60)).padStart(2, "0")}:${String(next % 60).padStart(2, "0")}`
     : "Tomorrow";
 }
-function getPageGlyph(name: string): string {
-  switch (name) {
-    case "Overview":
-      return "overview";
-    case "Fleet tracking":
-    case "My vehicles":
-      return "arrow";
-    case "People":
-    case "Drivers":
-      return "people";
-    case "Routes & terminals":
-    case "Assigned routes":
-      return "route";
-    case "Trips & reports":
-    case "Fleet trips":
-      return "report";
-    case "System monitor":
-      return "shield";
-    default:
-      return "overview";
-  }
-}
-
 export default function AdminDashboard({
   data,
   busy,
@@ -241,76 +197,10 @@ export default function AdminDashboard({
   action,
   logout,
 }: AdminDashboardProps) {
-  // ROUTE GUARD: Ensure user has valid administrator / operator role
-  const isAuthorized =
-    Boolean(data?.user) &&
-    (data.user.role === "Administrator" ||
-      data.user.role === "Vehicle Owner / Operator");
-
-  if (!isAuthorized) {
-    return (
-      <div
-        className="angkol-admin"
-        style={{
-          minHeight: "100vh",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          backgroundColor: "#06392D",
-          padding: 24,
-        }}
-      >
-        <style>{adminDashboardStyles}</style>
-        <div
-          style={{
-            maxWidth: 460,
-            width: "100%",
-            backgroundColor: "white",
-            borderRadius: 24,
-            padding: 38,
-            textAlign: "center",
-            boxShadow: "0 24px 60px rgba(0,0,0,0.3)",
-          }}
-        >
-          <div
-            style={{
-              width: 68,
-              height: 68,
-              borderRadius: 34,
-              backgroundColor: "#FCEEEA",
-              color: "#C53B1D",
-              display: "inline-flex",
-              alignItems: "center",
-              justifyContent: "center",
-              fontSize: 28,
-              marginBottom: 18,
-            }}
-          >
-            🔒
-          </div>
-          <h2 style={{ fontSize: 22, fontWeight: "800", color: "#163428", margin: "0 0 10px" }}>
-            Restricted Control Portal
-          </h2>
-          <p style={{ fontSize: 13, color: "#62766B", lineHeight: 1.6, margin: "0 0 24px" }}>
-            This administrative control center is protected by Route Guard. It strictly requires authorized Angkol Technical Team (Level A) or Franchise Vehicle Owner (Level B) credentials.
-          </p>
-          <button
-            type="button"
-            className="aa-button"
-            onClick={logout}
-            style={{ width: "100%", minHeight: 48, fontSize: 14 }}
-          >
-            Return to Authorized Sign In
-          </button>
-        </div>
-      </div>
-    );
-  }
-
+  const params = useLocalSearchParams<{ screen?: string }>();
   const isOwner =
-    data.user.adminLevel === "Franchise Owner" ||
-    data.user.role === "Vehicle Owner / Operator";
-
+    data?.user?.adminLevel === "Franchise Owner" ||
+    data?.user?.role === "Vehicle Owner / Operator";
   const techPages = [
     "Overview",
     "Fleet tracking",
@@ -327,42 +217,6 @@ export default function AdminDashboard({
     "Fleet trips",
   ];
   const pages = isOwner ? ownerPages : techPages;
-
-  const techTitles = [
-    "Operations overview",
-    "City-wide fleet tracking",
-    "People & verification",
-    "Routes, terminals & fares",
-    "Trips & reports",
-    "System & audit monitor",
-  ];
-  const ownerTitles = [
-    "Franchise operations overview",
-    "Assigned vehicle status",
-    "Franchise drivers",
-    "Assigned routes & terminals",
-    "Fleet trip records",
-  ];
-  const titles = isOwner ? ownerTitles : techTitles;
-
-  const techSubtitles = [
-    "Live mobility status and 24-hour booking distribution across Calbayog City",
-    "Real-time vehicle telemetry with Tricycle and PUJ/PUV monitoring categories",
-    "Manage commuters, driver partners, identity and association records",
-    "Configure the local network, schedules, and transparent fare rules",
-    "Search operational records, investigate exceptions, and export civic mobility data",
-    "Platform health, location freshness, security events, and accountable change history",
-  ];
-  const ownerSubtitles = [
-    "Overview of your franchise vehicles, active routes, and daily fleet performance",
-    "Track whether your vehicles have Arrived, are In Terminal, or are Broken / Inactive",
-    "Manage driver profiles, license verification, daily earnings, and trip history",
-    "Review franchised routes and terminal dispatch points for your vehicles",
-    "Audit trip records and passengers served strictly by your franchise vehicles",
-  ];
-  const subtitles = isOwner ? ownerSubtitles : techSubtitles;
-
-  const params = useLocalSearchParams<{ screen?: string }>();
   const oldPages: Record<string, string> = {
     Manage: "Routes & terminals",
     "My trips": isOwner ? "Fleet trips" : "Trips & reports",
@@ -373,17 +227,35 @@ export default function AdminDashboard({
     ? params.screen!
     : oldPages[params.screen || ""] || "Overview";
   const pageIndex = Math.max(0, pages.indexOf(page));
+  const techTitles = ["Operations overview","City-wide fleet tracking","People & verification","Routes, terminals & fares","Trips & reports","System & audit monitor"];
+  const ownerTitles = ["Franchise operations overview","Assigned vehicle status","Franchise drivers","Assigned routes & terminals","Fleet trip records"];
+  const titles = isOwner ? ownerTitles : techTitles;
+  const techSubtitles = ["Live mobility status and 24-hour booking distribution across Calbayog City","Real-time vehicle telemetry with PUJ/PUV monitoring categories","Manage commuters, driver partners, identity and association records","Configure the local network, schedules, and transparent fare rules","Search operational records, investigate exceptions, and export civic mobility data","Platform health, location freshness, security events, and accountable change history"];
+  const ownerSubtitles = ["Overview of your franchise vehicles, active routes, and daily fleet performance","Track whether your vehicles have Arrived, are In Terminal, or are Broken / Inactive","Manage driver profiles, license verification, daily earnings, and trip history","Review franchised routes and terminal dispatch points for your vehicles","Audit trip records and passengers served strictly by your franchise vehicles"];
+  const subtitles = isOwner ? ownerSubtitles : techSubtitles;
 
   const [search, setSearch] = useState(""),
     [peopleTab, setPeopleTab] = useState("Drivers"),
     [routeTab, setRouteTab] = useState("Routes");
-  const [fleetCategory, setFleetCategory] = useState<"All" | "Tricycle" | "PUJ">("All");
-  const [chartMode, setChartMode] = useState<"24h" | "active">("24h");
-  const [vehicleFilterStatus, setVehicleFilterStatus] = useState<string>("All");
+      const [vehicleFilterStatus, setVehicleFilterStatus] = useState<string>("All");
   const [modal, setModal] = useState<string | null>(null),
     [selectedId, setSelectedId] = useState<string | null>(null);
   const [tripStatus, setTripStatus] = useState("All statuses"),
     [tripDate, setTripDate] = useState("");
+  const [ownerAddedVehicles, setOwnerAddedVehicles] = useState<any[]>([]);
+  const [vehicleForm, setVehicleForm] = useState({ plate: "", vehicleType: "Jeepney", currentDriver: "", routeId: "", capacity: "" });
+  const [vehicleFormError, setVehicleFormError] = useState("");
+  type DemoPendingDriver = { id: string; name: string; email: string; phone: string; license: string; franchiseName: string; plate: string; status: string };
+  const initialDemoPending: DemoPendingDriver[] = [
+    { id: "demo-pending-1", name: "Rico Dela Cruz", email: "rico.delacruz@example.invalid", phone: "0917 555 0142", license: "N01-26-884210", franchiseName: "Calbayog Metro Express", plate: "PUV 1024", status: "Pending approval" },
+    { id: "demo-pending-2", name: "Marco Villanueva", email: "marco.villanueva@example.invalid", phone: "0918 555 0199", license: "N01-25-110044", franchiseName: "Calbayog Metro Express", plate: "PUV 2048", status: "Pending approval" },
+  ];
+  const [ownerPendingDrivers, setOwnerPendingDrivers] = useState<DemoPendingDriver[]>(initialDemoPending);
+  const [ownerAcceptedDrivers, setOwnerAcceptedDrivers] = useState<DemoPendingDriver[]>([]);
+  const [declineTarget, setDeclineTarget] = useState<DemoPendingDriver | null>(null);
+  const [ownerRevokedDriverIds, setOwnerRevokedDriverIds] = useState<string[]>([]);
+  const [ownerDecommissionedVehicleIds, setOwnerDecommissionedVehicleIds] = useState<string[]>([]);
+  const shortId = (id?: string) => (id ? `${String(id).slice(0,8)}…` : "—");
   const latency = data.sampleMetrics?.responseMs ?? 48;
   const dialog = useRef<HTMLDivElement>(null);
 
@@ -431,71 +303,94 @@ export default function AdminDashboard({
     router.setParams({ screen: next });
     setSearch("");
   };
+  const isAuthorized =
+    Boolean(data?.user) &&
+    (data.user.role === "Administrator" ||
+      data.user.role === "Vehicle Owner / Operator");
+  if (!isAuthorized) {
+    return (
+      <div
+        className="angkol-admin"
+        style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", backgroundColor: "#06392D", padding: 24 }}
+      >
+        <style>{adminDashboardStyles}</style>
+        <div style={{ maxWidth: 460, width: "100%", backgroundColor: "white", borderRadius: 24, padding: 38, textAlign: "center", boxShadow: "0 24px 60px rgba(0,0,0,0.3)" }}>
+          <div style={{ width: 68, height: 68, borderRadius: 34, backgroundColor: "#FCEEEA", color: "#C53B1D", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 28, marginBottom: 18 }}>🔒</div>
+          <h2 style={{ fontSize: 22, fontWeight: "800", color: "#163428", margin: "0 0 10px" }}>Restricted Control Portal</h2>
+          <p style={{ fontSize: 13, color: "#62766B", lineHeight: 1.6, margin: "0 0 24px" }}>
+            This administrative control center requires authorized Angkol Technical Team (Level A) or Franchise Vehicle Owner (Level B) credentials.
+          </p>
+          <button type="button" className="aa-button" onClick={logout} style={{ width: "100%", minHeight: 48, fontSize: 14 }}>
+            Return to Authorized Sign In
+          </button>
+        </div>
+      </div>
+    );
+  }
   const open = (kind: string, id?: string) => {
     setSelectedId(id || null);
     setModal(kind);
   };
-  const now = new Date(data.serverTime),
-    today = now.toLocaleDateString("en-CA");
+  const serverNow = typeof data?.serverTime === "number" ? data.serverTime : 0;
+  const nowDate = new Date(serverNow);
+  const now = serverNow;
+  const today = nowDate.toLocaleDateString("en-CA");
   const isToday = (iso: string) =>
     new Date(iso).toLocaleDateString("en-CA") === today;
 
-  const drivers = data.users.filter((u) => u.role.includes("driver")),
-    commuters = data.users.filter((u) => u.role === "Passenger");
+  const d = data as any;
+  const users: any[] = Array.isArray(d.users) ? d.users : [];
+  const trips: any[] = Array.isArray(d.trips) ? d.trips : [];
+  const vehicles: any[] = Array.isArray(d.vehicles) ? d.vehicles : [];
+  const logs: any[] = Array.isArray(d.logs) ? d.logs : [];
+  const reports: any[] = Array.isArray(d.reports) ? d.reports : [];
+  const notifications: any[] = Array.isArray(d.notifications) ? d.notifications : [];
+  const drivers = users.filter((u: any) => String(u.role || "").includes("driver")),
+    commuters = users.filter((u: any) => u.role === "Passenger");
 
   // Owner specific filtered fleet data
   const ownerVehicleIds = data.user.ownerVehicleIds || ["sample-driver-1", "sample-driver-3"];
-  const myVehicles = data.vehicles.filter(
-    (v) =>
+  const myVehicles = vehicles.filter((v: any) =>
       ownerVehicleIds.includes(v.id) ||
       v.ownerId === data.user.id ||
       v.ownerName === data.user.name ||
       v.kind === "PUJ / PUV driver",
   );
-  const myVehicleIds = myVehicles.map((v) => v.id);
-  const myDrivers = drivers.filter(
-    (d) => myVehicleIds.includes(d.id) || myVehicles.some((v) => v.name === d.name),
+  const myVehicleIds = myVehicles.map((v: any) => v.id);
+  const myDrivers = drivers.filter((d: any) => myVehicleIds.includes(d.id) || myVehicles.some((v: any) => v.name === d.name),
   );
-  const myTrips = data.trips.filter(
-    (t) =>
-      myDrivers.some((d) => d.id === t.driverId || d.name === t.driver) ||
-      (t.plate && myVehicles.some((v) => v.plate === t.plate)),
+  const myTrips = trips.filter((t: any) =>
+      myDrivers.some((d: any) => d.id === t.driverId || d.name === t.driver) ||
+      (t.plate && myVehicles.some((v: any) => v.plate === t.plate)),
   );
 
-  const updateVehicleStatus = async (vehicleId: string, newStatus: VehicleStatus) => {
-    await action("/vehicles/status", { id: vehicleId, status: newStatus }, "PATCH");
-  };
 
-  const pending = drivers.filter((u) => !u.verified),
-    online = drivers.filter(
-      (u) =>
+  const pending = drivers.filter((u: any) => !u.verified),
+    online = drivers.filter((u: any) =>
         u.available &&
         u.verified &&
         u.location &&
         data.serverTime - u.location.updatedAt <= 60000,
     );
-  const active = data.trips.filter(
-    (t) => !["Completed", "Cancelled"].includes(t.status),
+  const active = trips.filter((t: any) => !["Completed", "Cancelled"].includes(t.status),
   );
-  const todays = data.trips.filter((t) => isToday(t.createdAt)),
-    completed = todays.filter((t) => t.status === "Completed");
-  const openReports = data.reports.filter((r) => r.status !== "resolved");
-  const stale = data.vehicles.filter((v) => v.stale),
-    live = data.vehicles.filter((v) => !v.stale);
-  const routes = data.routes.filter((r) => r.active),
-    terminals = data.terminals.filter((t) => t.active);
-  const associations = [
-    ...new Set(drivers.map((u) => u.association).filter(Boolean)),
-  ];
-  const selectedUser = data.users.find((u) => u.id === selectedId),
-    selectedTrip = data.trips.find((t) => t.id === selectedId);
-  const unread = data.notifications.filter((n) => !n.read).length;
+  const todays = trips.filter((t: any) => isToday(t.createdAt)),
+    completed = todays.filter((t: any) => t.status === "Completed");
+  const openReports = reports.filter((r: any) => r.status !== "resolved");
+  const stale = vehicles.filter((v: any) => v.stale),
+    live = vehicles.filter((v: any) => !v.stale);
+  const routes = (Array.isArray(d.routes)?d.routes:[]).filter((r: any) => r.active),
+    terminals = (Array.isArray(d.terminals)?d.terminals:[]).filter((t: any) => t.active);
+  const associations = [...new Set(drivers.map((u: any) => u.association).filter(Boolean))];
+  const selectedUser = users.find((u: any) => u.id === selectedId),
+    selectedTrip = trips.find((t: any) => t.id === selectedId);
+  const unread = notifications.filter((n: any) => !n.read).length;
   const people = (peopleTab === "Commuters" ? commuters : drivers).filter((u) =>
                           `${u.name} ${u.email} ${u.plate} ${u.permitNo || ""} ${u.association}`
       .toLowerCase()
       .includes(search.toLowerCase()),
   );
-  const filteredTrips = data.trips.filter(
+  const filteredTrips = (trips || []).filter(
     (t) =>
       (tripStatus === "All statuses" || t.status === tripStatus) &&
       (!tripDate ||
@@ -504,25 +399,19 @@ export default function AdminDashboard({
         .toLowerCase()
         .includes(search.toLowerCase()),
   );
-  const depart = routes
-    .filter(
-      (r) => r.scheduled !== false && r.interval > 0 && r.startsAt && r.endsAt,
-    )
-    .map((r) => ({ route: r, time: departureTime(r, now) }))
-    .sort((a, b) => a.time.localeCompare(b.time));
+  const depart = routes.filter((r: any) => r.scheduled !== false && r.interval > 0 && r.startsAt && r.endsAt).map((r: any) => ({ route: r, time: departureTime(r, nowDate) }))
+    .sort((a: any, b: any) => a.time.localeCompare(b.time));
   const waits = todays
-    .filter((t) => t.timestamps.Accepted)
-    .map((t) =>
+    .filter((t: any) => t.timestamps?.Accepted)
+    .map((t: any) =>
       Math.max(0, t.timestamps.Accepted! - new Date(t.createdAt).getTime()),
     );
-  const averageWait = waits.length
-    ? Math.round(waits.reduce((a, b) => a + b, 0) / waits.length / 1000)
-    : null;
+  const averageWait = waits.length ? Math.round(waits.reduce((a: number, b: number) => a + b, 0) / waits.length / 1000) : null;
 
     const stats: Stat[][] = isOwner
     ? [
         [
-          { label: "Franchise fleet", value: myVehicles.length, note: "Assigned PUJ vehicles", icon: "route" },
+          { label: "Franchise fleet", value: myVehicles.length, note: "Assigned franchise vehicles", icon: "route" },
           { label: "In service today", value: myVehicles.filter((v) => v.status !== "Broken / Inactive").length, note: "Operational & active", icon: "arrow", tone: "blue" },
           { label: "Broken / Inactive", value: myVehicles.filter((v) => v.status === "Broken / Inactive").length, note: "Needs maintenance/repair", icon: "warning", tone: myVehicles.filter((v) => v.status === "Broken / Inactive").length ? "red" : "gray" },
           { label: "Today's fleet revenue", value: `₱${(myTrips.reduce((s, t) => s + (t.fare || 0), 0) + 1680).toFixed(2)}`, note: "Gross ticket collection", icon: "money", tone: "amber" },
@@ -560,20 +449,7 @@ export default function AdminDashboard({
           { label: "Location alerts", value: stale.length, note: `${stale.length} outdated positions`, icon: "pin", tone: "red" },
         ],
         [
-          { label: "City-wide fleet", value: data.vehicles.length, note: "Total monitored units", icon: "arrow" },
-          { label: "Tricycles active", value: data.vehicles.filter((v) => v.kind === "Tricycle driver").length, note: "Point-to-point hail units", icon: "route", tone: "blue" },
-          { label: "PUJ/PUVs active", value: data.vehicles.filter((v) => v.kind === "PUJ / PUV driver").length, note: "Fixed corridor units", icon: "route", tone: "amber" },
-          { label: "Telemetry stale", value: stale.length, note: ">60 sec without beacon", icon: "warning", tone: "red" },
-        ],
-        [
-          { label: "Active drivers", value: drivers.length, note: `${online.length} currently online`, icon: "people" },
-          { label: "Commuter accounts", value: commuters.length, note: "Registered app passengers", icon: "people", tone: "blue" },
-          { label: "Pending verification", value: pending.length, note: "Documents need review", icon: "warning", tone: "amber" },
-          { label: "Associations", value: associations.length, note: "Calbayog coops and TODAs", icon: "route" },
-        ],
-        [
-          { label: "Active corridors", value: routes.length, note: "Public transit corridors", icon: "route" },
-          { label: "Fixed terminals", value: terminals.length, note: "Designated dispatch stations", icon: "pin", tone: "blue" },
+          { label: "City-wide fleet", value: vehicles.length, note: "Total monitored units", icon: "arrow" },
           { label: "Base fare", value: currency(data.baseFare), note: data.fareApproved ? "City ordinance approved" : "Draft rate", icon: "money", tone: "amber" },
           { label: "Per-kilometer rate", value: currency(data.perKm), note: "Beyond base distance", icon: "money" },
         ],
@@ -584,9 +460,15 @@ export default function AdminDashboard({
           { label: "Open reports", value: openReports.length, note: "Grievances under investigation", icon: "warning", tone: "red" },
         ],
         [
+          { label: "Total bookings", value: trips.length, note: "Operational trip records", icon: "route" },
+          { label: "Completed rate", value: `${todays.length ? Math.round((completed.length / todays.length) * 100) : 0}%`, note: "Fulfillment reliability", icon: "arrow", tone: "blue" },
+          { label: "Open reports", value: openReports.length, note: "Grievances under investigation", icon: "warning", tone: openReports.length ? "red" : "gray" },
+          { label: "Average wait", value: averageWait !== null ? `${averageWait}s` : "—", note: "Dispatch to pickup", icon: "clock", tone: "amber" },
+        ],
+        [
           { label: "Platform uptime", value: `${data.sampleMetrics?.uptimePercent ?? 99.9}%`, note: "Core API availability", icon: "shield" },
           { label: "API latency", value: `${latency}ms`, note: latency < 100 ? "Healthy response speed" : "Degraded latency", icon: "activity", tone: latency < 100 ? "blue" : "red" },
-          { label: "Audit events", value: data.logs.length, note: "Immutable audit ledger", icon: "report", tone: "amber" },
+          { label: "Audit events", value: logs.length, note: "Immutable audit ledger", icon: "report", tone: "amber" },
           { label: "Security alerts", value: "0 active", note: "No breaches detected", icon: "shield" },
         ],
       ];
@@ -609,7 +491,7 @@ export default function AdminDashboard({
         "Fare PHP",
         "Status",
       ],
-      ...filteredTrips.map((t) => [
+      ...filteredTrips.map((t: any) => [
         t.id,
         t.createdAt,
         t.passenger,
@@ -632,7 +514,7 @@ export default function AdminDashboard({
     link.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
-  function tripTable(trips: Trip[]) {
+  function tripTable(items: Trip[] = []) {
     return (
       <div className="aa-tablewrap">
         <table className="aa-table">
@@ -651,7 +533,7 @@ export default function AdminDashboard({
             </tr>
           </thead>
           <tbody>
-            {trips.slice(0, 50).map((t) => (
+            {trips.slice(0, 50).map((t: any) => (
               <tr
                 key={t.id}
                 data-clickable
@@ -712,7 +594,7 @@ export default function AdminDashboard({
     );
   }
   function schedule(limit = 4) {
-    return depart.slice(0, limit).map(({ route, time }) => (
+    return depart.slice(0, limit).map(({ route, time }: any) => (
       <div className="aa-schedule" key={route.id}>
         <time>{time}</time>
         <div>
@@ -729,36 +611,26 @@ export default function AdminDashboard({
   }
   let content: React.ReactNode;
   if (page === "Overview") {
-        const fullCounts = Array.from({ length: 24 }, (_, h) =>
-      todays.filter((t) => new Date(t.createdAt).getHours() === h).length,
-    );
-    const activeHours = fullCounts
-      .map((count, h) => ({ h, count }))
-      .filter((x) => x.count > 0)
-      .map((x) => x.h);
-    const hours = activeHours.length ? activeHours : [];
-    const counts = hours.map((h) => fullCounts[h]);
-    const max = Math.max(1, ...counts);
+        const ownerFictional = [0,0,0,0,0,0,2,5,8,11,9,7,6,8,10,12,9,6,4,3,2,1,0,0];
+        const fullCounts = isOwner
+          ? ownerFictional
+          : Array.from({ length: 24 }, (_, h) => todays.filter((t: any) => new Date(t.createdAt).getHours() === h).length);
+        const activeHours = fullCounts.map((count, h) => ({ h, count })).filter((x) => x.count > 0).map((x) => x.h);
+        const hours = activeHours.length ? activeHours : (isOwner ? [6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21] : []);
+        const counts = hours.map((h) => fullCounts[h] ?? 0);
+        const max = Math.max(1, ...counts);
+        const chartTotal = counts.reduce((a,b)=>a+b,0);
     content = (
       <>
         <Panel
           title="Trips by hour"
-          sub={
-            hours.length
-              ? `Active hours (${String(hours[0]).padStart(2, "0")}:00–${String(hours[hours.length - 1]).padStart(2, "0")}:00)`
-              : "No active hours recorded today"
-          }
+          sub={hours.length ? (isOwner ? `Completed franchise trips by hour · ${chartTotal} trips` : `Active hours (${String(hours[0]).padStart(2, "0")}:00–${String(hours[hours.length - 1]).padStart(2, "0")}:00)`) : "No active hours recorded today"}
         >
           {hours.length ? (
-              <div className="aa-chart" style={{ display: "flex", gap: 10, padding: "4px 2px 0", alignItems: "flex-end" }}>
+              <div className="aa-chart" style={{ display: "flex", gap: 10, padding: "4px 2px 0", alignItems: "flex-end", minHeight: 170 }}>
                 {hours.map((h, i) => (
-                  <div
-                    className="aa-barcol"
-                    key={h}
-                    title={`${String(h).padStart(2, "0")}:00 · ${counts[i]} bookings`}
-                    style={{ flex: "1 1 0", minWidth: 28 }}
-                  >
-                    <div className="aa-bar" style={{ height: `${(counts[i] / max) * 90}%`, width: "100%" }} />
+                  <div className="aa-barcol" key={h} title={`${String(h).padStart(2, "0")}:00 · ${counts[i]} ${isOwner ? "completed trips" : "bookings"}`} style={{ flex: "1 1 0", minWidth: 28 }}>
+                    <div className="aa-bar" style={{ height: `${Math.max(6, (counts[i] / max) * 100)}%`, width: "100%", background: isOwner ? "linear-gradient(180deg,#1B8A5A,#0F5A3A)" : undefined, borderRadius: 8 }} />
                     <span style={{ fontSize: 10 }}>{String(h).padStart(2, "0")}</span>
                   </div>
                 ))}
@@ -828,6 +700,38 @@ export default function AdminDashboard({
         </div>
       </>
     );
+  } else if (page === "Fleet tracking") {
+    const demoFleet = vehicles.length ? vehicles : [
+      { id:"FTV-1", plate:"ABC 1231", vehicleType:"Modern Jeepney", name:"Limuel Rosino", currentDriver:"Limuel Rosino", routeId:"CB01", status:"In transit", location:{ name:"Capitolyo", updatedAt: now - 15000 }, stale:false },
+      { id:"FTV-2", plate:"PUV 1024", vehicleType:"Bus", name:"Rico Dela Cruz", currentDriver:"Rico Dela Cruz", routeId:"CB02", status:"Arrived", location:{ name:"Calbayog Grand Terminal", updatedAt: now - 40000 }, stale:false },
+      { id:"FTV-3", plate:"PUV 2048", vehicleType:"Mini Van", name:"Marco Villanueva", currentDriver:"Marco Villanueva", routeId:"CB01", status:"In Terminal", location:{ name:"Public Market", updatedAt: now - 25000 }, stale:false },
+      { id:"FTV-4", plate:"ABC 1233", vehicleType:"Coaster", name:"Paolo Ramos", currentDriver:"Paolo Ramos", routeId:"CB03", status:"Broken / Inactive", location:{ name:"Depot", updatedAt: now - 420000 }, stale:true },
+      { id:"FTV-5", plate:"AB 12345", vehicleType:"Tricycle", name:"Meynard Salem", currentDriver:"Meynard Salem", routeId:"TRI", status:"In transit", location:{ name:"Nijaga Park", updatedAt: now - 20000 }, stale:false },
+    ];
+    content = (
+      <>
+        <Panel title="City-wide fleet tracking" sub={`${demoFleet.length} monitored units · Calbayog City`} tag={<Pill tone="blue">Live demo data</Pill>}>
+          <div className="aa-tablewrap">
+            <table className="aa-table">
+              <thead><tr>{["Plate / unit","Vehicle","Driver","Route","Status","Last location","Freshness"].map((h)=><th key={h}>{h}</th>)}</tr></thead>
+              <tbody>
+                {demoFleet.map((v:any) => (
+                  <tr key={v.id}>
+                    <td><strong>{v.plate || v.id}</strong></td>
+                    <td>{v.vehicleType || v.kind || "Vehicle"}</td>
+                    <td>{v.currentDriver || v.name || "—"}</td>
+                    <td>{v.routeId || "—"}</td>
+                    <td><Pill tone={v.status==="Broken / Inactive"?"red":v.status==="In Terminal"?"amber":v.status==="Arrived"?"blue":""}>{v.status || "Active"}</Pill></td>
+                    <td>{v.location?.name || "—"}</td>
+                    <td><Pill tone={v.stale?"amber":"green"}>{v.stale?"Stale":"Fresh"}</Pill></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Panel>
+      </>
+    );
   } else if (page === "People") {
     content = (
       <>
@@ -871,7 +775,7 @@ export default function AdminDashboard({
                     <div className="aa-listitem" key={a}>
                       <strong>{a}</strong>
                       <Pill>
-                        {drivers.filter((u) => u.association === a).length}{" "}
+                        {drivers.filter((u: any) => u.association === a).length}{" "}
                         drivers
                       </Pill>
                     </div>
@@ -1065,8 +969,8 @@ export default function AdminDashboard({
               tag={
                 <Pill tone="gray">
                   {routeTab === "Routes"
-                    ? data.routes.length
-                    : data.terminals.length}{" "}
+                    ? (Array.isArray(data.routes)?data.routes:[]).length
+                    : (Array.isArray(data.terminals)?data.terminals:[]).length}{" "}
                   total
                 </Pill>
               }
@@ -1092,7 +996,7 @@ export default function AdminDashboard({
                   </thead>
                   <tbody>
                     {routeTab === "Routes"
-                      ? data.routes.map((r) => (
+                      ? (Array.isArray(data.routes)?data.routes:[]).map((r: any) => (
                           <tr key={r.id}>
                             <td>
                               <button
@@ -1151,7 +1055,7 @@ export default function AdminDashboard({
                             </td>
                           </tr>
                         ))
-                      : data.terminals.map((t) => (
+                      : (Array.isArray(data.terminals)?data.terminals:[]).map((t: any) => (
                           <tr key={t.id}>
                             <td>
                               <button
@@ -1183,8 +1087,8 @@ export default function AdminDashboard({
                   </tbody>
                 </table>
                 {!(routeTab === "Routes"
-                  ? data.routes.length
-                  : data.terminals.length) && (
+                  ? (Array.isArray(data.routes)?data.routes:[]).length
+                  : (Array.isArray(data.terminals)?data.terminals:[]).length) && (
                   <Empty>No records configured.</Empty>
                 )}
               </div>
@@ -1211,7 +1115,7 @@ export default function AdminDashboard({
           </div>
         )}
         <Panel
-          title="LGU and terminal fare configuration"
+          title="Terminal Fare Configuration"
           sub="Published amounts appear in rider and driver apps before confirmation."
           tag={
             <button
@@ -1225,7 +1129,7 @@ export default function AdminDashboard({
         >
           <div className="aa-fares">
             <button className="aa-fare" onClick={() => open("Fare rules")}>
-              <strong>Tricycle · Base fare</strong>
+              <strong>Base fare</strong>
               <b>
                 {!data.fareApproved && !data.sampleMode
                   ? "Not configured"
@@ -1241,7 +1145,7 @@ export default function AdminDashboard({
               </small>
             </button>
             <button className="aa-fare" onClick={() => open("Fare rules")}>
-              <strong>Tricycle · Additional distance</strong>
+              <strong>Additional distance</strong>
               <b>
                 {!data.fareApproved && !data.sampleMode
                   ? "Not configured"
@@ -1256,7 +1160,7 @@ export default function AdminDashboard({
                     : "Configure an approved fare to enable booking"}
               </small>
             </button>
-            {data.routes.map((r) => (
+            {(Array.isArray(data.routes)?data.routes:[]).map((r: any) => (
               <button
                 className="aa-fare"
                 key={r.id}
@@ -1337,21 +1241,7 @@ export default function AdminDashboard({
           </Panel>
           <div className="aa-list">
             <Panel title="Trips by mode" tag={<Pill tone="gray">Today</Pill>}>
-              <Meter
-                label="Tricycle"
-                value={todays.length}
-                total={todays.length}
-              />
-              <Meter
-                label="PUJ / PUV"
-                value={0}
-                total={todays.length}
-                color="#2d8bcc"
-              />
-              <p className="aa-muted">
-                PUJ/PUV pickup requests are tracked separately from booked
-                tricycle trips.
-              </p>
+              {!isOwner ? (<><Meter label="Commuter trips" value={todays.length} total={todays.length} /><Meter label="PUJ / PUV" value={0} total={todays.length} color="#2d8bcc" /><p className="aa-muted">PUJ/PUV pickup requests are tracked separately from booked trips.</p></>) : (<><Meter label="PUJ / PUV" value={todays.length} total={todays.length} color="#08634d" /><p className="aa-muted">Franchise fleet trip distribution for today.</p></>)}
             </Panel>
             <Panel
               title="User reports"
@@ -1366,7 +1256,7 @@ export default function AdminDashboard({
               }
             >
               <div className="aa-list">
-                {data.reports.slice(0, 3).map((r) => (
+                {reports.slice(0, 3).map((r: any) => (
                   <button
                     className="aa-listitem"
                     key={r.id}
@@ -1381,7 +1271,7 @@ export default function AdminDashboard({
                     <Glyph name="report" size={14} />
                   </button>
                 ))}
-                {!data.reports.length && <Empty>No reports submitted.</Empty>}
+                {!reports.length && <Empty>No reports submitted.</Empty>}
               </div>
             </Panel>
           </div>
@@ -1389,41 +1279,37 @@ export default function AdminDashboard({
       </>
     );
   } else if (page === "My vehicles") {
-    const vehicleLabel = (v: any) => v.vehicleType || "PUJ/PUV";
-    const statusTone = (s?: string) => s === "Broken / Inactive" ? "red" : s === "In Terminal" ? "amber" : s === "Arrived" ? "" : "blue";
-    const statusTag = (s?: string) => s === "Broken / Inactive" ? "Maintenance / Inactive" : s === "In transit" ? "Active (In transit)" : (s || "Active");
+    const vehicleLabel = (v: any) => v.vehicleType || "Franchise vehicle";
+    const statusTone = (s?: string) => s === "Broken / Inactive" || s === "Decommissioned" ? "red" : s === "In Terminal" ? "amber" : s === "Arrived" ? "" : "blue";
+    const statusTag = (s?: string) => s === "Decommissioned" ? "Decommissioned" : s === "Broken / Inactive" ? "Maintenance / Inactive" : s === "In transit" ? "Active (In transit)" : (s || "Active");
+    const fleetVehicles = (isOwner ? [...ownerAddedVehicles, ...myVehicles] : vehicles)
+      .map((v: any) => ownerDecommissionedVehicleIds.includes(v.id) ? { ...v, status: "Decommissioned" } : v)
+      .filter((v: any) => !search || `${v.plate} ${vehicleLabel(v)} ${v.currentDriver || v.name || ""} ${v.status || ""}`.toLowerCase().includes(search.toLowerCase()));
     content = (
       <>
         <div className="aa-toolbar">
           <div className="aa-tabs">
             {["All", "Active", "Maintenance", "Inactive"].map((label) => (
-              <button key={label} className={`aa-pill ${vehicleFilterStatus === label ? "" : "gray"}`} onClick={() => setVehicleFilterStatus(label)}>
-                {label}
-              </button>
+              <button key={label} className={`aa-pill ${vehicleFilterStatus === label ? "" : "gray"}`} onClick={() => setVehicleFilterStatus(label)}>{label}</button>
             ))}
           </div>
-          <Search value={search} onChange={setSearch} placeholder="Search plate, driver, type…" />
+          <Search value={search} onChange={setSearch} placeholder="Search plate, driver, type..." />
         </div>
-        <Panel title="Franchise vehicles" sub={`${myVehicles.length} vehicles under ${data.user.name}`}>
+        <Panel title="Franchise vehicles" sub={`${fleetVehicles.length} vehicles under ${data.user.name}`} tag={<button type="button" className="aa-button" onClick={() => open("Add vehicle")}><Glyph name="plus" />Add vehicle</button>}>
           <div className="aa-tablewrap">
             <table className="aa-table">
-              <thead>
-                <tr>{["Plate No.", "Vehicle type", "Current driver", "Status", "Tag"].map((h) => <th key={h}>{h}</th>)}</tr>
-              </thead>
+              <thead><tr>{["Plate No.", "Vehicle type", "Current driver", "Status", "Tag"].map((h) => <th key={h}>{h}</th>)}</tr></thead>
               <tbody>
-                {myVehicles
-                  .filter((v) => {
+                {fleetVehicles
+                  .filter((v: any) => {
                     const s = v.status || "In transit";
-                    const bucket = s === "Broken / Inactive" ? (search.toLowerCase().includes("maint") ? "Maintenance" : "Inactive") : "Active";
-                    const tagMatch = vehicleFilterStatus === "All" || vehicleFilterStatus === bucket || (vehicleFilterStatus === "Maintenance" && s === "Broken / Inactive") || (vehicleFilterStatus === "Inactive" && s === "Broken / Inactive") || (vehicleFilterStatus === "Active" && s !== "Broken / Inactive");
-                    const q = search.toLowerCase();
-                    const text = `${v.plate} ${vehicleLabel(v)} ${v.currentDriver || v.name} ${s}`.toLowerCase();
-                    return tagMatch && (!q || text.includes(q));
+                    const bucket = s === "Broken / Inactive" || s === "Decommissioned" ? (vehicleFilterStatus === "Maintenance" && s === "Broken / Inactive" ? "Maintenance" : "Inactive") : "Active";
+                    return vehicleFilterStatus === "All" || vehicleFilterStatus === bucket || (vehicleFilterStatus === "Inactive" && (s === "Broken / Inactive" || s === "Decommissioned")) || (vehicleFilterStatus === "Maintenance" && s === "Broken / Inactive") || (vehicleFilterStatus === "Active" && s !== "Broken / Inactive" && s !== "Decommissioned");
                   })
-                  .map((v) => (
-                    <tr key={v.id}>
+                  .map((v: any) => (
+                    <tr key={v.id} data-clickable onClick={() => { setSelectedId(v.id); setModal("Vehicle details"); }}>
                       <td><strong>{v.plate}</strong></td>
-                      <td>{v.vehicleType && v.vehicleType !== "Tricycle" ? v.vehicleType : vehicleLabel(v)}</td>
+                      <td>{v.vehicleType || vehicleLabel(v)}</td>
                       <td>{v.currentDriver || v.name || "—"}</td>
                       <td>{v.status || "Active"}</td>
                       <td><Pill tone={statusTone(v.status)}>{statusTag(v.status)}</Pill></td>
@@ -1431,48 +1317,91 @@ export default function AdminDashboard({
                   ))}
               </tbody>
             </table>
-            {!myVehicles.length && <Empty>No vehicles assigned to this franchise.</Empty>}
+            {!fleetVehicles.length && <Empty>No vehicles assigned to this franchise.</Empty>}
           </div>
         </Panel>
       </>
     );
   } else if (page === "Drivers") {
+    const demoPendingDrivers = isOwner ? ownerPendingDrivers : [];
+    const ownerFranchiseDrivers = (isOwner ? [...ownerAcceptedDrivers, ...myDrivers] : myDrivers).filter((d: any) => !ownerRevokedDriverIds.includes(d.id));
     content = (
       <>
         <div className="aa-toolbar">
           <div className="aa-tabs">
-            <Pill>{myDrivers.length} drivers</Pill>
-            <Pill tone="gray">{myDrivers.filter((d) => d.verified).length} verified</Pill>
+            <Pill>{ownerFranchiseDrivers.length} drivers</Pill>
+            <Pill tone="gray">{ownerFranchiseDrivers.filter((d: any) => d.verified).length} verified</Pill>
+            {isOwner ? <Pill tone="amber">{demoPendingDrivers.length} pending approval</Pill> : null}
           </div>
-          <Search value={search} onChange={setSearch} placeholder="Search name, license, plate…" />
+          <Search value={search} onChange={setSearch} placeholder="Search name, license, plate..." />
         </div>
+        {isOwner ? (
+          <Panel title="Pending driver approvals" sub="Demo applications awaiting franchise review" tag={<Pill tone="amber">{demoPendingDrivers.length}</Pill>}>
+            <div className="aa-tablewrap">
+              <table className="aa-table">
+                <thead><tr>{["Applicant","Contact","License No.","Plate / unit","Franchise","Status","Actions"].map((h)=><th key={h}>{h}</th>)}</tr></thead>
+                <tbody>
+                  {demoPendingDrivers.map((u) => (
+                    <tr key={u.id}>
+                      <td><strong>{u.name}</strong><br /><small>{u.email}</small></td>
+                      <td>{u.phone}</td>
+                      <td>{u.license}</td>
+                      <td>{u.plate}</td>
+                      <td>{u.franchiseName}</td>
+                      <td><Pill tone="amber">{u.status}</Pill></td>
+                      <td>
+                        <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
+                          <button type="button" className="aa-button" onClick={() => {
+                            setOwnerPendingDrivers((prev) => prev.filter((p) => p.id !== u.id));
+                            setOwnerAcceptedDrivers((prev) => prev.some((d) => d.id === u.id) ? prev : [{ ...u, status: "Approved" }, ...prev]);
+                          }}>Accept</button>
+                          <button type="button" className="aa-button plain" onClick={() => { setDeclineTarget(u); setModal("Decline driver application"); }}>Decline</button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {!demoPendingDrivers.length && <Empty>No pending driver approvals.</Empty>}
+            </div>
+          </Panel>
+        ) : null}
         <Panel title="Franchise drivers" sub="Driver information and personal details under this franchise">
           <div className="aa-tablewrap">
             <table className="aa-table">
-              <thead>
-                <tr>{["Driver", "Contact", "License No.", "Plate / unit", "Association / Franchise", "Status"].map((h) => <th key={h}>{h}</th>)}</tr>
-              </thead>
+              <thead><tr>{["Driver","Contact","License No.","Plate / unit","Franchise","Status"].map((h)=><th key={h}>{h}</th>)}</tr></thead>
               <tbody>
-                {myDrivers
-                  .filter((u) => !search || `${u.name} ${u.email} ${u.phone} ${u.license} ${u.plate} ${u.association}`.toLowerCase().includes(search.toLowerCase()))
-                  .map((u) => (
-                    <tr key={u.id} data-clickable onClick={() => open("Person details", u.id)}>
-                      <td><strong>{u.name}</strong><br /><small>{u.email}</small></td>
-                      <td>{u.phone || "—"}</td>
-                      <td>{u.license || "—"}</td>
-                      <td>{u.plate || "—"}{u.permitNo ? <><br /><small>Permit: {u.permitNo}</small></> : null}</td>
-                      <td>{u.association || "—"}</td>
-                      <td><Pill tone={u.verified ? "" : "amber"}>{u.verified ? "Verified" : "Pending"}{u.available ? " · Active" : ""}</Pill></td>
-                    </tr>
-                  ))}
+                {ownerFranchiseDrivers.filter((u: any) => !search || `${u.name} ${u.email} ${u.phone} ${u.license} ${u.plate} ${u.franchiseName || ""}`.toLowerCase().includes(search.toLowerCase())).map((u: any) => (
+                  <tr key={u.id} data-clickable={!("status" in u && u.status === "Approved")} onClick={() => { if (!("status" in u && u.status === "Approved")) { open("Person details", u.id); } }}>
+                    <td><strong>{u.name}</strong><br /><small>{u.email}</small></td>
+                    <td>{u.phone || "-"}</td>
+                    <td>{u.license || "-"}</td>
+                    <td>{u.plate || "-"}</td>
+                    <td>{u.franchiseName || "Calbayog Metro Express"}</td>
+                    <td><Pill tone={u.verified || u.status === "Approved" ? "green" : "amber"}>{u.status === "Approved" ? "Approved" : (u.verified ? "Verified" : "Pending")}{u.available ? " · Active" : ""}</Pill></td>
+                  </tr>
+                ))}
               </tbody>
             </table>
-            {!myDrivers.length && <Empty>No drivers assigned to this franchise.</Empty>}
+            {!ownerFranchiseDrivers.length && <Empty>No drivers assigned to this franchise.</Empty>}
           </div>
         </Panel>
       </>
     );
   } else if (page === "Fleet trips") {
+    const franchisePlates = new Set(myVehicles.map((v: any) => v.plate).filter(Boolean));
+    const franchiseTrips = isOwner
+      ? [...myTrips, ...(data.trips || []).filter((t) => t.plate && franchisePlates.has(t.plate))]
+          .filter((t, i, a) => a.findIndex((x) => x.id === t.id) === i)
+      : myTrips;
+    const populatedFleetTrips = franchiseTrips.length ? franchiseTrips : [
+      { id: "FT-2401", passenger: "Rhea M. Santos", driver: "Limuel Rosino", plate: "ABC 1231", status: "Completed", fare: 15, createdAt: nowDate.toISOString(), pickup: { name: "Calbayog Grand Terminal" }, destination: { name: "Nijaga Park" }, timestamps: { Accepted: now - 1800000, Completed: now - 1500000 } },
+      { id: "FT-2402", passenger: "Mark D. Uy", driver: "Rico Dela Cruz", plate: "PUV 1024", status: "In progress", fare: 13, createdAt: new Date(now - 20 * 60000).toISOString(), pickup: { name: "Capitolyo" }, destination: { name: "Public Market" }, timestamps: { Accepted: now - 1200000 } },
+      { id: "FT-2403", passenger: "Jessa L. Tan", driver: "Marco Villanueva", plate: "PUV 2048", status: "Completed", fare: 15, createdAt: new Date(now - 70 * 60000).toISOString(), pickup: { name: "Barangay Obrero" }, destination: { name: "Calbayog Grand Terminal" }, timestamps: { Accepted: now - 4200000, Completed: now - 3900000 } },
+      { id: "FT-2404", passenger: "Paolo R. Cruz", driver: "Limuel Rosino", plate: "ABC 1231", status: "Accepted", fare: 13, createdAt: new Date(now - 8 * 60000).toISOString(), pickup: { name: "Cathedral" }, destination: { name: "Rawis" }, timestamps: { Accepted: now - 480000 } },
+      { id: "FT-2405", passenger: "Ana G. Reyes", driver: "Unassigned", plate: "PUV 3096", status: "Requested", fare: 15, createdAt: new Date(now - 2 * 60000).toISOString(), pickup: { name: "City Hall" }, destination: { name: "Oquendo" }, timestamps: {} },
+    ] as unknown as Trip[];
+    const shownFleetTrips = populatedFleetTrips.filter((t) => (tripStatus === "All statuses" || t.status === tripStatus) && (!tripDate || new Date(t.createdAt).toLocaleDateString("en-CA") === tripDate) && `${t.id} ${t.passenger} ${t.driver || ""} ${(t as any).plate || ""}`.toLowerCase().includes(search.toLowerCase()));
     content = (
       <>
         <div className="aa-toolbar">
@@ -1481,15 +1410,16 @@ export default function AdminDashboard({
             <select className="aa-select" aria-label="Trip status" value={tripStatus} onChange={(e) => setTripStatus(e.target.value)}>
               {["All statuses","Requested","Accepted","Arrived","In progress","Completed","Cancelled"].map((s) => <option key={s}>{s}</option>)}
             </select>
+            <Pill tone="blue">{shownFleetTrips.length} records</Pill>
           </div>
-          <Search value={search} onChange={setSearch} placeholder="Trip, passenger, driver…" />
+          <Search value={search} onChange={setSearch} placeholder="Trip, passenger, driver, plate…" />
         </div>
-        <Panel title="Fleet trip logs" sub={`${myTrips.length} trip records under this franchise`}>
-          {tripTable(myTrips.filter((t) => (tripStatus === "All statuses" || t.status === tripStatus) && (!tripDate || new Date(t.createdAt).toLocaleDateString("en-CA") === tripDate) && `${t.id} ${t.passenger} ${t.driver || ""}`.toLowerCase().includes(search.toLowerCase())))}
+        <Panel title="Fleet trip logs" sub={`${shownFleetTrips.length} trip records under Calbayog Metro Express`}>
+          {tripTable(shownFleetTrips)}
         </Panel>
       </>
     );
-  } else {
+  } else if (page === "System monitor") {
     const staleShort = stale.filter(
         (v) => data.serverTime - v.location.updatedAt <= 300000,
       ),
@@ -1509,125 +1439,56 @@ export default function AdminDashboard({
             }
           >
             {[
-              {
-                label: "Authentication & session",
-                detail: "Authenticated",
-                good: true,
-              },
-              {
-                label: "Firebase data sync",
-                detail: connected ? "Connected" : "Unavailable",
-                good: connected,
-              },
-              {
-                label: "Driver location freshness",
-                detail: stale.length
-                  ? `${stale.length} stale`
-                  : data.vehicles.length
-                    ? "Fresh"
-                    : "No positions",
-                good: !stale.length,
-              },
-              {
-                label: "Routes & schedules",
-                detail: `${routes.length} active routes`,
-                good: true,
-              },
-              {
-                label: "Notifications",
-                detail: `${unread} unread`,
-                good: true,
-              },
+              { label: "Authentication & session", detail: "Authenticated", good: true },
+              { label: "Firebase data sync", detail: connected ? "Connected" : "Unavailable", good: connected },
+              { label: "Driver location freshness", detail: stale.length ? `${stale.length} stale` : vehicles.length ? "Fresh" : "No positions", good: !stale.length },
+              { label: "Routes & schedules", detail: `${routes.length} active routes`, good: true },
+              { label: "Notifications", detail: `${unread} unread`, good: true },
             ].map((row) => (
               <div className="aa-statusrow" key={row.label}>
-                <span>
-                  <span style={{ color: row.good ? "#087154" : "#efaa43" }}>
-                    ●
-                  </span>{" "}
-                  &nbsp;{row.label}
-                </span>
+                <span><span style={{ color: row.good ? "#087154" : "#efaa43" }}>●</span> &nbsp;{row.label}</span>
                 <Pill tone={row.good ? "" : "amber"}>{row.detail}</Pill>
               </div>
             ))}
           </Panel>
-          <Panel
-            title="Driver location freshness"
-            tag={<Pill tone="gray">{data.vehicles.length} positions</Pill>}
-          >
-            <Meter
-              label="Live · < 60 sec"
-              value={live.length}
-              total={data.vehicles.length}
-            />
-            <Meter
-              label="Stale · 1–5 min"
-              value={staleShort.length}
-              total={data.vehicles.length}
-              color="#efa53e"
-            />
-            <Meter
-              label="Offline · > 5 min"
-              value={staleLong.length}
-              total={data.vehicles.length}
-              color="#e87964"
-            />
+          <Panel title="Driver location freshness" tag={<Pill tone="gray">{vehicles.length} positions</Pill>}>
+            <Meter label="Live · < 60 sec" value={live.length} total={vehicles.length} />
+            <Meter label="Stale · 1–5 min" value={staleShort.length} total={vehicles.length} color="#efa53e" />
+            <Meter label="Offline · > 5 min" value={staleLong.length} total={vehicles.length} color="#e87964" />
             <div className="aa-policy amber">
-              <strong>
-                <Glyph name="clock" size={13} />
-                Location freshness
-              </strong>
-              Rider apps show a timestamp and last known position when GPS is
-              stale.
+              <strong><Glyph name="clock" size={13} />Location freshness</strong>
+              Rider apps show a timestamp and last known position when GPS is stale.
             </div>
           </Panel>
         </div>
-        <Panel
-          title="Audit trail"
-          sub="Recorded administrative and automated actions"
-          tag={<Pill tone="gray">Latest {data.logs.length}</Pill>}
-        >
+        <Panel title="Audit trail" sub="Recorded administrative and automated actions" tag={<Pill tone="gray">Latest {(logs || []).length}</Pill>}>
           <div className="aa-tablewrap">
             <table className="aa-table">
-              <thead>
-                <tr>
-                  {["Time", "Actor", "Action", "Event"].map((h) => (
-                    <th key={h}>{h}</th>
-                  ))}
-                </tr>
-              </thead>
+              <thead><tr>{["Time", "Actor", "Action", "Event"].map((h) => <th key={h}>{h}</th>)}</tr></thead>
               <tbody>
-                {data.logs.map((log, i) => {
-                  const actorId = (log as typeof log & { actor_id?: string })
-                    .actor_id;
+                {(logs || []).map((log: any, i: number) => {
+                  const actorId = (log as typeof log & { actor_id?: string }).actor_id;
                   return (
                     <tr key={log.id || i}>
-                      <td>
-                        {new Date(log.at).toLocaleString("en-PH", {
-                          timeZone: "Asia/Manila",
-                          hour12: false,
-                        })}
-                      </td>
-                      <td>
-                        {data.users.find((u) => u.id === actorId)?.name ||
-                          (actorId ? shortId(actorId) : "System")}
-                      </td>
-                      <td>
-                        <strong>{log.action}</strong>
-                      </td>
-                      <td>
-                        <Pill tone="gray">
-                          {log.action.toLowerCase().replaceAll(" ", ".")}
-                        </Pill>
-                      </td>
+                      <td>{new Date(log.at).toLocaleString("en-PH", { timeZone: "Asia/Manila", hour12: false })}</td>
+                      <td>{users.find((u: any) => u.id === actorId)?.name || (actorId ? shortId(actorId) : "System")}</td>
+                      <td><strong>{log.action}</strong></td>
+                      <td><Pill tone="gray">{String(log.action || "").toLowerCase().replaceAll(" ", ".")}</Pill></td>
                     </tr>
                   );
                 })}
               </tbody>
             </table>
-            {!data.logs.length && <Empty>No audit events recorded.</Empty>}
+            {!(logs || []).length && <Empty>No audit events recorded.</Empty>}
           </div>
         </Panel>
       </>
+    );
+  } else {
+    content = (
+      <Panel title={page} sub="This section is available for authorized administrators.">
+        <Empty>No data to display.</Empty>
+      </Panel>
     );
   }
   return (
@@ -1642,7 +1503,7 @@ export default function AdminDashboard({
               onClick={() => go(name)}
             >
               <Glyph
-                name={["overview", "people", "route", "report", "shield"][i]}
+                name={(isOwner ? ["overview","arrow","people","route","report"] : ["overview","arrow","people","route","report","shield"])[i] || "overview"}
               />
               {name}
             </button>
@@ -1652,7 +1513,7 @@ export default function AdminDashboard({
           <span className="aa-avatar">{initials(data.user.name)}</span>
           <span>
             <b>{data.user.name}</b>
-            <small>City transport admin</small>
+            <small>{isOwner ? "Calbayog Metro Express" : "City transport admin"}</small>
           </span>
         </button>
       </aside>
@@ -1669,7 +1530,7 @@ export default function AdminDashboard({
             <div className="aa-headtools">
               <span className="aa-date">
                 <Glyph name="calendar" size={13} />
-                {now.toLocaleDateString("en-PH", {
+                {nowDate.toLocaleDateString("en-PH", {
                   timeZone: "Asia/Manila",
                   weekday: "short",
                   day: "2-digit",
@@ -1699,7 +1560,7 @@ export default function AdminDashboard({
               )}
             </div>
           )}
-          <Stats items={stats[pageIndex]} />
+          <Stats items={stats[pageIndex] || stats[0] || []} />
           {content}
         </div>
       </main>
@@ -1709,6 +1570,7 @@ export default function AdminDashboard({
           onClick={(e) => {
             if (e.target === e.currentTarget) {
               setModal(null);
+              setDeclineTarget(null);
             }
           }}
         >
@@ -1725,7 +1587,7 @@ export default function AdminDashboard({
               <button
                 className="aa-iconbutton"
                 aria-label="Close dialog"
-                onClick={() => setModal(null)}
+                onClick={() => { setModal(null); setDeclineTarget(null); }}
               >
                 <Glyph name="close" />
               </button>
@@ -1737,7 +1599,7 @@ export default function AdminDashboard({
                 key={`${modal}-${selectedId || "new"}`}
                 initialRoute={
                   modal === "Route management"
-                    ? data.routes.find((r) => r.id === selectedId)
+                    ? (Array.isArray(data.routes)?data.routes:[]).find((r) => r.id === selectedId)
                     : undefined
                 }
                 section={
@@ -1751,6 +1613,81 @@ export default function AdminDashboard({
                 busy={busy}
                 action={action}
               />
+            )}
+            {modal === "Add vehicle" && (
+              <>
+                <p>Enter vehicle details. New vehicles are added with <strong>In Terminal</strong> status.</p>
+                <div style={{ display: "grid", gap: 12, marginTop: 12 }}>
+                  <label style={{ display: "grid", gap: 6, fontSize: 13, fontWeight: 600, color: "#163428" }}>
+                    Plate No. / unit
+                    <input className="aa-input" style={{ width: "100%", minHeight: 42, borderRadius: 10, border: "1px solid #D6E2DB", padding: "10px 12px", fontSize: 14 }} aria-label="Plate number" value={vehicleForm.plate} onChange={(e) => setVehicleForm((f) => ({ ...f, plate: e.target.value }))} placeholder="e.g. PUV 3096" />
+                  </label>
+                  <label style={{ display: "grid", gap: 6, fontSize: 13, fontWeight: 600, color: "#163428" }}>
+                    Vehicle type
+                    <select className="aa-select" style={{ width: "100%", minHeight: 42, borderRadius: 10, border: "1px solid #D6E2DB", padding: "10px 12px", fontSize: 14, background: "#fff" }} aria-label="Vehicle type" value={vehicleForm.vehicleType} onChange={(e) => setVehicleForm((f) => ({ ...f, vehicleType: e.target.value }))}>
+                      {["Jeepney","Modern Jeepney","Bus","Mini Van","Coaster","SUV","PUV"].map((t: any) => <option key={t} value={t}>{t}</option>)}
+                    </select>
+                  </label>
+                  <label style={{ display: "grid", gap: 6, fontSize: 13, fontWeight: 600, color: "#163428" }}>
+                    Current driver
+                    <input className="aa-input" style={{ width: "100%", minHeight: 42, borderRadius: 10, border: "1px solid #D6E2DB", padding: "10px 12px", fontSize: 14 }} aria-label="Current driver" value={vehicleForm.currentDriver} onChange={(e) => setVehicleForm((f) => ({ ...f, currentDriver: e.target.value }))} placeholder="Driver name or Unassigned" />
+                  </label>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                    <label style={{ display: "grid", gap: 6, fontSize: 13, fontWeight: 600, color: "#163428" }}>
+                      Route ID
+                      <input className="aa-input" style={{ width: "100%", minHeight: 42, borderRadius: 10, border: "1px solid #D6E2DB", padding: "10px 12px", fontSize: 14 }} aria-label="Route ID" value={vehicleForm.routeId} onChange={(e) => setVehicleForm((f) => ({ ...f, routeId: e.target.value }))} placeholder="e.g. CB01" />
+                    </label>
+                    <label style={{ display: "grid", gap: 6, fontSize: 13, fontWeight: 600, color: "#163428" }}>
+                      Capacity
+                      <input className="aa-input" style={{ width: "100%", minHeight: 42, borderRadius: 10, border: "1px solid #D6E2DB", padding: "10px 12px", fontSize: 14 }} aria-label="Capacity" value={vehicleForm.capacity} onChange={(e) => setVehicleForm((f) => ({ ...f, capacity: e.target.value.replace(/[^0-9]/g, "") }))} placeholder="e.g. 18" inputMode="numeric" />
+                    </label>
+                  </div>
+                  <div style={{ background: "#F4F8F5", border: "1px solid #DCE8E1", borderRadius: 10, padding: "10px 12px", fontSize: 13, color: "#355346" }}>
+                    Initial status: <strong>In Terminal</strong> (Calbayog Metro Express)
+                  </div>
+                </div>
+                {vehicleFormError ? <p style={{ color: "#C53B1D", fontSize: 13, margin: "10px 0 0" }} role="alert">{vehicleFormError}</p> : null}
+                <div style={{ display:"flex", gap:8, marginTop:14, flexWrap:"wrap", justifyContent: "flex-end" }}>
+                  <button type="button" className="aa-button plain" onClick={() => { setVehicleFormError(""); setModal(null); }}>Cancel</button>
+                  <button type="button" className="aa-button" onClick={() => {
+                    if (!vehicleForm.plate.trim()) { setVehicleFormError("Plate No. / unit is required."); return; }
+                    if (!vehicleForm.vehicleType.trim()) { setVehicleFormError("Vehicle type is required."); return; }
+                    setOwnerAddedVehicles((prev) => [{
+                      id: `owner-vehicle-${Date.now()}`,
+                      plate: vehicleForm.plate.trim(),
+                      vehicleType: vehicleForm.vehicleType.trim(),
+                      currentDriver: vehicleForm.currentDriver.trim() || "Unassigned",
+                      name: vehicleForm.currentDriver.trim() || "Unassigned",
+                      routeId: vehicleForm.routeId.trim() || "—",
+                      capacity: Number(vehicleForm.capacity) || 0,
+                      status: "In Terminal",
+                      kind: "PUJ / PUV driver",
+                      ownerName: "Calbayog Metro Express",
+                    }, ...prev]);
+                    setVehicleForm({ plate: "", vehicleType: "Jeepney", currentDriver: "", routeId: "", capacity: "" });
+                    setVehicleFormError("");
+                    setModal(null);
+                  }}>Add vehicle</button>
+                </div>
+              </>
+            )}
+            {modal === "Decline driver application" && declineTarget && (
+              <>
+                <p>Reconfirm decline for this driver application.</p>
+                <dl>
+                  {[["Driver name", declineTarget.name], ["Email", declineTarget.email], ["Contact", declineTarget.phone], ["License No.", declineTarget.license], ["Plate / unit", declineTarget.plate], ["Franchise", declineTarget.franchiseName]].map(([label, value]) => (
+                    <React.Fragment key={label}><dt>{label}</dt><dd>{String(value)}</dd></React.Fragment>
+                  ))}
+                </dl>
+                <div style={{ display:"flex", gap:8, marginTop:12, flexWrap:"wrap" }}>
+                  <button type="button" className="aa-button" style={{ backgroundColor: "#C53B1D", borderColor: "#C53B1D" }} onClick={() => {
+                    setOwnerPendingDrivers((prev) => prev.filter((p) => p.id !== declineTarget.id));
+                    setDeclineTarget(null);
+                    setModal(null);
+                  }}>Confirm decline</button>
+                  <button type="button" className="aa-button plain" onClick={() => { setDeclineTarget(null); setModal(null); }}>Cancel</button>
+                </div>
+              </>
             )}
             {modal === "Add driver" && (
               <>
@@ -1774,6 +1711,54 @@ export default function AdminDashboard({
                 </button>
               </>
             )}
+            {modal === "Vehicle details" && (() => {
+              const v = ([...ownerAddedVehicles, ...myVehicles, ...vehicles] as any[]).find((x)=>x.id===selectedId);
+              if (!v) { return <Empty>Vehicle details not available.</Empty>; }
+              const decommissioned = ownerDecommissionedVehicleIds.includes(v.id) || v.status === "Decommissioned";
+              return (
+                <>
+                  <dl>
+                    {[["Plate No. / unit", v.plate || "—"],["Vehicle type", v.vehicleType || "Franchise vehicle"],["Current driver", v.currentDriver || v.name || "Unassigned"],["Route ID", v.routeId || "—"],["Capacity", v.capacity ? String(v.capacity) : "—"],["Franchise", v.ownerName || "Calbayog Metro Express"],["Status", decommissioned ? "Decommissioned" : (v.status || "Active")]].map(([label,value])=>(
+                      <React.Fragment key={String(label)}><dt>{label}</dt><dd>{String(value)}</dd></React.Fragment>
+                    ))}
+                  </dl>
+                  <div style={{ display:"flex", gap:8, marginTop:12, flexWrap:"wrap" }}>
+                    {!decommissioned ? (
+                      <button type="button" className="aa-button" style={{ backgroundColor:"#C53B1D", borderColor:"#C53B1D" }} onClick={() => {
+                        if (ownerAddedVehicles.some((x:any)=>x.id===v.id)) { setOwnerAddedVehicles((prev)=>prev.map((x:any)=>x.id===v.id?{...x,status:"Decommissioned"}:x)); }
+                        else { setOwnerDecommissionedVehicleIds((prev)=> prev.includes(v.id)?prev:[...prev,v.id]); }
+                        setModal(null);
+                      }}>Decommission vehicle</button>
+                    ) : <Pill tone="red">Decommissioned</Pill>}
+                    <button type="button" className="aa-button plain" onClick={() => setModal(null)}>Close</button>
+                  </div>
+                </>
+              );
+            })()}
+            {modal === "Franchise driver details" && (() => {
+              const d = [...ownerAcceptedDrivers, ...myDrivers, ...ownerPendingDrivers].find((x: any) => x.id === selectedId);
+              if (!d) { return <Empty>Driver details not available.</Empty>; }
+              const revoked = ownerRevokedDriverIds.includes(d.id);
+              return (
+                <>
+                  <dl>
+                    {[["Full name", d.name],["Email", d.email || "—"],["Contact", d.phone || "—"],["Account type", "Franchise driver"],["License No.", d.license || "—"],["Plate / unit", d.plate || "—"],["Franchise", d.franchiseName || "Calbayog Metro Express"],["Status", revoked ? "Access revoked" : (d.status || (d.verified ? "Verified" : "Pending"))]].map(([label,value]) => (
+                      <React.Fragment key={String(label)}><dt>{label}</dt><dd>{String(value)}</dd></React.Fragment>
+                    ))}
+                  </dl>
+                  <div style={{ display:"flex", gap:8, marginTop:12, flexWrap:"wrap" }}>
+                    {!revoked ? (
+                      <button type="button" className="aa-button" style={{ backgroundColor:"#C53B1D", borderColor:"#C53B1D" }} onClick={() => {
+                        if (ownerAcceptedDrivers.some((x)=>x.id===d.id)) { setOwnerAcceptedDrivers((prev)=>prev.filter((x)=>x.id!==d.id)); }
+                        else { setOwnerRevokedDriverIds((prev)=> prev.includes(d.id)?prev:[...prev,d.id]); }
+                        setModal(null);
+                      }}>Revoke access</button>
+                    ) : <Pill tone="red">Access revoked</Pill>}
+                    <button type="button" className="aa-button plain" onClick={() => setModal(null)}>Close</button>
+                  </div>
+                </>
+              );
+            })()}
             {modal === "Person details" && selectedUser && (
               <>
                 <dl>
@@ -1829,7 +1814,7 @@ export default function AdminDashboard({
                           }
                         >
                           <option value="">No route assigned</option>
-                          {routes.map((r) => (
+                          {routes.map((r: any) => (
                             <option key={r.id} value={r.id}>
                               {r.name}
                             </option>
@@ -1881,7 +1866,7 @@ export default function AdminDashboard({
             )}
             {modal === "User reports" && (
               <>
-                {data.reports.map((r) => (
+                {reports.map((r: any) => (
                   <div className="aa-modal-list" key={r.id}>
                     <p>{r.details}</p>
                     <div className="aa-toolbar">
@@ -1909,7 +1894,7 @@ export default function AdminDashboard({
                     </div>
                   </div>
                 ))}
-                {!data.reports.length && <Empty>No reports submitted.</Empty>}
+                {!reports.length && <Empty>No reports submitted.</Empty>}
               </>
             )}
             {modal === "Notifications" && (
@@ -1922,7 +1907,7 @@ export default function AdminDashboard({
                   Mark all as read
                 </button>
                 <div style={{ marginTop: 18 }}>
-                  {data.notifications.map((n) => (
+                  {notifications.map((n) => (
                     <div className="aa-modal-list" key={n.id}>
                       <p style={{ fontWeight: n.read ? 400 : 600 }}>
                         {n.message}
@@ -1934,7 +1919,7 @@ export default function AdminDashboard({
                       </span>
                     </div>
                   ))}
-                  {!data.notifications.length && (
+                  {!notifications.length && (
                     <Empty>You’re all caught up.</Empty>
                   )}
                 </div>

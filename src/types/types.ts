@@ -6,6 +6,7 @@ export type Role =
   | "Vehicle Owner / Operator";
 export type AdminLevel = "Technical Team" | "Franchise Owner";
 export type VehicleStatus = "Arrived" | "In Terminal" | "Broken / Inactive" | "In transit";
+export type ApplicationStatus = "pending" | "accepted" | "declined";
 export type Point = { name: string; latitude: number; longitude: number };
 export type Geometry = { type: "LineString"; coordinates: number[][] };
 export type User = {
@@ -20,6 +21,8 @@ export type User = {
   available: boolean;
   verified: boolean;
   pendingFranchiseApproval?: boolean;
+  applicationStatus?: ApplicationStatus;
+  licenseDocAttached?: boolean;
   license: string;
   association: string;
   plate: string;

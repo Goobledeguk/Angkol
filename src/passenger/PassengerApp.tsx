@@ -23,7 +23,6 @@ import CalbayogMap from "../map/CalbayogMap";
 import { Icon, money } from "../common/ui";
 import { ps, passengerColors as c } from "./passengerStyles";
 import DriverAvatar from "../common/DriverAvatar";
-import { Skeleton, CardSkeleton, ListSkeleton } from "../common/Skeleton";
 
 type Props = {
   data: Snapshot;
@@ -228,7 +227,7 @@ export default function PassengerApp({
   logout,
 }: Props) {
   const insets = useSafeAreaInsets();
-  const navLift = insets.bottom > 0 ? Math.max(insets.bottom - 8, 0) : 0;
+  const navLift = insets.bottom > 0 ? Math.max(insets.bottom - 30, 0) : 0;
   const params = useLocalSearchParams<{ screen?: string; trip?: string }>();
   const aliases: Record<string, string> = {
     "My trips": "Trips",
@@ -270,7 +269,7 @@ export default function PassengerApp({
   const [name, setName] = useState(data.user.name),
     [phone, setPhone] = useState(data.user.phone),
     [report, setReport] = useState("");
-  const [paymentMethod, setPaymentMethod] = useState("Cash");
+  const [paymentMethod] = useState("Cash");
   const submitting = useRef(false),
     scroll = useRef<React.ComponentRef<typeof ScrollView>>(null),
     previousStatuses = useRef(new Map(data.trips.map((t) => [t.id, t.status])));
@@ -483,7 +482,7 @@ export default function PassengerApp({
     );
   }
   const disclaimer = data.sampleMode
-    ? "Sample fares only · not an official LGU tariff"
+    ? "Sample fares only · not an official LGU fares"
     : "Cash payments go directly to your driver";
   const tabPages = ["Home", "Routes", "Terminals", "Trips", "Profile"];
   const cityHour = Number(
@@ -546,14 +545,7 @@ export default function PassengerApp({
           <Text style={ps.body}>Total fare</Text>
           <Text style={ps.total}>{money(value.fare)}</Text>
         </View>
-        <View style={ps.row}>
-          <Icon name="cash-outline" size={16} />
-          <Text style={[ps.small, { color: c.green }]}>
-            {demo
-              ? `${demo.method} · Test succeeded — no money charged`
-              : "Cash to driver"}
-          </Text>
-        </View>
+       
         {demo && (
           <Text style={ps.small}>
             Demo reference: {demo.reference}. This is not proof of payment. The
@@ -600,21 +592,16 @@ export default function PassengerApp({
           disabled={locked}
           onPress={gps}
         />
-        {map(240, "select")}
-        <View style={ps.tabRow}>
-          {(["pickup", "destination"] as const).map((kind) => (
-            <Pressable
-              key={kind}
-              accessibilityRole="button"
-              onPress={() => setEditing(kind)}
-              style={[
-                ps.pill,
-                editing !== kind && { backgroundColor: "#E9EFEB" },
-              ]}
-            >
-              <Text style={ps.pillText}>Tap map to set {kind}</Text>
-            </Pressable>
-          ))}
+        <View style={{ gap: 8 }}>
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => setEditing((m) => (m === "pickup" ? "destination" : "pickup"))}
+            style={[ps.pill, { alignSelf: "flex-start", flexDirection: "row", alignItems: "center", gap: 6 }]}
+          >
+            <Icon name={editing === "pickup" ? "location-outline" : "flag-outline"} size={14} color={c.green} />
+            <Text style={ps.pillText}>Tap map to set {editing}</Text>
+          </Pressable>
+          {map(240, "select")}
         </View>
         <View>
           <Text style={ps.section}>
@@ -733,25 +720,16 @@ export default function PassengerApp({
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={ps.label}>Regular tricycle</Text>
-                <Text style={ps.tiny}>Direct ride · registered driver</Text>
+                <Text style={ps.tiny}>Direct ride · Registered driver</Text>
               </View>
               <Text style={ps.fare}>{money(quote.fare)}</Text>
             </View>
             <View style={ps.between}>
               <Tag text="Selected · fixed total" />
-              <Text style={ps.tiny}>Driver assigned after confirmation</Text>
+              
             </View>
           </View>
-          <View style={[ps.card, { opacity: 0.65 }]}>
-            <View style={ps.row}>
-              <Icon name="person-outline" size={25} />
-              <View style={{ flex: 1 }}>
-                <Text style={ps.label}>Solo tricycle</Text>
-                <Text style={ps.tiny}>Separate service not configured</Text>
-              </View>
-              <Text style={ps.small}>Unavailable</Text>
-            </View>
-          </View>
+          
           <Pressable
             accessibilityRole="button"
             onPress={() => go("Routes")}
@@ -771,14 +749,7 @@ export default function PassengerApp({
             </View>
             <Tag text="Per passenger" />
           </Pressable>
-          <Hint
-            info
-            text={
-              quote.sampleFare
-                ? "Fixed fares use sample transport tables. These amounts are illustrative, not official tariffs."
-                : `Configured fare reference: ${quote.fareReference}`
-            }
-          />
+         
         </>
       );
       footer = (
@@ -796,47 +767,10 @@ export default function PassengerApp({
           </View>
           {receiptDetails(quote)}
           {fares(quote)}
-          <View style={ps.card}>
-            <Text style={ps.section}>Payment method</Text>
-            <Text style={ps.small}>
-              Electronic options are demos only. No account details, PIN, or OTP
-              are needed.
-            </Text>
-            {["Cash", "GCash", "Maya", "Bank transfer"].map((method) => (
-              <Pressable
-                key={method}
-                accessibilityRole="radio"
-                accessibilityState={{ checked: paymentMethod === method }}
-                disabled={locked}
-                onPress={() => setPaymentMethod(method)}
-                style={[ps.card, paymentMethod === method && ps.selected]}
-              >
-                <View style={ps.between}>
-                  <Text style={ps.label}>
-                    {method === "Cash"
-                      ? "Cash to driver"
-                      : `${method} · Test payment`}
-                  </Text>
-                  <Icon
-                    name={
-                      paymentMethod === method
-                        ? "radio-button-on"
-                        : "radio-button-off"
-                    }
-                    size={20}
-                  />
-                </View>
-              </Pressable>
-            ))}
-            {paymentMethod !== "Cash" && (
-              <Hint
-                text={`Test payment — no money charged. Confirming simulates a successful ${paymentMethod} payment and requests a ride. The actual fare remains payable to your driver.`}
-              />
-            )}
-          </View>
+          
           <Hint
             info
-            icon="shield-checkmark-outline"
+            icon="information-circle-outline"
             text="A verified driver will be assigned after you confirm. Their name, license approval, and vehicle details appear next."
           />
           <View style={{ flex: 1 }} />
@@ -1089,7 +1023,7 @@ export default function PassengerApp({
           )}
           {trip.status === "Completed" && (
             <Action
-              title="View your receipt"
+              title="Done"
               onPress={() => go("Receipt", trip.id)}
             />
           )}
@@ -1098,29 +1032,15 @@ export default function PassengerApp({
       footer = (
         <>
           {page === "Ride accepted" ? (
-            <Action
-              title="Track my ride"
-              icon="navigate-outline"
-              onPress={() => go("Track ride", trip.id)}
-            />
+            <Action title="Track my ride" icon="navigate-outline" onPress={() => go("Track ride", trip.id)} />
+          ) : trip.status === "Completed" ? (
+            <Action title="Done" icon="checkmark-circle-outline" onPress={() => go("Trips")} />
           ) : (
-            <Action
-              title="Share trip status"
-              icon="share-social-outline"
-              light
-              disabled={locked}
-              onPress={() => share()}
-            />
+            <Action title="Share trip status" icon="share-social-outline" light disabled={locked} onPress={() => share()} />
           )}
           {["Requested", "Accepted"].includes(trip.status) && (
-            <Pressable
-              accessibilityRole="button"
-              disabled={locked}
-              onPress={cancel}
-            >
-              <Text style={ps.textLink}>
-                Need to change plans? Cancel request
-              </Text>
+            <Pressable accessibilityRole="button" disabled={locked} onPress={cancel}>
+              <Text style={ps.textLink}>Need to change plans? Cancel request</Text>
             </Pressable>
           )}
         </>
@@ -1338,7 +1258,7 @@ export default function PassengerApp({
         {trip?.status === "Completed" && (
           <View style={{ flex: 1 }}>
             <Action
-              title="Save receipt"
+              title="Done"
               icon="download-outline"
               light
               disabled={locked}
@@ -1586,7 +1506,7 @@ export default function PassengerApp({
         <View style={[ps.nav, { marginBottom: navLift }]}>
           {[
             { label: "Home", icon: "home-outline" as IconName },
-            { label: "Routes", icon: "navigate-outline" as IconName },
+            { label: "Routes", icon: "navigate-circle-outline" as IconName },
             { label: "Trips", icon: "time-outline" as IconName },
             { label: "Profile", icon: "person-outline" as IconName },
           ].map((tab) => {

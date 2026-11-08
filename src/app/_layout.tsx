@@ -1,4 +1,3 @@
-import "react-native-gesture-handler";
 import { useFonts } from "expo-font";
 import { useEffect } from "react";
 import { Image, Platform, View, StyleSheet } from "react-native";
@@ -6,7 +5,7 @@ import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
-import { NavigationBar } from "expo-navigation-bar";
+import * as NavigationBar from "expo-navigation-bar";
 
 export default function Layout() {
   const [loaded, error] = useFonts({
@@ -14,23 +13,38 @@ export default function Layout() {
   });
 
   useEffect(() => {
-    if (Platform.OS !== "android") return;
-    try {
-      NavigationBar.setStyle("dark");
-    } catch {}
+    if (Platform.OS !== "android") {
+      return;
+    }
+    void (async () => {
+      try {
+        const nav = NavigationBar as any;
+        if (typeof nav.setPositionAsync === "function") {
+          await nav.setPositionAsync("relative");
+        }
+        if (typeof nav.setBackgroundColorAsync === "function") {
+          await nav.setBackgroundColorAsync("#FFFFFF");
+        }
+        if (typeof nav.setButtonStyleAsync === "function") {
+          await nav.setButtonStyleAsync("dark");
+        }
+      } catch {}
+    })();
   }, []);
 
   if (!loaded && !error) {
     return (
-      <View style={styles.splash}>
-        <StatusBar style="light" />
-        <Image
-          source={require("../../assets/angkol-icon.png")}
-          style={styles.splashIcon}
-          resizeMode="contain"
-          accessibilityLabel="Angkol Splash"
-        />
-      </View>
+      <SafeAreaProvider style={{ flex: 1 }}>
+        <View style={styles.splash}>
+          <StatusBar style="light" />
+          <Image
+            source={require("../../assets/angkol-icon.png")}
+            style={styles.splashIcon}
+            resizeMode="contain"
+            accessibilityLabel="Angkol Splash"
+          />
+        </View>
+      </SafeAreaProvider>
     );
   }
 
@@ -38,7 +52,6 @@ export default function Layout() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider style={{ flex: 1 }}>
         <StatusBar style="dark" />
-        <NavigationBar style="dark" />
         <Stack
           screenOptions={{
             headerShown: false,
