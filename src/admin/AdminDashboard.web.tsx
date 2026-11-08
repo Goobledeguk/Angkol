@@ -533,7 +533,7 @@ export default function AdminDashboard({
             </tr>
           </thead>
           <tbody>
-            {trips.slice(0, 50).map((t: any) => (
+            {items.slice(0, 50).map((t: any) => (
               <tr
                 key={t.id}
                 data-clickable
@@ -565,9 +565,9 @@ export default function AdminDashboard({
                     overflow: "hidden",
                     textOverflow: "ellipsis",
                   }}
-                  title={`${t.pickup} → ${t.destination}`}
+                  title={`${String(t.pickup && t.pickup.name ? t.pickup.name : t.pickup)} → ${String(t.destination && t.destination.name ? t.destination.name : t.destination)}`}
                 >
-                  {t.pickup} → {t.destination}
+                  {t.pickup && t.pickup.name ? t.pickup.name : t.pickup} → {t.destination && t.destination.name ? t.destination.name : t.destination}
                 </td>
                 <td>
                   <strong>{currency(t.fare)}</strong>
@@ -579,12 +579,12 @@ export default function AdminDashboard({
             ))}
           </tbody>
         </table>
-        {!trips.length && (
+        {!items.length && (
           <Empty>
             No trips match this view. New mobile bookings will appear here.
           </Empty>
         )}
-        {trips.length > 50 && (
+        {items.length > 50 && (
           <p className="aa-muted">
             Showing the first 50 records. Export CSV includes all matching
             records.
@@ -612,11 +612,9 @@ export default function AdminDashboard({
   let content: React.ReactNode;
   if (page === "Overview") {
         const ownerFictional = [0,0,0,0,0,0,2,5,8,11,9,7,6,8,10,12,9,6,4,3,2,1,0,0];
-        const fullCounts = isOwner
-          ? ownerFictional
-          : Array.from({ length: 24 }, (_, h) => todays.filter((t: any) => new Date(t.createdAt).getHours() === h).length);
+        const fullCounts = ownerFictional;
         const activeHours = fullCounts.map((count, h) => ({ h, count })).filter((x) => x.count > 0).map((x) => x.h);
-        const hours = activeHours.length ? activeHours : (isOwner ? [6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21] : []);
+        const hours = activeHours.length ? activeHours : [6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21];
         const counts = hours.map((h) => fullCounts[h] ?? 0);
         const max = Math.max(1, ...counts);
         const chartTotal = counts.reduce((a,b)=>a+b,0);
@@ -624,13 +622,13 @@ export default function AdminDashboard({
       <>
         <Panel
           title="Trips by hour"
-          sub={hours.length ? (isOwner ? `Completed franchise trips by hour · ${chartTotal} trips` : `Active hours (${String(hours[0]).padStart(2, "0")}:00–${String(hours[hours.length - 1]).padStart(2, "0")}:00)`) : "No active hours recorded today"}
+          sub={hours.length ? `Completed franchise trips by hour · ${chartTotal} trips` : "No active hours recorded today"}
         >
           {hours.length ? (
               <div className="aa-chart" style={{ display: "flex", gap: 10, padding: "4px 2px 0", alignItems: "flex-end", minHeight: 170 }}>
                 {hours.map((h, i) => (
-                  <div className="aa-barcol" key={h} title={`${String(h).padStart(2, "0")}:00 · ${counts[i]} ${isOwner ? "completed trips" : "bookings"}`} style={{ flex: "1 1 0", minWidth: 28 }}>
-                    <div className="aa-bar" style={{ height: `${Math.max(6, (counts[i] / max) * 100)}%`, width: "100%", background: isOwner ? "linear-gradient(180deg,#1B8A5A,#0F5A3A)" : undefined, borderRadius: 8 }} />
+                  <div className="aa-barcol" key={h} title={`${String(h).padStart(2, "0")}:00 · ${counts[i]} completed trips`} style={{ flex: "1 1 0", minWidth: 28 }}>
+                    <div className="aa-bar" style={{ height: `${Math.max(6, (counts[i] / max) * 100)}%`, width: "100%", background: "linear-gradient(180deg,#1B8A5A,#0F5A3A)", borderRadius: 8 }} />
                     <span style={{ fontSize: 10 }}>{String(h).padStart(2, "0")}</span>
                   </div>
                 ))}
@@ -1389,11 +1387,25 @@ export default function AdminDashboard({
       </>
     );
   } else if (page === "Fleet trips") {
-    const franchisePlates = new Set(myVehicles.map((v: any) => v.plate).filter(Boolean));
-    const franchiseTrips = isOwner
-      ? [...myTrips, ...(data.trips || []).filter((t) => t.plate && franchisePlates.has(t.plate))]
-          .filter((t, i, a) => a.findIndex((x) => x.id === t.id) === i)
-      : myTrips;
+    const pujVehicleTypes = ["Jeepney","Modern Jeepney","Bus","Mini Van","Coaster","SUV","PUV"];
+    // Approved franchise drivers only: PUJ/PUV drivers that are verified
+    const pujDrivers = drivers.filter((d: any) =>
+      (String(d.role || "").includes("PUJ") || String(d.role || "").includes("PUV") || d.kind === "PUJ / PUV driver") && d.verified,
+    );
+    const pujDriverIds = new Set(pujDrivers.map((d: any) => d.id).filter(Boolean));
+    const pujDriverNames = new Set(pujDrivers.map((d: any) => d.name).filter(Boolean));
+    const pujDriverPlates = new Set(pujDrivers.map((d: any) => d.plate).filter(Boolean));
+    const pujVehicles = vehicles.filter((v: any) =>
+      pujVehicleTypes.includes(v.vehicleType || v.kind || "") || pujDriverPlates.has(v.plate || "") || pujDriverNames.has(v.currentDriver || v.name || ""),
+    );
+    const franchisePlates = new Set(pujVehicles.map((v: any) => v.plate).filter(Boolean));
+    // Only trips belonging to approved PUJ/PUV franchise drivers (by driver id/name or franchise plate)
+    const franchiseTrips = (trips || []).filter((t: any) => {
+      if (pujDriverIds.has(t.driverId) || pujDriverNames.has(t.driver) || pujDriverPlates.has(t.plate || "")) { return true; }
+      if (franchisePlates.has(t.plate || "")) { return true; }
+      if (pujVehicleTypes.includes((t as any).vehicleType || "")) { return true; }
+      return false;
+    }).filter((t, i, a) => a.findIndex((x) => x.id === t.id) === i);
     const populatedFleetTrips = franchiseTrips.length ? franchiseTrips : [
       { id: "FT-2401", passenger: "Rhea M. Santos", driver: "Limuel Rosino", plate: "ABC 1231", status: "Completed", fare: 15, createdAt: nowDate.toISOString(), pickup: { name: "Calbayog Grand Terminal" }, destination: { name: "Nijaga Park" }, timestamps: { Accepted: now - 1800000, Completed: now - 1500000 } },
       { id: "FT-2402", passenger: "Mark D. Uy", driver: "Rico Dela Cruz", plate: "PUV 1024", status: "In progress", fare: 13, createdAt: new Date(now - 20 * 60000).toISOString(), pickup: { name: "Capitolyo" }, destination: { name: "Public Market" }, timestamps: { Accepted: now - 1200000 } },
@@ -1730,7 +1742,6 @@ export default function AdminDashboard({
                         setModal(null);
                       }}>Decommission vehicle</button>
                     ) : <Pill tone="red">Decommissioned</Pill>}
-                    <button type="button" className="aa-button plain" onClick={() => setModal(null)}>Close</button>
                   </div>
                 </>
               );
