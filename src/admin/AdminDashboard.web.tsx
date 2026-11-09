@@ -408,32 +408,40 @@ export default function AdminDashboard({
     );
   const averageWait = waits.length ? Math.round(waits.reduce((a: number, b: number) => a + b, 0) / waits.length / 1000) : null;
 
-    const stats: Stat[][] = isOwner
+  // FIXED STATS ORDER:
+  // Tech: [Overview, Fleet tracking, People, Routes & terminals, Trips & reports, System monitor]
+  // Owner: [Overview, My vehicles, Drivers, Routes & terminals, Fleet trips]
+  const stats: Stat[][] = isOwner
     ? [
+        // 0: Overview
         [
           { label: "Franchise fleet", value: myVehicles.length, note: "Assigned franchise vehicles", icon: "route" },
           { label: "In service today", value: myVehicles.filter((v) => v.status !== "Broken / Inactive").length, note: "Operational & active", icon: "arrow", tone: "blue" },
           { label: "Broken / Inactive", value: myVehicles.filter((v) => v.status === "Broken / Inactive").length, note: "Needs maintenance/repair", icon: "warning", tone: myVehicles.filter((v) => v.status === "Broken / Inactive").length ? "red" : "gray" },
           { label: "Today's fleet revenue", value: `₱${(myTrips.reduce((s, t) => s + (t.fare || 0), 0) + 1680).toFixed(2)}`, note: "Gross ticket collection", icon: "money", tone: "amber" },
         ],
+        // 1: My vehicles
         [
           { label: "Assigned vehicles", value: myVehicles.length, note: "Franchise inventory", icon: "arrow" },
           { label: "Vehicles arrived", value: myVehicles.filter((v) => v.status === "Arrived").length, note: "Ready at destination/curb", icon: "pin", tone: "blue" },
           { label: "In terminal", value: myVehicles.filter((v) => v.status === "In Terminal").length, note: "Queued at dispatch", icon: "route", tone: "amber" },
           { label: "Broken / Inactive", value: myVehicles.filter((v) => v.status === "Broken / Inactive").length, note: "Status reported", icon: "warning", tone: "red" },
         ],
+        // 2: Drivers
         [
           { label: "Fleet drivers", value: myDrivers.length, note: "Assigned operators", icon: "people" },
           { label: "Active drivers", value: myDrivers.filter((d) => d.available).length, note: "Currently logged on", icon: "arrow", tone: "blue" },
           { label: "Assigned routes", value: routes.length, note: "Authorized corridors", icon: "route", tone: "amber" },
           { label: "Avg driver revenue", value: `₱${Math.round(840 + (myTrips.length * 28) / Math.max(1, myDrivers.length))}`, note: "Est. per driver today", icon: "money" },
         ],
+        // 3: Routes & terminals
         [
           { label: "Assigned routes", value: routes.length, note: "PUJ corridors", icon: "route" },
           { label: "Terminal stops", value: terminals.length, note: "Active dispatch points", icon: "pin", tone: "blue" },
           { label: "Departure interval", value: "15 min", note: "Scheduled cadence", icon: "clock", tone: "amber" },
           { label: "Operating span", value: "06:00 - 20:00", note: "Daily transport window", icon: "calendar" },
         ],
+        // 4: Fleet trips
         [
           { label: "Fleet trips today", value: myTrips.length, note: "Passenger runs recorded", icon: "route" },
           { label: "Completed runs", value: myTrips.filter((t) => t.status === "Completed").length, note: "Full route completions", icon: "arrow", tone: "blue" },
@@ -442,29 +450,42 @@ export default function AdminDashboard({
         ],
       ]
     : [
+        // 0: Overview
         [
           { label: "Active trips", value: active.length, note: "Live transport operations", icon: "arrow" },
           { label: "Available drivers", value: online.length, note: "Verified · GPS within 60 sec", icon: "people", tone: "blue" },
           { label: "Today's bookings", value: todays.length, note: `${todays.length ? Math.round((completed.length / todays.length) * 100) : 0}% completion rate`, icon: "route", tone: "amber" },
           { label: "Location alerts", value: stale.length, note: `${stale.length} outdated positions`, icon: "pin", tone: "red" },
         ],
+        // 1: Fleet tracking
         [
           { label: "City-wide fleet", value: vehicles.length, note: "Total monitored units", icon: "arrow" },
           { label: "Base fare", value: currency(data.baseFare), note: data.fareApproved ? "City ordinance approved" : "Draft rate", icon: "money", tone: "amber" },
           { label: "Per-kilometer rate", value: currency(data.perKm), note: "Beyond base distance", icon: "money" },
+          { label: "GPS Fresh", value: live.length, note: "Active updates", icon: "pin", tone: "blue" },
         ],
+        // 2: People
         [
           { label: "Total bookings", value: data.trips.length, note: `${completed.length} completed today`, icon: "route" },
           { label: "Completed rate", value: `${todays.length ? Math.round((completed.length / todays.length) * 100) : 0}%`, note: "Fulfillment reliability", icon: "arrow", tone: "blue" },
           { label: "Average wait", value: averageWait !== null ? `${averageWait}s` : "—", note: "Dispatch to pickup ETA", icon: "clock", tone: "amber" },
           { label: "Open reports", value: openReports.length, note: "Grievances under investigation", icon: "warning", tone: "red" },
         ],
+        // 3: Routes & terminals
+        [
+          { label: "Active routes", value: routes.length, note: "City routes", icon: "route" },
+          { label: "Active terminals", value: terminals.length, note: "Dispatch points", icon: "pin", tone: "blue" },
+          { label: "Total stops", value: routes.reduce((s: number, r: any) => s + (r.stops?.length || 0), 0), note: "Service points", icon: "arrow", tone: "amber" },
+          { label: "Total reports", value: openReports.length, note: "Needs investigation", icon: "warning", tone: openReports.length ? "red" : "gray" },
+        ],
+        // 4: Trips & reports
         [
           { label: "Total bookings", value: trips.length, note: "Operational trip records", icon: "route" },
           { label: "Completed rate", value: `${todays.length ? Math.round((completed.length / todays.length) * 100) : 0}%`, note: "Fulfillment reliability", icon: "arrow", tone: "blue" },
           { label: "Open reports", value: openReports.length, note: "Grievances under investigation", icon: "warning", tone: openReports.length ? "red" : "gray" },
           { label: "Average wait", value: averageWait !== null ? `${averageWait}s` : "—", note: "Dispatch to pickup", icon: "clock", tone: "amber" },
         ],
+        // 5: System monitor
         [
           { label: "Platform uptime", value: `${data.sampleMetrics?.uptimePercent ?? 99.9}%`, note: "Core API availability", icon: "shield" },
           { label: "API latency", value: `${latency}ms`, note: latency < 100 ? "Healthy response speed" : "Degraded latency", icon: "activity", tone: latency < 100 ? "blue" : "red" },

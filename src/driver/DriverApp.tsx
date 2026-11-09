@@ -74,15 +74,27 @@ function Tag({ text, amber }: { text: string; amber?: boolean }) {
     </View>
   );
 }
-function Hint({ text, warning = false }: { text: string; warning?: boolean }) {
+function Hint({
+  text,
+  info,
+  warning,
+  icon = "information-circle-outline",
+}: {
+  text: string;
+  info?: boolean;
+  warning?: boolean;
+  icon?: IconName;
+}) {
   return (
-    <View style={[ps.hint, !warning && ps.info]}>
+    <View style={[ps.hint, (info || !warning) && ps.info]}>
       <Icon
-        name={warning ? "warning-outline" : "shield-checkmark-outline"}
+        name={icon || (warning ? "warning-outline" : "shield-checkmark-outline")}
         color={warning ? "#B37A2A" : c.green}
         size={19}
       />
-      <Text style={[ps.hintText, !warning && { color: c.green }]}>{text}</Text>
+      <Text style={[ps.hintText, (info || !warning) && { color: c.green }]}>
+        {text}
+      </Text>
     </View>
   );
 }
@@ -1300,7 +1312,6 @@ export default function DriverApp({
               );
             })}
           </View>
-          <Text style={[ps.tiny, { marginTop: 2 }]}>Gold = Thursday (Th)</Text>
         </View>
         <View style={ps.row}>
           <Stat value={money(todayCash)} label="Today" />
