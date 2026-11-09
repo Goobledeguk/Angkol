@@ -18,7 +18,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { router, useLocalSearchParams } from "expo-router";
 import { Share, Linking } from "../services/previewActions";
 import { api } from "../services/api";
-import type { Point, Quote, Snapshot, Trip } from "../types/types";
+import type { Point, Quote, Route, Snapshot, Trip } from "../types/types";
 import CalbayogMap from "../map/CalbayogMap";
 import { Icon, money } from "../common/ui";
 import { ps, passengerColors as c } from "./passengerStyles";
@@ -249,6 +249,9 @@ export default function PassengerApp({
     "Edit profile",
     "Support",
     "Notifications",
+    "PUJ review",
+    "PUJ arrived",
+    "PUJ complete",
   ];
   const requested = aliases[params.screen || ""] || params.screen || "Home";
   const page = validPages.includes(requested) ? requested : "Home";
@@ -266,6 +269,7 @@ export default function PassengerApp({
     [results, setResults] = useState<Point[]>([]);
   const [routeId, setRouteId] = useState<string | null>(null),
     [terminalId, setTerminalId] = useState<string | null>(null);
+  const [pujRoute, setPujRoute] = useState<Route | null>(null);
   const [name, setName] = useState(data.user.name),
     [phone, setPhone] = useState(data.user.phone),
     [report, setReport] = useState("");
@@ -545,7 +549,7 @@ export default function PassengerApp({
           <Text style={ps.body}>Total fare</Text>
           <Text style={ps.total}>{money(value.fare)}</Text>
         </View>
-       
+
         {demo && (
           <Text style={ps.small}>
             Demo reference: {demo.reference}. This is not proof of payment. The
@@ -726,13 +730,20 @@ export default function PassengerApp({
             </View>
             <View style={ps.between}>
               <Tag text="Selected · fixed total" />
-              
             </View>
           </View>
-          
+
+          {/* Jeepney / PUV card — now opens the PUJ booking flow */}
           <Pressable
             accessibilityRole="button"
-            onPress={() => go("Routes")}
+            onPress={() => {
+              if (!routes.length) {
+                setError("No PUJ/PUV routes are available right now.");
+                return;
+              }
+              setPujRoute(routes[0]);
+              go("PUJ review");
+            }}
             style={ps.card}
           >
             <View style={ps.row}>
@@ -749,7 +760,6 @@ export default function PassengerApp({
             </View>
             <Tag text="Per passenger" />
           </Pressable>
-         
         </>
       );
       footer = (
@@ -767,7 +777,7 @@ export default function PassengerApp({
           </View>
           {receiptDetails(quote)}
           {fares(quote)}
-          
+
           <Hint
             info
             icon="information-circle-outline"
@@ -795,6 +805,215 @@ export default function PassengerApp({
         />
       );
     }
+  } else if (page === "PUJ review") {
+    title = "Review PUJ/PUV ride";
+    subtitle = pujRoute?.name || "Select a route";
+    back = "Choose ride";
+    if (!pujRoute) {
+      content = (
+        <Hint text="No route selected. Go back and choose a PUJ/PUV route." />
+      );
+      footer = <Action title="Back" onPress={() => go("Choose ride")} />;
+    } else {
+      content = (
+        <>
+          <View style={ps.card}>
+            <View style={ps.between}>
+              <Text style={ps.section}>{pujRoute.name}</Text>
+              <Tag text={pujRoute.id} />
+            </View>
+            {pujRoute.destination ? (
+              <Text style={ps.small}>Destination: {pujRoute.destination}</Text>
+            ) : null}
+            <Text style={ps.body}>
+              {pujRoute.stops.map((p) => p.name).join(" → ")}
+            </Text>
+            <View style={ps.divider} />
+            <SummaryRow
+              label="Fare per passenger"
+              value={money(pujRoute.fare)}
+              strong
+            />
+            <SummaryRow
+              label="Next departure"
+              value={nextDeparture(pujRoute, data.serverTime)}
+            />
+          </View>
+          <View style={ps.card}>
+            <Locations
+              pickup={pickup?.name || pujRoute.stops[0]?.name}
+              destination={destination?.name || pujRoute.destination || pujRoute.stops.at(-1)?.name}
+            />
+          </View>
+          <Hint
+            info
+            icon="information-circle-outline"
+            text="Prototype: booking a PUJ/PUV instantly confirms your seat and the vehicle arrives at your pickup point."
+          />
+        </>
+      );
+      footer = (
+        <Action
+          title={
+            working
+              ? "Booking…"
+              : `Book PUJ/PUV · ${money(pujRoute.fare)}`
+          }
+          icon="checkmark-circle-outline"
+          disabled={locked}
+          onPress={() =>
+            perform(async () => {
+              const from = pickup || pujRoute.stops[0] || data.landmarks[0];
+              const to =
+                destination ||
+                pujRoute.stops.at(-1) ||
+                data.landmarks[2];
+              const pujTrip: Trip = {
+                id: `puj-trip-${Date.now()}`,
+                pickup: from.name,
+                destination: to.name,
+                pickupPoint: from,
+                destinationPoint: to,
+                distance: 2.5,
+                fare: pujRoute.fare,
+                minutes: pujRoute.interval || 15,
+                passengerId: data.user.id,
+                passenger: data.user.name,
+                driverId: `puj-driver-${pujRoute.id}`,
+                driver: "Limuel Rosino",
+                plate: "ABC 1234",
+                status: "Arrived", // prototype: instant arrival
+                createdAt: new Date().toISOString(),
+                timestamps: {
+                  Requested: Date.now(),
+                  Accepted: Date.now(),
+                  Arrived: Date.now(),
+                },
+                rating: null,
+                sampleFare: true,
+                fareReference: pujRoute.reference,
+                geometry: {
+                  type: "LineString",
+                  coordinates: [
+                    [from.longitude, from.latitude],
+                    [to.longitude, to.latitude],
+                  ],
+                },
+              };
+              await api("/book-puj", { trip: pujTrip });
+              await refresh();
+              go("PUJ arrived", pujTrip.id);
+            })
+          }
+        />
+      );
+    }
+  } else if (page === "PUJ arrived") {
+    title = "Your PUJ/PUV has arrived";
+    subtitle = "Board now — driver is at your pickup";
+    back = null;
+    const pujTrip = data.trips.find((t) => t.id === params.trip);
+    if (!pujTrip) {
+      content = <Hint text="Trip not found." />;
+      footer = <Action title="Back to Home" onPress={() => go("Home")} />;
+    } else {
+      content = (
+        <>
+          <View style={[ps.banner, { backgroundColor: "#0B5942" }]}>
+            <View style={ps.row}>
+              <Icon name="checkmark-circle-outline" size={33} color="white" />
+              <View style={{ flex: 1 }}>
+                <Text style={ps.bannerTitle}>Your ride is here!</Text>
+                <Text style={ps.bannerSub}>
+                  {pujTrip.driver} · {pujTrip.plate}
+                </Text>
+              </View>
+            </View>
+          </View>
+          <View style={ps.card}>
+            <Locations pickup={pujTrip.pickup} destination={pujTrip.destination} />
+            <View style={ps.divider} />
+            <SummaryRow label="Fare" value={money(pujTrip.fare)} strong />
+            <SummaryRow label="Driver" value={pujTrip.driver || "—"} />
+            <SummaryRow label="Plate" value={pujTrip.plate || "—"} />
+          </View>
+          <Hint
+            info
+            icon="bus-outline"
+            text="Board the vehicle at the marked pickup point. Pay your fare directly to the driver or conductor."
+          />
+        </>
+      );
+      footer = (
+        <Action
+          title={working ? "Completing…" : "Board & complete trip"}
+          icon="checkmark-done-outline"
+          disabled={locked}
+          onPress={() =>
+            perform(async () => {
+              await action(`/trips/${pujTrip.id}`, { status: "Completed" });
+              await refresh();
+              go("PUJ complete", pujTrip.id);
+            })
+          }
+        />
+      );
+    }
+  } else if (page === "PUJ complete") {
+    title = "Trip complete";
+    subtitle = "Salamat sa pagsakay!";
+    back = "Home";
+    const pujTrip = data.trips.find((t) => t.id === params.trip);
+    content = pujTrip ? (
+      <>
+        <View style={ps.banner}>
+          <View style={ps.between}>
+            <Text style={[ps.section, { color: "white", flex: 1 }]}>
+              Trip completed
+            </Text>
+            <View style={ps.check}>
+              <Icon name="checkmark" size={26} />
+            </View>
+          </View>
+          <Text style={ps.bannerSub}>
+            {fullDate(pujTrip.createdAt)} · {stamp(pujTrip.createdAt)}
+          </Text>
+          <Text style={ps.bannerSub}>Trip ID: {pujTrip.id}</Text>
+        </View>
+        {receiptDetails(pujTrip)}
+        {fares(pujTrip)}
+        <Text style={[ps.label, { textAlign: "center" }]}>
+          How was your ride?
+        </Text>
+        <View style={[ps.row, { justifyContent: "space-around" }]}>
+          {[1, 2, 3, 4, 5].map((rating) => (
+            <Pressable
+              key={rating}
+              accessibilityRole="button"
+              accessibilityLabel={`Rate ${rating} out of 5`}
+              disabled={locked}
+              onPress={() =>
+                void action(`/trips/${pujTrip.id}/rating`, { rating })
+              }
+              style={ps.star}
+            >
+              <Icon
+                name={
+                  pujTrip.rating && rating <= pujTrip.rating
+                    ? "star"
+                    : "star-outline"
+                }
+                size={27}
+                color={c.amber}
+              />
+            </Pressable>
+          ))}
+        </View>
+      </>
+    ) : (
+      <Hint text="No trip found." />
+    );
+    footer = <Action title="Back to Home" onPress={() => go("Home")} />;
   } else if (page === "Ride accepted" || page === "Track ride") {
     back = "Home";
     subtitle = trip
@@ -1022,10 +1241,7 @@ export default function PassengerApp({
             <Hint text="This ride was cancelled. You can start a new booking from Home." />
           )}
           {trip.status === "Completed" && (
-            <Action
-              title="Done"
-              onPress={() => go("Receipt", trip.id)}
-            />
+            <Action title="Done" onPress={() => go("Receipt", trip.id)} />
           )}
         </>
       );
@@ -1065,12 +1281,9 @@ export default function PassengerApp({
             go("Journey");
             return;
           }
-          void perform(async () => {
-            await action("/stop", {
-              routeId: route.id,
-              point: pickup || data.landmarks[0],
-            });
-          });
+          // For PUJ/PUV routes, send the passenger into the PUJ booking flow.
+          setPujRoute(route);
+          go("PUJ review");
         }}
       />
     );

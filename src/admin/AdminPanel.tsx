@@ -1,9 +1,9 @@
 import React, { useRef, useState } from "react";
 import { View, Text, Switch } from "react-native";
-import { Snapshot, Point, Route, Terminal } from "../types/types";
+import { Snapshot, Route } from "../types/types";
 import { Card, Field, Button, Choice, Heading, Badge } from "../common/ui";
-import CalbayogMap from "../map/CalbayogMap";
 import { s } from "../common/styles";
+
 export default function AdminPanel({
   data,
   busy,
@@ -21,19 +21,7 @@ export default function AdminPanel({
   section?: "all" | "routes" | "terminals" | "fares";
   initialRoute?: Route;
 }) {
-  const [base, setBase] = useState(
-      data.fareReference !== "Not configured" ? String(data.baseFare) : "",
-    ),
-    [rate, setRate] = useState(
-      data.fareReference !== "Not configured" ? String(data.perKm) : "",
-    ),
-    [reference, setReference] = useState(
-      data.fareReference === "Not configured" ? "" : data.fareReference,
-    ),
-    [approved, setApproved] = useState(data.fareApproved);
-  const [routeId, setRouteId] = useState<string | null>(
-      initialRoute?.id || null,
-    ),
+  const [routeId, setRouteId] = useState<string | null>(initialRoute?.id || null),
     [routeName, setRouteName] = useState(initialRoute?.name || ""),
     [routeFare, setRouteFare] = useState(
       initialRoute ? String(initialRoute.fare) : "",
@@ -41,20 +29,15 @@ export default function AdminPanel({
     [routeRef, setRouteRef] = useState(initialRoute?.reference || ""),
     [routeApproved, setRouteApproved] = useState(
       initialRoute?.approved || false,
+    ),
+    [routeDestination, setRouteDestination] = useState(
+      initialRoute?.destination || "",
     );
-  const [terminalId, setTerminalId] = useState<string | null>(null),
-    [terminalName, setTerminalName] = useState(""),
-    [terminalRoute, setTerminalRoute] = useState(data.routes[0]?.id || "");
-  const [selected, setSelected] = useState<Point | null>(
-    initialRoute?.stops[0] || null,
-  );
   const [routeError, setRouteError] = useState("");
-  const [transportType, setTransportType] = useState<"PUJ / PUV">("PUJ / PUV");
   const [feedback, setFeedback] = useState("");
-  const [routeDestination, setRouteDestination] = useState(
-    initialRoute?.destination || "",
-  );
+  const [transportType, setTransportType] = useState<"PUJ / PUV">("PUJ / PUV");
   const saving = useRef(false);
+
   async function save(input: unknown, message: string) {
     if (busy || saving.current) {
       return false;
@@ -76,16 +59,27 @@ export default function AdminPanel({
       saving.current = false;
     }
   }
-  function selectTerminalPoint(point: Point) {
-    setSelected(point);
+
+  function editRoute(r: Route) {
+    setRouteId(r.id);
+    setRouteName(r.name);
+    setRouteFare(String(r.fare));
+    setRouteRef(r.reference || "");
+    setRouteApproved(!!r.approved);
+    setRouteDestination(r.destination || "");
   }
 
-  function editTerminal(t: Terminal) {
-    setTerminalId(t.id);
-    setTerminalName(t.name);
-    setTerminalRoute(t.routeId);
-    setSelected(t.point);
+  function clearRouteForm() {
+    setRouteId(null);
+    setRouteName("");
+    setRouteFare("");
+    setRouteRef("");
+    setRouteApproved(false);
+    setRouteDestination("");
+    setRouteError("");
+    setTransportType("PUJ / PUV");
   }
+
   return (
     <>
       {Boolean(feedback) && (
@@ -93,15 +87,12 @@ export default function AdminPanel({
           {feedback}
         </Text>
       )}
-      {section === "all" && <Heading title="Calbayog transport management" />}
-      {(section === "all" || section === "fares") && (
-        <>
-            <Card>
-              <Text style={s.cardTitle}>Route fare configuration</Text>
-              <Text style={s.small}>Set minimum fares per PUJ/PUV route below. Save to publish.</Text>
-            </Card>
-        </>
+
+      {section === "all" && (
+        <Heading title="Calbayog transport management" />
       )}
+
+      {/* Driver approval */}
       {section === "all" && (
         <>
           <Heading
@@ -164,46 +155,8 @@ export default function AdminPanel({
           )}
         </>
       )}
-      {section !== "fares" && (
-        <>
-          <Heading
-            title="Terminal map point"
-            sub="Select the terminal location on this map."
-          />
-          <CalbayogMap
-            pickupLabel="Terminal"
-            pickupColor="#7C3AED"
-            terminalColors
-            mode="pickup"
-            pickup={selected}
-            landmarks={data.landmarks}
-            vehicles={data.vehicles}
-            terminals={data.terminals.filter((t) => t.active)}
-            onSelect={selectTerminalPoint}
-          />
-          {selected && (
-            <>
-              <Field
-                label="Terminal point name"
-                value={selected.name}
-                onChange={(name) => {
-                  selectTerminalPoint({ ...selected, name });
-                  if (section === "terminals") {
-                    setTerminalName(name);
-                  }
-                }}
-              />
-              <Text style={s.small}>
-                You can rename this point before saving. The map position stays
-                the same.
-              </Text>
-              <Text style={s.small}>
-                {selected.latitude.toFixed(6)}, {selected.longitude.toFixed(6)}
-              </Text>
-            </>
-          )}
-        </>
-      )}
+
+      {/* Route management (map and map-related inputs removed) */}
       {(section === "all" || section === "routes") && (
         <>
           <Card>
@@ -213,10 +166,6 @@ export default function AdminPanel({
               value={routeName}
               onChange={setRouteName}
             />
-            <Text style={s.small}>
-              Terminal location:{" "}
-              {selected?.name || "Select a terminal point on the map above."}
-            </Text>
             <Text style={s.label}>Vehicle type</Text>
             <View style={s.chips}>
               <Choice
@@ -231,13 +180,11 @@ export default function AdminPanel({
               onChange={setRouteFare}
               numeric
             />
-            {transportType === "PUJ / PUV" && (
-              <Field
-                label="PUJ/PUV destination"
-                value={routeDestination}
-                onChange={setRouteDestination}
-              />
-            )}
+            <Field
+              label="PUJ/PUV destination"
+              value={routeDestination}
+              onChange={setRouteDestination}
+            />
             <View style={s.rowBetween}>
               <Text style={s.label}>Approve route</Text>
               <Switch
@@ -257,10 +204,7 @@ export default function AdminPanel({
                 const missing = [
                   !routeName.trim() && "route name",
                   !transportType && "vehicle type",
-                  transportType === "PUJ / PUV" &&
-                    !routeDestination.trim() &&
-                    "PUJ/PUV destination",
-                  !selected && "terminal map point",
+                  !routeDestination.trim() && "PUJ/PUV destination",
                   (!routeFare.trim() ||
                     !Number.isFinite(Number(routeFare)) ||
                     Number(routeFare) < 0) &&
@@ -270,39 +214,34 @@ export default function AdminPanel({
                   setRouteError(`Please provide: ${missing.join(", ")}.`);
                   return;
                 }
-                if (
-                  await save(
-                    {
-                      type: "route",
-                      id: routeId || undefined,
-                      name: routeName,
-                      transportType,
-                      destination:
-                        transportType === "PUJ / PUV"
-                          ? routeDestination.trim()
-                          : "",
-                      stops: [selected],
-                      fare: +routeFare,
-                      scheduled: false,
-                      approved: routeApproved,
-                      reference: routeRef,
-                      active:
-                        data.routes.find((r) => r.id === routeId)?.active ??
-                        true,
-                    },
-                    routeApproved
-                      ? "Route saved and approved."
-                      : "Route saved. Pending approval.",
-                  )
-                ) {
-                  setRouteId(null);
-                  setRouteName("");
-                  setRouteDestination("");
-                  setSelected(null);
-                  setRouteApproved(false);
-                  setRouteRef("");
-                  setRouteFare("");
-                  setTransportType("PUJ / PUV");
+                const ok = await save(
+                  {
+                    type: "route",
+                    id: routeId || undefined,
+                    name: routeName.trim(),
+                    transportType,
+                    destination: routeDestination.trim(),
+                    stops: [
+                      {
+                        name: routeDestination.trim() || routeName.trim(),
+                        latitude: data.landmarks[0]?.latitude ?? 12.0676,
+                        longitude: data.landmarks[0]?.longitude ?? 124.5942,
+                      },
+                    ],
+                    fare: +routeFare,
+                    scheduled: false,
+                    approved: routeApproved,
+                    reference: routeRef,
+                    active:
+                      data.routes.find((r) => r.id === routeId)?.active ??
+                      true,
+                  },
+                  routeApproved
+                    ? "Route saved and approved."
+                    : "Route saved. Pending approval.",
+                );
+                if (ok) {
+                  clearRouteForm();
                 } else {
                   setRouteError(
                     "The route was not saved. Check your connection and route details, then try again.",
@@ -321,87 +260,95 @@ export default function AdminPanel({
             <Button
               title="Clear route form"
               secondary
-              onPress={() => {
-                setRouteId(null);
-                setRouteName("");
-                setRouteDestination("");
-                setSelected(null);
-              }}
+              onPress={clearRouteForm}
             />
           </Card>
-        </>
-      )}
-      {(section === "all" || section === "terminals") && (
-        <>
+
+          {/* Route table — shows created routes */}
           <Card>
-            <Text style={s.cardTitle}>Terminals</Text>
-            {data.terminals.map((t) => (
-              <View key={t.id} style={s.rowBetween}>
-                <Text style={[s.label, { flex: 1 }]}>{t.name}</Text>
+            <Text style={s.cardTitle}>Configured routes</Text>
+            {data.routes.length === 0 && (
+              <Text style={s.body}>No routes yet. Add one above.</Text>
+            )}
+            {data.routes.map((r) => (
+              <View key={r.id} style={s.rowBetween}>
+                <View style={{ flex: 1 }}>
+                  <Text style={s.label}>{r.name}</Text>
+                  <Text style={s.small}>
+                    ₱{r.fare} · {r.destination || "—"} ·{" "}
+                    {r.approved ? "Approved" : "Pending"}
+                  </Text>
+                </View>
                 <Button
                   title="Edit"
                   secondary
-                  onPress={() => editTerminal(t)}
+                  onPress={() => editRoute(r)}
                 />
                 <Switch
-                  accessibilityLabel={`Activate ${t.name}`}
-                  value={t.active}
+                  accessibilityLabel={`Activate ${r.name}`}
+                  value={!!r.active}
                   onValueChange={(active) =>
                     void action("/configure", {
                       type: "toggle",
-                      collection: "terminals",
-                      id: t.id,
+                      collection: "routes",
+                      id: r.id,
                       active,
                     })
                   }
                 />
               </View>
             ))}
-            <Field
-              label="Terminal name"
-              value={terminalName}
-              onChange={setTerminalName}
-            />
-            <Text style={s.small}>
-              Location: {selected?.name || "Choose a point on the map"}. Select
-              its exact position on the map above.
-            </Text>
-            <View style={s.chips}>
-              {data.routes.map((r) => (
-                <Choice
-                  key={r.id}
-                  label={r.name}
-                  selected={terminalRoute === r.id}
-                  onPress={() => setTerminalRoute(r.id)}
-                />
-              ))}
-            </View>
-            <Button
-              title={terminalId ? "Save terminal" : "Add terminal"}
-              disabled={busy || !selected}
-              onPress={async () => {
-                if (!selected) {
-                  return;
-                }
-                if (
-                  await action("/configure", {
-                    type: "terminal",
-                    id: terminalId || undefined,
-                    name: terminalName,
-                    point: selected,
-                    routeId: terminalRoute,
-                    active:
-                      data.terminals.find((t) => t.id === terminalId)?.active ??
-                      true,
-                  })
-                ) {
-                  setTerminalId(null);
-                  setTerminalName("");
-                }
-              }}
-            />
-          </Card>{" "}
+          </Card>
         </>
+      )}
+
+      {/* Terminals (simplified, no map point picker) */}
+      {(section === "all" || section === "terminals") && (
+        <Card>
+          <Text style={s.cardTitle}>Terminals</Text>
+          {data.terminals.map((t) => (
+            <View key={t.id} style={s.rowBetween}>
+              <Text style={[s.label, { flex: 1 }]}>{t.name}</Text>
+              <Switch
+                accessibilityLabel={`Activate ${t.name}`}
+                value={t.active}
+                onValueChange={(active) =>
+                  void action("/configure", {
+                    type: "toggle",
+                    collection: "terminals",
+                    id: t.id,
+                    active,
+                  })
+                }
+              />
+            </View>
+          ))}
+          {data.terminals.length === 0 && (
+            <Text style={s.body}>No terminals configured yet.</Text>
+          )}
+        </Card>
+      )}
+
+      {/* Fares — route fares only, no base fare */}
+      {(section === "all" || section === "fares") && (
+        <Card>
+          <Text style={s.cardTitle}>Route fare configuration</Text>
+          <Text style={s.small}>
+            Route fares are set per route in the Routes section. Create routes
+            first to configure fares.
+          </Text>
+          {data.routes.length === 0 && (
+            <Text style={s.body}>
+              No routes configured yet. Add a route to set its fare.
+            </Text>
+          )}
+          {data.routes.map((r) => (
+            <View key={r.id} style={s.rowBetween}>
+              <Text style={[s.label, { flex: 1 }]}>{r.name}</Text>
+              <Text style={s.label}>₱{r.fare}</Text>
+            </View>
+          ))}
+        </Card>
       )}
     </>
   );

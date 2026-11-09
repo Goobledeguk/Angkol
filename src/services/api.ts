@@ -125,8 +125,10 @@ export async function selectDemo(role: Role, adminLevel?: AdminLevel) {
         startsAt: "06:00",
         endsAt: "20:00",
         active: true,
-        approved: false,
+        approved: true,
         reference: "Static sample",
+        destination: "Public Market",
+        transportType: "PUJ / PUV",
       },
       {
         id: "CB02",
@@ -137,8 +139,24 @@ export async function selectDemo(role: Role, adminLevel?: AdminLevel) {
         startsAt: "06:00",
         endsAt: "18:00",
         active: true,
+        approved: true,
+        reference: "Static sample",
+        destination: "Airport",
+        transportType: "PUJ / PUV",
+      },
+      {
+        id: "CB03",
+        name: "Public Market – Airport",
+        stops: [landmarks[1], landmarks[2]],
+        fare: 18,
+        interval: 20,
+        startsAt: "06:30",
+        endsAt: "19:00",
+        active: true,
         approved: false,
         reference: "Static sample",
+        destination: "Airport",
+        transportType: "PUJ / PUV",
       },
     ],
     terminals: [
@@ -146,6 +164,20 @@ export async function selectDemo(role: Role, adminLevel?: AdminLevel) {
         id: "CT01",
         name: "Public Market terminal",
         point: landmarks[1],
+        routeId: "CB01",
+        active: true,
+      },
+      {
+        id: "CT02",
+        name: "Airport terminal",
+        point: landmarks[2],
+        routeId: "CB02",
+        active: true,
+      },
+      {
+        id: "CT03",
+        name: "City Hall terminal",
+        point: landmarks[0],
         routeId: "CB01",
         active: true,
       },
@@ -340,6 +372,13 @@ export async function api<T = { ok: boolean }>(
       };
       state.trips.unshift(trip);
       result = trip;
+    } else if (endpoint === "/book-puj") {
+      const trip = body.trip as Trip;
+      if (!trip) {
+        throw new ApiError("No trip provided.", 400);
+      }
+      state.trips.unshift(trip);
+      result = trip;
     } else if (parts[1] === "trips") {
       const trip = state.trips.find((t) => t.id === parts[2]);
       if (trip) {
@@ -420,7 +459,55 @@ export async function api<T = { ok: boolean }>(
       if (target) {Object.assign(target, body);}
       result = target || { ok: true };
     } else if (endpoint === "/configure") {
-      Object.assign(state, body);
+      if (body.type === "route") {
+        const newRoute = {
+          id: body.id || `route-${++sequence}`,
+          name: body.name,
+          transportType: body.transportType || "PUJ / PUV",
+          destination: body.destination || "",
+          stops: body.stops || [],
+          fare: body.fare,
+          scheduled: body.scheduled ?? false,
+          approved: !!body.approved,
+          active: body.active ?? true,
+          reference: body.reference || "Admin configured",
+          interval: body.interval || 15,
+          startsAt: body.startsAt || "06:00",
+          endsAt: body.endsAt || "20:00",
+        };
+        const idx = state.routes.findIndex((r) => r.id === newRoute.id);
+        if (idx >= 0) {
+          state.routes[idx] = { ...state.routes[idx], ...newRoute };
+        } else {
+          state.routes.push(newRoute as any);
+        }
+        result = { ok: true, route: newRoute };
+      } else if (body.type === "terminal") {
+        const newTerminal = {
+          id: body.id || `terminal-${++sequence}`,
+          name: body.name,
+          point: body.point,
+          routeId: body.routeId,
+          active: body.active ?? true,
+        };
+        const idx = state.terminals.findIndex((t) => t.id === newTerminal.id);
+        if (idx >= 0) {
+          state.terminals[idx] = { ...state.terminals[idx], ...newTerminal };
+        } else {
+          state.terminals.push(newTerminal);
+        }
+        result = { ok: true, terminal: newTerminal };
+      } else if (body.type === "toggle") {
+        const collection = (state as any)[body.collection as "routes" | "terminals"];
+        const item = collection?.find((x: any) => x.id === body.id);
+        if (item) {
+          item.active = body.active;
+        }
+        result = { ok: true };
+      } else {
+        // Legacy fare config (baseFare/perKm) — still supported but AdminPanel no longer uses it
+        Object.assign(state, body);
+      }
     } else if (endpoint === "/stop") {
       state.stopRequests.push({
         id: id(),
@@ -492,7 +579,8 @@ export async function api<T = { ok: boolean }>(
           }
           run.revision++;
         } else {
-          run.stopIndex = Math.min(run.stopIndex + 1, run.stops.length - 1);
+          // Log the event at the CURRENT stop before advancing the index.
+          const currentStop = run.stops[run.stopIndex];
           run.onboard = Math.max(
             0,
             run.onboard + Number(body.boarded || 0) - Number(body.alighted || 0),
@@ -502,12 +590,13 @@ export async function api<T = { ok: boolean }>(
           run.events = run.events || [];
           run.events.push({
             at: new Date(now).toISOString(),
-            stop: run.stops[run.stopIndex]?.name || "Stop",
+            stop: currentStop?.name || "Stop",
             boarded: Number(body.boarded || 0),
             alighted: Number(body.alighted || 0),
             onboard: run.onboard,
             type: "stop",
           });
+          run.stopIndex = Math.min(run.stopIndex + 1, run.stops.length - 1);
           run.revision++;
         }
       }

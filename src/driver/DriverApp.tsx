@@ -650,7 +650,6 @@ export default function DriverApp({
             label={puj ? "On board" : "New requests"}
           />
         </View>
-       
       </>
     );
     footer = puj ? (
@@ -801,17 +800,63 @@ export default function DriverApp({
               });
             }}
           />
-          {page === "Pickup" && next ? (
+
+          {/* ROUTE PAGE — drive to next stop, then confirm arrival */}
+          {page === "Route" && next && (
             <>
               <View style={ps.card}>
-                <Text style={ps.locationCaption}>
-                  Next configured meeting point
-                </Text>
+                <Text style={ps.locationCaption}>Next stop</Text>
                 <Text style={ps.section}>{next.name}</Text>
                 <Text style={ps.small}>
-                  Board only when safely stopped at the configured stop.
+                  Drive to this stop, then confirm arrival to record boarding
+                  and alighting passengers.
                 </Text>
               </View>
+              <View style={ps.card}>
+                <Text style={ps.section}>Route stops</Text>
+                {activeRun.stops.map((point, i) => (
+                  <View style={ps.stopRow} key={`${point.name}-${i}`}>
+                    <View style={ps.stopLine} />
+                    <View
+                      style={[
+                        ps.dot,
+                        i > activeRun.stopIndex && { backgroundColor: c.amber },
+                      ]}
+                    />
+                    <View style={{ flex: 1 }}>
+                      <Text style={ps.label}>{point.name}</Text>
+                      <Text style={ps.tiny}>
+                        {i < activeRun.stopIndex
+                          ? "Stop confirmed"
+                          : i === activeRun.stopIndex
+                            ? "Current confirmed stop"
+                            : "Upcoming stop · no live ETA"}
+                      </Text>
+                    </View>
+                  </View>
+                ))}
+              </View>
+            </>
+          )}
+
+          {/* PICKUP PAGE — explicitly indicate arrival & pickup basis */}
+          {page === "Pickup" && next && (
+            <>
+              <View style={ps.banner}>
+                <Text style={ps.bannerSub}>NEXT STOP</Text>
+                <Text style={[ps.section, { color: "white" }]}>
+                  {next.name}
+                </Text>
+                <Text style={ps.bannerSub}>
+                  You have arrived at this stop. Pickup is based on arriving
+                  here and finding waiting passengers.
+                </Text>
+              </View>
+              <Hint
+                info
+                icon="people-outline"
+                text="Record passengers boarding and alighting at this stop, then confirm."
+              />
               <View style={ps.row}>
                 <Count
                   label="Passengers boarding"
@@ -838,61 +883,41 @@ export default function DriverApp({
                 warning
                 text={`Recorded flat fare: ${money(activeRun.fare)} per passenger${activeRun.sampleFare ? " · sample, not an official tariff" : ""}. Confirm actual counts before saving.`}
               />
-            </>
-          ) : (
-            <View style={ps.card}>
-              {activeRun.stops.map((point, i) => (
-                <View style={ps.stopRow} key={`${point.name}-${i}`}>
-                  <View style={ps.stopLine} />
-                  <View
-                    style={[
-                      ps.dot,
-                      i > activeRun.stopIndex && { backgroundColor: c.amber },
-                    ]}
-                  />
-                  <View style={{ flex: 1 }}>
-                    <Text style={ps.label}>{point.name}</Text>
-                    <Text style={ps.tiny}>
-                      {i < activeRun.stopIndex
-                        ? "Stop confirmed"
-                        : i === activeRun.stopIndex
-                          ? "Current confirmed stop"
-                          : "Upcoming stop · no live ETA"}
-                    </Text>
-                  </View>
-                </View>
-              ))}
-            </View>
-          )}
-          {data.stopRequests.length > 0 && (
-            <>
-              <Text style={ps.section}>Passenger pickup requests</Text>
-              {data.stopRequests.map((request) => (
-                <View style={ps.card} key={request.id}>
-                  <Text style={ps.label}>{request.passenger}</Text>
-                  <Text style={ps.body}>{request.point.name}</Text>
-                  <Button
-                    title="Mark request picked up"
-                    light
-                    disabled={locked}
-                    onPress={() => {
-                      Alert.alert(
-                        "Confirm pickup",
-                        "This clears the request only. Record the passenger in the boarding count separately.",
-                        [
-                          { text: "Not yet", style: "cancel" },
-                          {
-                            text: "Picked up",
-                            onPress: () => {
-                              void action(`/stops/${request.id}`, {}, "DELETE");
-                            },
-                          },
-                        ],
-                      );
-                    }}
-                  />
-                </View>
-              ))}
+              {data.stopRequests.length > 0 && (
+                <>
+                  <Text style={ps.section}>Passenger pickup requests</Text>
+                  {data.stopRequests.map((request) => (
+                    <View style={ps.card} key={request.id}>
+                      <Text style={ps.label}>{request.passenger}</Text>
+                      <Text style={ps.body}>{request.point.name}</Text>
+                      <Button
+                        title="Mark request picked up"
+                        light
+                        disabled={locked}
+                        onPress={() => {
+                          Alert.alert(
+                            "Confirm pickup",
+                            "This clears the request only. Record the passenger in the boarding count separately.",
+                            [
+                              { text: "Not yet", style: "cancel" },
+                              {
+                                text: "Picked up",
+                                onPress: () => {
+                                  void action(
+                                    `/stops/${request.id}`,
+                                    {},
+                                    "DELETE",
+                                  );
+                                },
+                              },
+                            ],
+                          );
+                        }}
+                      />
+                    </View>
+                  ))}
+                </>
+              )}
             </>
           )}
         </>
@@ -909,7 +934,7 @@ export default function DriverApp({
           />
         ) : (
           <Button
-            title="View upcoming pickup"
+            title="Arrived at next stop · record passengers"
             icon="people-outline"
             onPress={() => {
               setBoarded("0");
@@ -985,13 +1010,6 @@ export default function DriverApp({
       </>
     ) : (
       <Hint text="No trip record is available yet." />
-    );
-    footer = (
-      <Button
-        title="Back to dashboard"
-        icon="speedometer-outline"
-        onPress={() => go("Dashboard")}
-      />
     );
     footer = (
       <Button
@@ -1093,7 +1111,6 @@ export default function DriverApp({
                 : "Configured fixed fare"}
           </Text>
         </View>
-        
         <Button
           title="Report a trip issue"
           light
@@ -1225,7 +1242,6 @@ export default function DriverApp({
     title = "Earnings";
     subtitle = "Transparent trip and cash fare records";
     const max = Math.max(1, ...week.map((d) => d.fare));
-    // Thu is index 4 in a Sun..Sat week? easier: label from actual weekday
     const dayLabel = (d: Date) => ["Su","M","Tu","W","Th","F","Sa"][d.getDay()];
     content = (
       <>
@@ -1256,7 +1272,7 @@ export default function DriverApp({
               alignItems: "flex-end",
             }}
           >
-            {week.map((day, i) => {
+            {week.map((day) => {
               const d = new Date(day.at);
               const label = dayLabel(d);
               const isThu = d.getDay() === 4;
@@ -1327,17 +1343,6 @@ export default function DriverApp({
         }}
       />
     );
-    footer = (
-      <Button
-        title="Export / share cash records"
-        icon="download-outline"
-        light
-        disabled={locked}
-        onPress={() => {
-          void shareRecords();
-        }}
-      />
-    );
   } else if (page === "Profile" || page === "Documents") {
     title = page === "Documents" ? "Driver account records" : "Driver profile";
     back = page === "Documents" ? "Profile" : null;
@@ -1390,9 +1395,7 @@ export default function DriverApp({
             <Text style={ps.body}>License</Text>
             <Text style={ps.label}>{data.user.license || "None"}</Text>
           </View>
-          <Text style={ps.small}>
-            Expiry date not recorded
-          </Text>
+          <Text style={ps.small}>Expiry date not recorded</Text>
           <View style={ps.divider} />
           <Text style={ps.label}>
             {data.user.association || "No Association"}
@@ -1434,7 +1437,6 @@ export default function DriverApp({
             Cash fare records only · not a wallet or payout balance
           </Text>
         </View>
-        
         <Button
           title="Account & security"
           icon="shield-checkmark-outline"
