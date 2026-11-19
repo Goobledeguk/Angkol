@@ -1,0 +1,221 @@
+import { createSampleTrips } from "../services/sampleTrips";
+import { createDriverRuns } from "../driver/sampleDriverData";
+import type { Snapshot, User } from "../types/types";
+
+/** Populate administrator screens with one consistent, fictional local dataset. */
+export function populateAdministratorSamples(state: Snapshot) {
+  const now = state.serverTime;
+  const makePerson = (
+    id: string,
+    name: string,
+    role: User["role"],
+    index: number,
+  ): User => ({
+    ...state.user,
+    id,
+    name,
+    role,
+    email: `${name.toLowerCase().replaceAll(" ", ".")}@example.invalid`,
+    available: role.includes("driver") && index < 4,
+    verified: index < 5,
+    license: role.includes("driver") ? `N01-23-${456780 + index}` : "",
+    association: role.includes("driver")
+      ? "Calbayog Transport Cooperative"
+      : "",
+    plate: role.includes("driver")
+      ? role === "PUJ / PUV driver"
+        ? `ABC ${1230 + index}`
+        : `AB ${12340 + index}`
+      : "",
+    capacity: role === "PUJ / PUV driver" ? 18 : 3,
+    location: role.includes("driver")
+      ? {
+          ...state.landmarks[index % state.landmarks.length],
+          updatedAt: now - (index === 2 ? 420_000 : 15_000),
+        }
+      : null,
+  });
+  const passengers = [
+    "April Lentejas",
+    "Camille Navarro",
+    "Daniel Cruz",
+    "Sofia Garcia",
+  ].map((name, index) =>
+    makePerson(`sample-passenger-${index}`, name, "Passenger", index),
+  );
+  const drivers = [
+    "Meynard Salem",
+    "Limuel Rosino",
+    "Gabriel Torres",
+    "Andrea Castillo",
+    "Paolo Ramos",
+  ].map((name, index) =>
+    makePerson(
+      `sample-driver-${index}`,
+      name,
+      index % 2 ? "PUJ / PUV driver" : "Tricycle driver",
+      index,
+    ),
+  );
+  state.users = [state.user, ...passengers, ...drivers];
+  // Seed a pending PUJ/PUV application for Kent Ferrer's franchise (Calbayog Metro Express)
+  // so the franchise-owner accept/decline flow is visible in the web admin demo.
+  const pendingPujApplicant: User = {
+    ...state.user,
+    id: "sample-pending-puj-1",
+    name: "Rico Dela Cruz",
+    role: "PUJ / PUV driver",
+    email: "rico.delacruz@example.invalid",
+    phone: "0917 555 0142",
+    available: false,
+    verified: false,
+    pendingFranchiseApproval: true,
+    applicationStatus: "pending",
+    license: "N01-26-884210",
+    licenseDocAttached: true,
+    franchiseName: "Calbayog Metro Express",
+    association: "",
+    plate: "",
+    permitNo: "",
+    capacity: 18,
+    routeId: null,
+    location: null,
+  };
+  const declinedPujApplicant: User = {
+    ...pendingPujApplicant,
+    id: "sample-pending-puj-2",
+    name: "Marco Villanueva",
+    email: "marco.villanueva@example.invalid",
+    phone: "0918 555 0199",
+    license: "N01-25-110044",
+    licenseDocAttached: false,
+    pendingFranchiseApproval: false,
+    applicationStatus: "declined",
+  };
+  state.users.push(pendingPujApplicant, declinedPujApplicant);
+  const vehicleStatuses: ("Arrived" | "In Terminal" | "Broken / Inactive" | "In transit")[] = [
+    "Arrived",
+    "In Terminal",
+    "In transit",
+    "Broken / Inactive",
+    "In Terminal",
+  ];
+  const vehicleTypes = ["SUV", "Coaster", "Mini Van", "Bus"] as const;
+
+  state.vehicles = drivers
+    .filter((driver) => driver.verified && driver.role === "PUJ / PUV driver")
+    .map((driver, idx) => ({
+      id: driver.id,
+      name: driver.name,
+      kind: driver.role,
+      vehicleType: vehicleTypes[idx % vehicleTypes.length],
+      plate: driver.plate,
+      routeId: driver.routeId,
+      capacity: driver.capacity,
+      location: driver.location!,
+      stale: now - driver.location!.updatedAt > 60_000,
+      status: vehicleStatuses[idx % vehicleStatuses.length],
+      ownerId: "demo-owner",
+      ownerName: "Kent Ferrer (Calbayog Metro Express)",
+      currentDriver: driver.name,
+    }));
+  const date = new Date(now).toLocaleDateString("en-CA", {
+    timeZone: "Asia/Manila",
+  });
+  const midnight = Date.parse(`${date}T00:00:00+08:00`);
+  const availableTime = Math.max(0, now - midnight - 15 * 60_000);
+  const historySpan = Math.min(availableTime, 10 * 60 * 60_000);
+  state.trips = Array.from({ length: 16 }, (_, index) => {
+    const passenger = passengers[index % passengers.length];
+    const driver = drivers[index % 2 === 0 ? 0 : 2];
+    const template = createSampleTrips(passenger, driver, state.landmarks)[
+      index % 2
+    ];
+    const startedAt = midnight + availableTime - (index / 15) * historySpan;
+    const status =
+      index < 2
+        ? "Accepted"
+        : index === 2
+          ? "In progress"
+          : index > 13
+            ? "Cancelled"
+            : "Completed";
+    return {
+      ...template,
+      id: `SAMPLE-BOOKING-${String(index + 1).padStart(3, "0")}`,
+      status,
+      createdAt: new Date(startedAt).toISOString(),
+      rating: status === "Completed" ? 5 : null,
+      timestamps: {
+        Requested: startedAt,
+        ...(status !== "Cancelled"
+          ? { Accepted: startedAt + ((index % 4) + 1) * 60_000 }
+          : {}),
+        ...(status === "Completed"
+          ? { Completed: Math.min(now, startedAt + 12 * 60_000) }
+          : {}),
+        ...(status === "In progress"
+          ? { "In progress": startedAt + 5 * 60_000 }
+          : {}),
+        ...(status === "Cancelled"
+          ? { Cancelled: startedAt + 2 * 60_000 }
+          : {}),
+      },
+    };
+  });
+  state.runs = createDriverRuns(drivers[1], state.routes[0], now);
+  state.stopRequests = [
+    {
+      id: "SAMPLE-PICKUP-001",
+      routeId: state.routes[0].id,
+      point: state.landmarks[1],
+      passenger: passengers[1].name,
+      userId: passengers[1].id,
+      createdAt: now - 3 * 60_000,
+    },
+  ];
+  state.reports = [
+    {
+      id: "SAMPLE-REPORT-001",
+      details: "Pickup pin was on the opposite side of the market entrance.",
+      tripId: state.trips[3].id,
+      status: "open",
+      reporter: passengers[0].name,
+      createdAt: new Date(now - 20 * 60_000).toISOString(),
+    },
+    {
+      id: "SAMPLE-REPORT-002",
+      details: "Please review the vehicle plate shown on my trip receipt.",
+      tripId: state.trips[4].id,
+      status: "reviewing",
+      reporter: passengers[1].name,
+      createdAt: new Date(now - 35 * 60_000).toISOString(),
+    },
+    {
+      id: "SAMPLE-REPORT-003",
+      details: "Driver helped locate my bag after the trip. Issue resolved.",
+      tripId: state.trips[5].id,
+      status: "resolved",
+      reporter: passengers[2].name,
+      createdAt: new Date(now - 60 * 60_000).toISOString(),
+    },
+  ];
+  state.logs = [
+    "Reviewed driver application",
+    "Updated route schedule",
+    "Resolved passenger report",
+    "Approved vehicle details",
+    "Updated fare matrix",
+    "Recorded completed trip",
+  ].map((action, index) => ({
+    id: index + 1,
+    action,
+    actor_id: index === 5 ? drivers[0].id : state.user.id,
+    at: new Date(now - (index + 1) * 8 * 60_000).toISOString(),
+  }));
+  state.sampleMetrics = {
+    uptimePercent: 99.8,
+    responseMs: 124,
+    expiringDocuments: 2,
+  };
+}
