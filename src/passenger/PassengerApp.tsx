@@ -13,6 +13,7 @@ import {
   TextInput,
   Alert,
   BackHandler,
+  ActivityIndicator,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { router, useLocalSearchParams } from "expo-router";
@@ -374,7 +375,7 @@ export default function PassengerApp({
       go("Ride accepted", created.id);
     });
   const cancel = () => {
-    if (!trip || !["Requested", "Accepted"].includes(trip.status)) {
+    if (!trip || !["Requested", "Accepted", "Arrived"].includes(trip.status)) {
       return;
     }
     Alert.alert(
@@ -1130,24 +1131,17 @@ export default function PassengerApp({
       footer = (
         <>
           {["Requested", "Accepted"].includes(trip.status) && (
-            <Action
-              title={
-                working
-                  ? "Updating…"
-                  : trip.status === "Requested"
-                    ? "Simulate driver accepting"
-                    : "Driver has arrived at pickup"
-              }
-              icon="navigate-outline"
-              disabled={locked}
-              onPress={() => {
-                if (trip.status === "Requested") {
-                  void advance("Accepted", "Ride accepted");
-                } else {
-                  void advance("Arrived", "Arrived");
-                }
-              }}
-            />
+            <View
+              accessibilityLiveRegion="polite"
+              style={[ps.row, { justifyContent: "center", gap: 10, minHeight: 52 }]}
+            >
+              <ActivityIndicator color={c.green} />
+              <Text style={[ps.label, { color: c.green }]}>
+                {trip.status === "Requested"
+                  ? "Finding a nearby driver…"
+                  : `${trip.driver || "Your driver"} is on the way`}
+              </Text>
+            </View>
           )}
           {trip.status === "Arrived" && (
             <Action
