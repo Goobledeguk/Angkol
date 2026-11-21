@@ -10,6 +10,7 @@ import CalbayogMap from "../map/CalbayogMap";
 import { adminDashboardStyles } from "./adminDashboardStyles";
 import BrandLogo from "../common/BrandLogo";
 import { Icon } from "../common/ui";
+import { isFinished } from "../domain/roles";
 
 
 const paths: Record<string, string> = {
@@ -172,7 +173,7 @@ const initials = (name?: string) =>
     .map((n) => n[0]?.toUpperCase() || "")
     .join("") || "A";
 const terminalStatus = (status: string) =>
-  status === "Completed" ? "" : status === "Cancelled" ? "red" : "blue";
+  status === "Completed" ? "" : status === "Cancelled" ? "red" : status === "Expired" ? "gray" : "blue";
 function departureTime(
   route: AdminDashboardProps["data"]["routes"][number],
   now: Date,
@@ -425,8 +426,7 @@ export default function AdminDashboard({
         u.location &&
         data.serverTime - u.location.updatedAt <= 60000,
     );
-  const active = trips.filter((t: any) => !["Completed", "Cancelled"].includes(t.status),
-  );
+  const active = trips.filter((t: any) => !isFinished(t));
   const todays = trips.filter((t: any) => isToday(t.createdAt)),
     completed = todays.filter((t: any) => t.status === "Completed");
   const openReports = reports.filter((r: any) => !["resolved", "closed", "dismissed"].includes(String(r.status || "").toLowerCase()));
@@ -471,7 +471,7 @@ export default function AdminDashboard({
           { label: "Franchise fleet", value: myVehicles.length, note: "Assigned franchise vehicles", icon: "route" },
           { label: "In service today", value: myVehicles.filter((v) => v.status !== "Broken / Inactive").length, note: "Operational & active", icon: "arrow", tone: "blue" },
           { label: "Broken / Inactive", value: myVehicles.filter((v) => v.status === "Broken / Inactive").length, note: "Needs maintenance/repair", icon: "warning", tone: myVehicles.filter((v) => v.status === "Broken / Inactive").length ? "red" : "gray" },
-          { label: "Today's fleet revenue", value: `₱${(myTrips.reduce((s, t) => s + (t.fare || 0), 0) + 1680).toFixed(2)}`, note: "Gross ticket collection", icon: "money", tone: "amber" },
+          { label: "Today's fleet revenue", value: `₱${myTrips.filter((t) => t.status === "Completed").reduce((s, t) => s + (t.fare || 0), 0).toFixed(2)}`, note: "Gross ticket collection", icon: "money", tone: "amber" },
         ],
         // 1: My vehicles
         [
@@ -485,7 +485,7 @@ export default function AdminDashboard({
           { label: "Fleet drivers", value: myDrivers.length, note: "Assigned operators", icon: "people" },
           { label: "Active drivers", value: myDrivers.filter((d) => d.available).length, note: "Currently logged on", icon: "arrow", tone: "blue" },
           { label: "Assigned routes", value: routes.length, note: "Authorized corridors", icon: "route", tone: "amber" },
-          { label: "Avg driver revenue", value: `₱${Math.round(840 + (myTrips.length * 28) / Math.max(1, myDrivers.length))}`, note: "Est. per driver today", icon: "money" },
+          { label: "Avg driver revenue", value: `₱${Math.round(myTrips.filter((t) => t.status === "Completed").reduce((sum, t) => sum + (t.fare || 0), 0) / Math.max(1, myDrivers.length))}`, note: "Completed fares per driver", icon: "money" },
         ],
         // 3: Routes & terminals
         [
@@ -498,8 +498,8 @@ export default function AdminDashboard({
         [
           { label: "Fleet trips today", value: myTrips.length, note: "Passenger runs recorded", icon: "route" },
           { label: "Completed runs", value: myTrips.filter((t) => t.status === "Completed").length, note: "Full route completions", icon: "arrow", tone: "blue" },
-          { label: "Est. passengers", value: myTrips.length * 4 + 22, note: "Commuters transported", icon: "people", tone: "amber" },
-          { label: "Gross collection", value: `₱${(myTrips.reduce((s, t) => s + (t.fare || 0), 0) + 960).toFixed(2)}`, note: "Today's ticket revenue", icon: "money" },
+          { label: "Passengers carried", value: myTrips.filter((t) => t.status === "Completed").length, note: "Completed bookings", icon: "people", tone: "amber" },
+          { label: "Gross collection", value: `₱${myTrips.filter((t) => t.status === "Completed").reduce((s, t) => s + (t.fare || 0), 0).toFixed(2)}`, note: "Today's ticket revenue", icon: "money" },
         ],
       ]
     : [
@@ -1276,6 +1276,7 @@ export default function AdminDashboard({
                 "In progress",
                 "Completed",
                 "Cancelled",
+                "Expired",
               ].map((status) => (
                 <option key={status}>{status}</option>
               ))}
@@ -1502,7 +1503,7 @@ export default function AdminDashboard({
           <div className="aa-controls">
             <input className="aa-select" type="date" aria-label="Filter trip date" value={tripDate} onChange={(e) => setTripDate(e.target.value)} />
             <select className="aa-select" aria-label="Trip status" value={tripStatus} onChange={(e) => setTripStatus(e.target.value)}>
-              {["All statuses","Requested","Accepted","Arrived","In progress","Completed","Cancelled"].map((s) => <option key={s}>{s}</option>)}
+              {["All statuses","Requested","Accepted","Arrived","In progress","Completed","Cancelled","Expired"].map((s) => <option key={s}>{s}</option>)}
             </select>
             <Pill tone="blue">{shownFleetTrips.length} records</Pill>
           </div>
