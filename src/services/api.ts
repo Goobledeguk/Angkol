@@ -47,6 +47,24 @@ const shortTime = (value: unknown, fallback: string) => {
 
 let lastQuote: { quote: Quote; userId: string } | null = null;
 
+const USER_COLUMNS =
+  "user_id,name,phone,contact_numbers,photo,assigned_roles,admin_level,franchise_name,verified,application_status,created_at";
+const DRIVER_COLUMNS =
+  "driver_id,user_id,operational_classification,availability_status,association,plate_number,capacity,franchise_name,routes_id,verified,current_lat,current_lng,location_updated_at";
+const ADMIN_ROLES = ["Administrator", "Vehicle Owner / Operator"];
+
+async function myProfile(): Promise<{ user: any; driver: any }> {
+  const { data, error } = await db().rpc("my_profile");
+  raise(error);
+  const profile = (data ?? {}) as { user?: any; driver?: any };
+  if (!profile.user) {
+    throw new ApiError("No profile found for this account.", 404);
+  }
+  return { user: profile.user, driver: profile.driver ?? null };
+}
+
+const isAdminRow = (row: any) => ADMIN_ROLES.includes(row?.assigned_roles?.[0]);
+
 async function currentUserId(): Promise<string> {
   const { data } = await db().auth.getUser();
   if (!data.user) {
@@ -244,9 +262,10 @@ function mapRun(row: any, users: Map<string, any>): DriverRun {
 async function loadSnapshot(): Promise<Snapshot> {
   const client = db();
   const userId = await currentUserId();
+  const profile = await myProfile();
+  const admin = isAdminRow(profile.user);
 
   const [
-    meResult,
     usersResult,
     driversResult,
     routesResult,
@@ -261,9 +280,8 @@ async function loadSnapshot(): Promise<Snapshot> {
     faresResult,
     logsResult,
   ] = await Promise.all([
-    client.from("users").select("*").eq("user_id", userId).maybeSingle(),
-    client.from("users").select("*"),
-    client.from("drivers").select("*"),
+    admin ? client.rpc("admin_users") : client.from("users").select(USER_COLUMNS),
+    admin ? client.rpc("admin_drivers") : client.from("drivers").select(DRIVER_COLUMNS),
     client.from("routes").select("*").order("route_name"),
     client.from("terminals").select("*").order("station_name"),
     client.from("vehicles").select("*").order("name"),
@@ -294,21 +312,19 @@ async function loadSnapshot(): Promise<Snapshot> {
       .limit(20),
   ]);
 
-  raise(meResult.error);
-  if (!meResult.data) {
-    throw new ApiError(
-      "No profile found for this account. Run supabase/schema.sql first.",
-      404,
-    );
-  }
+  raise(usersResult.error);
+  raise(driversResult.error);
 
   const users = (usersResult.data ?? []) as any[];
   const drivers = (driversResult.data ?? []) as any[];
   const userMap = new Map(users.map((row) => [row.user_id, row]));
   const driverMap = new Map(drivers.map((row) => [row.user_id, row]));
+  userMap.set(userId, profile.user);
+  if (profile.driver) {
+    driverMap.set(userId, profile.driver);
+  }
 
-  const me = meResult.data as any;
-  const user = mapUser(me, driverMap.get(userId));
+  const user = mapUser(profile.user, profile.driver ?? undefined);
 
   const routes = ((routesResult.data ?? []) as any[]).map(mapRoute);
   const terminals = ((terminalsResult.data ?? []) as any[]).map((row) => ({
@@ -398,7 +414,7 @@ async function loadSnapshot(): Promise<Snapshot> {
 
   return {
     user,
-    users: users.map((row) => mapUser(row, driverMap.get(row.user_id))),
+    users: [...userMap.values()].map((row) => mapUser(row, driverMap.get(row.user_id))),
     routes,
     terminals,
     vehicles,
@@ -433,8 +449,8 @@ async function namesFor(ids: (string | null | undefined)[]) {
     };
   }
   const [users, drivers] = await Promise.all([
-    db().from("users").select("*").in("user_id", wanted),
-    db().from("drivers").select("*").in("user_id", wanted),
+    db().from("users").select(USER_COLUMNS).in("user_id", wanted),
+    db().from("drivers").select(DRIVER_COLUMNS).in("user_id", wanted),
   ]);
   return {
     users: new Map((users.data ?? []).map((row: any) => [row.user_id, row])),
@@ -479,11 +495,12 @@ export async function api<T = { ok: boolean }>(
     if (endpoint === "/state") {
       result = await loadSnapshot();
     } else if (endpoint === "/debug/pending-applications") {
-      const { data } = await client
-        .from("users")
-        .select("*")
-        .eq("application_status", "pending");
-      result = { count: data?.length ?? 0, items: data ?? [] };
+      const { data, error } = await client.rpc("admin_users");
+      raise(error);
+      const items = ((data ?? []) as any[]).filter(
+        (row) => row.application_status === "pending",
+      );
+      result = { count: items.length, items };
     } else if (endpoint.startsWith("/search")) {
       const query = decodeURIComponent(endpoint.split("q=")[1] || "").trim();
       const { data, error } = await client
@@ -504,19 +521,23 @@ export async function api<T = { ok: boolean }>(
         throw new ApiError("Choose both your pickup and destination.", 400);
       }
       const route = await directions(pickup, destination);
+      const distance = Math.round(route.distanceKm * 10) / 10;
       const { data: fare, error } = await client.rpc("quote_fare", {
-        p_distance_km: route.distanceKm,
+        p_distance_km: distance,
         p_class: "Tricycle",
       });
       raise(error);
+      if (fare == null) {
+        throw new ApiError("Tricycle fares are not set up yet.", 503);
+      }
       const quote: Quote = {
         id: `quote-${Date.now()}`,
         pickup: pickup.name,
         destination: destination.name,
         pickupPoint: pickup,
         destinationPoint: destination,
-        distance: Math.round(route.distanceKm * 10) / 10,
-        fare: num(fare, Math.round(10 + route.distanceKm * 5)),
+        distance,
+        fare: num(fare),
         minutes: route.minutes,
         geometry: route.geometry,
         fareReference: "Fare matrix",
@@ -546,16 +567,12 @@ export async function api<T = { ok: boolean }>(
           dropoff_longitude: quote.destinationPoint.longitude,
           pickup_name: quote.pickup,
           dropoff_name: quote.destination,
-          calculated_fixed_fare: quote.fare,
-          request_status: "Requested",
           service_type: "Tricycle",
           payment_method: body.demoMethod || "Cash",
           distance_km: quote.distance,
           duration_min: quote.minutes,
           route_polyline: quote.geometry,
           pickup_note: body.pickupNote || null,
-          timestamps: { Requested: Date.now() },
-          expires_at: new Date(quote.expires).toISOString(),
         })
         .select()
         .single();
@@ -565,18 +582,18 @@ export async function api<T = { ok: boolean }>(
     } else if (endpoint === "/book-puj") {
       const trip = body.trip as Trip;
       if (!trip) {throw new ApiError("No trip provided.", 400);}
+      if (!body.routeId) {throw new ApiError("Choose a PUJ/PUV route.", 400);}
       const { data, error } = await client
         .from("bookings")
         .insert({
           user_id: userId,
+          routes_id: body.routeId,
           pickup_latitude: trip.pickupPoint.latitude,
           pickup_longitude: trip.pickupPoint.longitude,
           dropoff_latitude: trip.destinationPoint.latitude,
           dropoff_longitude: trip.destinationPoint.longitude,
           pickup_name: trip.pickup,
           dropoff_name: trip.destination,
-          calculated_fixed_fare: trip.fare,
-          request_status: trip.status || "Requested",
           service_type: "PUJ/PUV",
           payment_method: "Cash",
           distance_km: trip.distance,
@@ -584,8 +601,6 @@ export async function api<T = { ok: boolean }>(
           route_polyline: trip.geometry,
           driver_name: trip.driver || "",
           driver_plate: trip.plate || "",
-          timestamps: trip.timestamps || { Requested: Date.now() },
-          expires_at: new Date(trip.expires || Date.now() + 10 * 60 * 1000).toISOString(),
         })
         .select()
         .single();

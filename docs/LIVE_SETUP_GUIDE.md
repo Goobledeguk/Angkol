@@ -74,8 +74,10 @@ data.
 
 ### 4.2 Run the schema
 
-Open **SQL Editor**, paste the whole of [`supabase/schema.sql`](../supabase/schema.sql),
-and run it once on a fresh project.
+Apply the files in [`supabase/migrations/`](../supabase/migrations) in filename
+order, either with `npx supabase db push` or by pasting each one into the
+**SQL Editor**. Never edit a migration that has already been applied; add a new
+file instead.
 
 It creates:
 
@@ -89,8 +91,11 @@ It creates:
 - Realtime publication entries for `bookings`, `vehicle_locations`, and
   `notifications`
 
-> Re-running the file is safe for policies, functions, triggers, indexes, and
-> seed rows. New columns are only created on a fresh database.
+The security migration also makes the database the source of truth: sign-up
+can only create commuter or driver accounts, fares are computed server-side,
+booking status changes follow fixed rules, and other users' email, birthday,
+and license details are hidden. Admins read full profiles through the
+`admin_users` and `admin_drivers` RPCs.
 
 ### 4.3 Create an administrator
 
@@ -131,8 +136,7 @@ or notification row changes.
 
 Every booking status change now writes an in-app notification for the passenger
 and an `audit_logs` row. Admin verification/role changes are also audited. No
-extra setup is needed; re-run `supabase/schema.sql` if you created the database
-before this change.
+extra setup is needed.
 
 ---
 
@@ -399,10 +403,11 @@ Mapbox Static Images map with a transparent press layer. It converts a tap into
 a coordinate using the requested bounding box, reverse geocodes it, and calls
 `onSelect`. It draws the bundled map only when Mapbox is not configured.
 
-### `supabase/schema.sql`
+### `supabase/migrations/`
 
-Single idempotent setup file: tables, constraints, indexes, RLS, triggers,
-functions, Realtime publication, and Calbayog seed data.
+Ordered migrations: the initial schema with Calbayog seed data, then the
+security hardening (sign-up roles, server-side fares, booking state rules,
+private columns, function permissions).
 
 ---
 
@@ -490,7 +495,7 @@ Then, with real keys:
 | Symptom | Fix |
 | --- | --- |
 | “Supabase is not configured” | Fill `.env` and restart Expo (`Ctrl+C`, then `npx expo start -c`) |
-| “No profile found for this account” | Run `supabase/schema.sql`, then sign out/in |
+| “No profile found for this account” | Apply the migrations, then sign out/in |
 | Registration says “Confirm your email” | Turn off **Confirm email** in Supabase Auth settings |
 | “Invalid login credentials” | Wrong password or the account was created before email confirmation was disabled |
 | Admin sign-in says use the web portal | Administrator/owner accounts only work on the web build |

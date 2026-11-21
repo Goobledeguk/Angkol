@@ -60,7 +60,7 @@ export async function signInAccount(
   }
   if (!profile) {
     await db().auth.signOut();
-    throw new Error("This account has no profile. Run supabase/schema.sql first.");
+    throw new Error("This account has no profile yet. Please contact support.");
   }
 
   const role = (profile.assigned_roles?.[0] ?? "Passenger") as Role;

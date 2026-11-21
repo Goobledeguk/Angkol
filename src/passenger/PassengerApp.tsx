@@ -916,7 +916,10 @@ export default function PassengerApp({
                   ],
                 },
               };
-              const created = await api<Trip>("/book-puj", { trip: pujTrip });
+              const created = await api<Trip>("/book-puj", {
+                trip: pujTrip,
+                routeId: pujRoute.id,
+              });
               await refresh();
               go("PUJ arrived", created.id);
             })
