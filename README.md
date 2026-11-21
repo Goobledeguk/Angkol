@@ -1,62 +1,28 @@
-# Angkol
+# Angkol static UI prototype
 
-Calbayog City transport app built with Expo (React Native + web), Supabase, and Mapbox.
+Run `npm install`, then `npm start` (or `npm run web`). Login identifies the role from the exact sample account email, without a role selector. Registration keeps its role selection and stores a sample account in memory until reload.
 
-- **Accounts, data, and realtime:** Supabase Auth + Postgres + Realtime.
-- **Map, route, distance, and place lookup:** Mapbox Static Images, Directions, and Geocoding APIs.
-- **App:** Expo SDK 58 / Expo Router. Passenger, driver, and administrator experiences are in `src/`.
+Sample password for all predefined accounts: `Angkol123!`.
 
-## Quick start
+| Role                | Email                   |
+| ------------------- | ----------------------- |
+| Passenger           | isabella@angkol.example |
+| Tricycle driver     | miguel@angkol.example   |
+| PUJ/PUV driver      | rafael@angkol.example   |
+| Administrator (web) | patricia@angkol.example |
 
-```bash
-npm install
-cp .env.example .env      # fill in the three values
-npx expo start
-```
+Unknown emails and incorrect sample passwords show an error. These fictional accounts simulate recognition locally; no real authentication or account storage is involved.
 
-Fill `.env`:
+All screen data is fictional and bundled locally. Buttons simulate changes in memory. Leaving a preview or reloading resets changes. The map is a bundled snapshot from the existing design; location, calling, directions, and sharing are previews. No login, backend, credentials, GPS, map service, or database is required.
 
-```dotenv
-EXPO_PUBLIC_SUPABASE_URL=https://<project-ref>.supabase.co
-EXPO_PUBLIC_SUPABASE_ANON_KEY=<anon-key>
-EXPO_PUBLIC_MAPBOX_ACCESS_TOKEN=pk.<token>
-```
+`src/api.ts` is an in-memory UI adapter and never makes network requests. Backend, Firebase configuration, credentials, and emulator tools have been removed.
 
-Then apply the files in `supabase/migrations/` in order. The full setup,
-schema checklist, table list, and troubleshooting steps are in
-[`LIVE_SETUP_GUIDE.md`](./docs/LIVE_SETUP_GUIDE.md).
+Validation: `npm run lint` and `npm run typecheck`.
 
-## Commands
+Code style: run `npm run format` to format the source, or `npm run format:check` to check formatting without changing files. Use two-space indentation, double quotes, and braces around conditionals.
 
-```bash
-npm start                 # Expo dev server
-npm run web               # web build/dev
-npm run typecheck         # tsc --noEmit
-npm run lint              # expo lint
-npm test                  # Jest unit and component tests
-npm run test:ci           # Jest in CI mode
-npm run build:web         # static web export
-npm run build:native      # android + ios export
-```
+The welcome screen uses the bundled Calbayog photo. Get started opens the restored sign-in screen. The earlier UI was restored from C:\dev\Angol; live services were replaced with local previews. A recovery archive of the prior redesign is saved in .recovery/before-design-restore.zip.
 
-## Project map
+Visual style: clean and premium, using deep green, white surfaces, subtle borders, and the locally bundled Manrope font (license in assets/fonts). The welcome photo uses an AI-enhanced portrait version to reduce enlargement on phones; assets/calbayog-welcome.jpg retains the original supplied image.
 
-| Path | Purpose |
-| --- | --- |
-| `src/app/` | Expo Router routes (`/sign-in`, `/`) |
-| `src/auth/` | Sign-in, registration, and Supabase session helpers |
-| `src/passenger/`, `src/driver/`, `src/admin/` | Role experiences |
-| `src/services/api.ts` | Screens → Supabase adapter (the only data layer) |
-| `src/services/supabase.ts` | Supabase client and configuration guard |
-| `src/services/mapbox.ts` | Static map URL, directions, geocoding |
-| `src/services/location.ts` | Foreground GPS sharing to `drivers` / `vehicles` |
-| `supabase/migrations/` | Tables, RLS, RPCs, triggers, seed data |
-| `src/domain/` | Pure business rules (schedules, roles, vehicles, formatting) |
-| `src/testing/fixtures.ts` | Shared fixture data for tests |
-
-## Account roles
-
-Register in the mobile app as a commuter, tricycle driver, or PUJ/PUV driver.
-PUJ/PUV applications start as **pending** and are approved by a franchise owner
-in the web portal. To create an administrator, register normally and then run
-the promotion SQL in `LIVE_SETUP_GUIDE.md`.
+The web portal opens administrator sign-in directly, with the Calbayog photo behind a transparent form; the dashboard keeps its white background. The mobile welcome screen is unchanged. Passenger home, routes, trips, and profile use the cohesive premium components in src/passengerScreens.tsx. All interactions still use the local sample adapter.
