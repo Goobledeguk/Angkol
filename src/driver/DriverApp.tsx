@@ -156,8 +156,21 @@ const time = (at: string | number) =>
     hour: "numeric",
     minute: "2-digit",
   });
-const date = (at: string | number) =>
+const dayKey = (at: string | number) =>
   new Date(at).toLocaleDateString("en-CA", { timeZone: "Asia/Manila" });
+const date = (at: string | number) =>
+  new Date(at).toLocaleDateString("en-PH", {
+    timeZone: "Asia/Manila",
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+const shortDate = (at: string | number) =>
+  new Date(at).toLocaleDateString("en-PH", {
+    timeZone: "Asia/Manila",
+    day: "numeric",
+    month: "short",
+  });
 export default function DriverApp({
   data,
   busy,
@@ -238,6 +251,17 @@ export default function DriverApp({
     trip = trips.find((t) => t.id === params.trip) || activeTrip || trips[0];
   const assigned = data.routes.find((r) => r.id === data.user.routeId),
     stops = activeRun?.stops || assigned?.stops || [];
+  const corridorStops = stops.length ? stops : run?.stops || [];
+  const waiting = data.stopRequests.filter(
+    (request) => request.routeId === (activeRun?.routeId || assigned?.id),
+  );
+  const corridor =
+    puj && corridorStops.length > 1
+      ? {
+          type: "LineString" as const,
+          coordinates: corridorStops.map((p) => [p.longitude, p.latitude]),
+        }
+      : null;
   const fresh =
     !!data.user.location &&
     data.serverTime - data.user.location.updatedAt <= 60000;
@@ -272,7 +296,7 @@ export default function DriverApp({
           at: new Date(t.timestamps.Completed || t.createdAt).toISOString(),
           fare: t.fare,
         }));
-  const today = completed.filter((r) => date(r.at) === date(data.serverTime)),
+  const today = completed.filter((r) => dayKey(r.at) === dayKey(data.serverTime)),
     todayCash = today.reduce((s, r) => s + r.fare, 0),
     week = Array.from({ length: 7 }, (_, i) => {
       const at = data.serverTime - (6 - i) * 86400000;
@@ -283,7 +307,7 @@ export default function DriverApp({
           weekday: "short",
         }),
         fare: completed
-          .filter((r) => date(r.at) === date(at))
+          .filter((r) => dayKey(r.at) === dayKey(at))
           .reduce((s, r) => s + r.fare, 0),
       };
     }),
@@ -438,9 +462,11 @@ export default function DriverApp({
           : stops[stops.length - 1] || run?.stops[(run?.stops.length || 1) - 1]
       }
       geometry={
-        forTrip && !["Accepted", "Arrived"].includes(trip?.status || "")
-          ? trip?.geometry
-          : null
+        forTrip
+          ? !["Accepted", "Arrived"].includes(trip?.status || "")
+            ? trip?.geometry
+            : null
+          : corridor
       }
       vehicles={ownVehicle}
       stops={puj ? data.stopRequests : []}
@@ -454,10 +480,11 @@ export default function DriverApp({
           <Pressable
             key={r.id}
             accessibilityRole="button"
+            accessibilityLabel={`${r.routeName}, ${date(r.startedAt)}, ${money(r.cashFares)}, ${r.status}`}
             onPress={() =>
               go(r.status === "Completed" ? "Run complete" : "Route", r.id)
             }
-            style={ps.card}
+            style={({ pressed }) => [ps.card, pressed && ps.pressed]}
           >
             <View style={ps.row}>
               <Icon name="bus-outline" size={26} />
@@ -478,13 +505,10 @@ export default function DriverApp({
               {tripRef(r.id)} · {r.totalBoarded} passenger boardings ·{" "}
               {r.stops.length} stops
             </Text>
-            <Button
-              title="View trip record"
-              light
-              onPress={() =>
-                go(r.status === "Completed" ? "Run complete" : "Route", r.id)
-              }
-            />
+            <View style={[ps.between, { borderTopWidth: 1, borderTopColor: c.line, paddingTop: 12 }]}>
+              <Text style={[ps.small, { color: c.green, fontWeight: "700" }]}>View trip record</Text>
+              <Icon name="chevron-forward" size={18} color={c.green} />
+            </View>
           </Pressable>
         ))}
         {!runs.length && (
@@ -496,9 +520,10 @@ export default function DriverApp({
         {trips.map((t) => (
           <Pressable
             accessibilityRole="button"
+            accessibilityLabel={`${t.pickup} to ${t.destination}, ${date(t.createdAt)}, ${money(t.fare)}, ${t.status}`}
             key={t.id}
             onPress={() => go("Trip", t.id)}
-            style={ps.card}
+            style={({ pressed }) => [ps.card, pressed && ps.pressed]}
           >
             <View style={ps.row}>
               <Icon name="bicycle-outline" size={26} />
@@ -520,11 +545,10 @@ export default function DriverApp({
             <Text style={ps.tiny}>
               {tripRef(t.id)} · {t.distance} km · {t.minutes} min
             </Text>
-            <Button
-              title="View trip record"
-              light
-              onPress={() => go("Trip", t.id)}
-            />
+            <View style={[ps.between, { borderTopWidth: 1, borderTopColor: c.line, paddingTop: 12 }]}>
+              <Text style={[ps.small, { color: c.green, fontWeight: "700" }]}>View trip record</Text>
+              <Icon name="chevron-forward" size={18} color={c.green} />
+            </View>
           </Pressable>
         ))}
         {!trips.length && (
@@ -747,6 +771,51 @@ export default function DriverApp({
         <>
           {routeCard()}
           {map()}
+          {stops.length > 0 && (
+            <View style={ps.card}>
+              <Text style={ps.section}>Stops on this route</Text>
+              {stops.map((point, i) => (
+                <View style={ps.stopRow} key={`${point.name}-${i}`}>
+                  <View style={ps.stopLine} />
+                  <View
+                    style={[
+                      ps.dot,
+                      i === stops.length - 1 && { backgroundColor: c.amber, borderRadius: 2 },
+                    ]}
+                  />
+                  <View style={{ flex: 1 }}>
+                    <Text style={ps.label}>{point.name}</Text>
+                    <Text style={ps.tiny}>
+                      {i === 0
+                        ? "Departure terminal"
+                        : i === stops.length - 1
+                          ? "Final stop"
+                          : "Along the route"}
+                    </Text>
+                  </View>
+                </View>
+              ))}
+            </View>
+          )}
+          {waiting.length > 0 && (
+            <View style={ps.card}>
+              <View style={ps.between}>
+                <Text style={ps.section}>Waiting for pickup</Text>
+                <Tag text={`${waiting.length} ${waiting.length === 1 ? "request" : "requests"}`} amber />
+              </View>
+              {waiting.map((request) => (
+                <View key={request.id} style={ps.row}>
+                  <Icon name="person-outline" size={18} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={ps.label}>{request.point.name}</Text>
+                    <Text style={ps.tiny}>
+                      {request.passenger} · {time(request.createdAt)}
+                    </Text>
+                  </View>
+                </View>
+              ))}
+            </View>
+          )}
           <Button
             title="Browse routes & terminals"
             light
@@ -776,25 +845,27 @@ export default function DriverApp({
             />
           </View>
           {(!sharing || !fresh || !connected) && (
-            <Hint
-              warning
-              text={`GPS stale or connection unavailable${data.user.location ? ` · last update ${time(data.user.location.updatedAt)}` : ""}. Showing your last known position. No live arrival time is promised.`}
-            />
+            <>
+              <Hint
+                warning
+                text={`GPS stale or connection unavailable${data.user.location ? ` · last update ${time(data.user.location.updatedAt)}` : ""}. Showing your last known position. No live arrival time is promised.`}
+              />
+              <Button
+                title="Retry GPS & connection"
+                icon="refresh-outline"
+                light
+                disabled={locked}
+                onPress={() => {
+                  void perform(async () => {
+                    if (!sharing) {
+                      await toggleSharing();
+                    }
+                    await refresh();
+                  });
+                }}
+              />
+            </>
           )}
-          <Button
-            title="Retry GPS & connection"
-            icon="refresh-outline"
-            light
-            disabled={locked}
-            onPress={() => {
-              void perform(async () => {
-                if (!sharing) {
-                  await toggleSharing();
-                }
-                await refresh();
-              });
-            }}
-          />
 
           {/* ROUTE PAGE — drive to next stop, then confirm arrival */}
           {page === "Route" && next && (
@@ -1237,6 +1308,7 @@ export default function DriverApp({
     title = "Earnings";
     subtitle = "Transparent trip and cash fare records";
     const max = Math.max(1, ...week.map((d) => d.fare));
+    const weekTrips = completed.filter((r) => week.some((d) => dayKey(d.at) === dayKey(r.at))).length;
     const dayLabel = (d: Date) => ["Su","M","Tu","W","Th","F","Sa"][d.getDay()];
     content = (
       <>
@@ -1244,14 +1316,14 @@ export default function DriverApp({
           <View style={ps.between}>
             <Text style={ps.bannerSub}>LAST 7 DAYS</Text>
             <Tag
-              text={`${date(week[0].at).slice(5)}–${date(data.serverTime).slice(5)}`}
+              text={`${shortDate(week[0].at)} – ${shortDate(data.serverTime)}`}
             />
           </View>
           <Text style={[ps.bannerTitle, { fontSize: 35 }]} numberOfLines={1} adjustsFontSizeToFit>
             {money(weekCash)}
           </Text>
           <Text style={ps.bannerSub}>
-            {completed.filter((r) => week.some((d) => date(d.at) === date(r.at))).length} completed {puj ? "trips" : "trips"} · recorded cash fares
+            {weekTrips} completed {weekTrips === 1 ? "trip" : "trips"} · recorded cash fares
           </Text>
         </View>
         <View style={ps.card}>
@@ -1298,7 +1370,7 @@ export default function DriverApp({
         </View>
         <View style={ps.row}>
           <Stat value={money(todayCash)} label="Today" />
-          <Stat value="₱0" label="Platform fees" />
+          <Stat value={money(0)} label="Platform fees" />
           <Stat value={money(weekCash)} label="Recorded cash" />
         </View>
         <View style={ps.between}>
