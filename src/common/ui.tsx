@@ -1,5 +1,6 @@
-import React, { useRef, useState } from "react";
+import React, { useState } from "react";
 import { View, Text, Pressable, TextInput, Animated } from "react-native";
+import Reanimated from "react-native-reanimated";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { s } from "./styles";
 export const money = (n: number) => `₱${n.toFixed(2)}`;
@@ -25,50 +26,31 @@ export function Button({
   secondary?: boolean;
   disabled?: boolean;
 }) {
-  const [scale] = useState(() => new Animated.Value(1));
-  const [pulse] = useState(() => new Animated.Value(1));
-  const pulseAnim = useRef<Animated.CompositeAnimation | null>(null);
-
-  React.useEffect(() => () => { pulseAnim.current?.stop(); }, []);
-
-  const handlePress = () => {
-    if (disabled) { return; }
-    pulseAnim.current?.stop();
-    Animated.sequence([
-      Animated.timing(scale, { toValue: 0.94, duration: 90, useNativeDriver: true }),
-      Animated.spring(scale, { toValue: 1.04, friction: 3, tension: 110, useNativeDriver: true }),
-      Animated.spring(scale, { toValue: 1, friction: 4, useNativeDriver: true }),
-    ]).start();
-    pulse.setValue(1);
-    pulseAnim.current = Animated.sequence([
-      Animated.timing(pulse, { toValue: 1.03, duration: 180, useNativeDriver: true }),
-      Animated.timing(pulse, { toValue: 1, duration: 220, useNativeDriver: true }),
-      Animated.timing(pulse, { toValue: 1.015, duration: 180, useNativeDriver: true }),
-      Animated.timing(pulse, { toValue: 1, duration: 220, useNativeDriver: true }),
-    ]);
-    pulseAnim.current.start();
-    onPress();
-  };
+  const [down, setDown] = useState(false);
 
   return (
-    <Animated.View style={{ transform: [{ scale: Animated.multiply(scale, pulse) }] }}>
+    <Reanimated.View
+      style={{
+        transform: [{ scale: down && !disabled ? 0.97 : 1 }],
+        transitionProperty: "transform",
+        transitionDuration: 120,
+        transitionTimingFunction: "ease-out",
+      }}
+    >
       <Pressable
         accessibilityRole="button"
         disabled={disabled}
-        onPress={handlePress}
+        onPress={onPress}
+        onPressIn={() => setDown(true)}
+        onPressOut={() => setDown(false)}
         accessibilityState={{ disabled }}
-        style={({ pressed }) => [
-          s.button,
-          secondary && s.secondary,
-          disabled && { opacity: 0.45 },
-          pressed && { opacity: 0.76 },
-        ]}
+        style={[s.button, secondary && s.secondary, disabled && { opacity: 0.45 }]}
       >
         <Text style={[s.buttonText, secondary && { color: "#176B48" }]} numberOfLines={2} adjustsFontSizeToFit>
           {title}
         </Text>
       </Pressable>
-    </Animated.View>
+    </Reanimated.View>
   );
 }
 export function Popover({

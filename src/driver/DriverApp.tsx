@@ -560,7 +560,7 @@ export default function DriverApp({
       </>
     );
   let title = "Driver dashboard",
-    subtitle = `${puj ? "PUJ / PUV" : "TRICYCLE"} DRIVER${data.user.plate ? ` · ${data.user.plate}` : ""}`,
+    subtitle = `${puj ? "PUJ/PUV" : "Tricycle"} driver${data.user.plate ? `, ${data.user.plate}` : ""}`,
     content: React.ReactNode,
     footer: React.ReactNode = null,
     back: string | null = null;
@@ -577,9 +577,7 @@ export default function DriverApp({
       <>
         <View style={ps.banner}>
           <Text style={ps.bannerSub}>
-            {data.user.plate || "Vehicle plate not provided"} ·{" "}
-            {puj ? "PUJ / PUV" : "Tricycle"} · {data.user.capacity} passenger
-            capacity
+            {data.user.capacity} {data.user.capacity === 1 ? "seat" : "seats"}
           </Text>
           <View style={[ps.card, { padding: 14 }]}>
             <View style={ps.between}>
@@ -632,7 +630,9 @@ export default function DriverApp({
               title={
                 activeTrip
                   ? "Continue your active trip"
-                  : `${requests.length} nearby ride requests`
+                  : requests.length === 1
+                    ? "1 nearby ride request"
+                    : `${requests.length} nearby ride requests`
               }
               icon="bicycle-outline"
               onPress={() =>
@@ -692,13 +692,7 @@ export default function DriverApp({
         disabled={!assigned && !activeRun}
         onPress={() => go(activeRun ? "Route" : "Terminal", activeRun?.id)}
       />
-    ) : (
-      <Button
-        title={activeTrip ? "Continue trip" : "View ride requests"}
-        icon="navigate-outline"
-        onPress={() => go(activeTrip ? "Trip" : "Requests", activeTrip?.id)}
-      />
-    );
+    ) : null;
   } else if (page === "Terminal") {
     title = "Ready at the terminal";
     back = "Dashboard";
@@ -756,7 +750,7 @@ export default function DriverApp({
             ? "Starting trip…"
             : activeRun
               ? "Resume active trip"
-              : "Depart terminal · start trip"
+              : "Depart terminal"
         }
         icon="play-outline"
         disabled={
@@ -967,7 +961,7 @@ export default function DriverApp({
           />
         ) : (
           <Button
-            title="Arrived at next stop · record passengers"
+            title="Record passengers at this stop"
             icon="people-outline"
             onPress={() => {
               setBoarded("0");
@@ -1086,7 +1080,7 @@ export default function DriverApp({
               }}
             />
             <Button
-              title="Decline · offer to next driver"
+              title="Pass to next driver"
               light
               disabled={locked}
               onPress={() => {
@@ -1163,8 +1157,8 @@ export default function DriverApp({
         Accepted: "Mark arrived at pickup",
         Arrived: "Start passenger trip",
         "In progress": trip.demoPayment
-          ? "Complete trip · test payment only"
-          : "Complete trip · cash fare recorded",
+          ? "Complete trip"
+          : "Complete trip, cash received",
       };
       footer = (
         <Button
@@ -1609,17 +1603,17 @@ export default function DriverApp({
   }, [back]);
   const tabs = puj
     ? [
-        { label: "Dashboard", icon: "speedometer-outline" },
-        { label: "Route", icon: "navigate-circle-outline" },
-        { label: "Records", icon: "time-outline" },
-        { label: "Earnings", icon: "wallet-outline" },
-        { label: "Profile", icon: "person-outline" },
+        { label: "Dashboard", text: "Home", icon: "speedometer-outline" },
+        { label: "Route", text: "Route", icon: "navigate-circle-outline" },
+        { label: "Records", text: "Records", icon: "time-outline" },
+        { label: "Earnings", text: "Earnings", icon: "wallet-outline" },
+        { label: "Profile", text: "Account", icon: "person-outline" },
       ]
     : [
-        { label: "Dashboard", icon: "speedometer-outline" },
-        { label: "Records", icon: "map-outline" },
-        { label: "Earnings", icon: "wallet-outline" },
-        { label: "Profile", icon: "person-outline" },
+        { label: "Dashboard", text: "Home", icon: "speedometer-outline" },
+        { label: "Records", text: "Trips", icon: "map-outline" },
+        { label: "Earnings", text: "Earnings", icon: "wallet-outline" },
+        { label: "Profile", text: "Account", icon: "person-outline" },
       ];
   return (
     <View style={ps.app}>
@@ -1695,7 +1689,7 @@ export default function DriverApp({
             <Pressable
               key={tab.label}
               accessibilityRole="tab"
-              accessibilityLabel={tab.label === "Records" && !puj ? "Trips" : tab.label}
+              accessibilityLabel={tab.text}
               accessibilityState={{ selected: page === tab.label }}
               onPress={() => go(tab.label)}
               style={({ pressed }) => [
@@ -1706,9 +1700,17 @@ export default function DriverApp({
             >
               <Icon
                 name={tab.icon as IconName}
-                size={24}
+                size={23}
                 color={page === tab.label ? c.green : "#71877A"}
               />
+              <Text
+                style={[
+                  ps.navLabel,
+                  page === tab.label && { color: c.green, fontWeight: "700" },
+                ]}
+              >
+                {tab.text}
+              </Text>
             </Pressable>
           ))}
         </View>
