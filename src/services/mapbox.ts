@@ -29,6 +29,8 @@ function latitudeFromMercatorY(y: number) {
   return (180 / Math.PI) * Math.atan(Math.sinh(n));
 }
 
+const MARKER_HEAD = 40;
+
 export function viewportFor(points: Point[], width = 600, height = 390): Viewport {
   const valid = points.filter(
     (p) => Number.isFinite(p.latitude) && Number.isFinite(p.longitude),
@@ -51,7 +53,7 @@ export function viewportFor(points: Point[], width = 600, height = 390): Viewpor
   const lngFraction = Math.max((east - west) / 360, 0.00001);
   const latFraction = Math.max(bottom - top, 0.00001);
   const usableWidth = Math.max(width * 0.7, 1);
-  const usableHeight = Math.max(height * 0.7, 1);
+  const usableHeight = Math.max(height * 0.7 - MARKER_HEAD, 1);
   const zoom = Math.min(
     16,
     Math.max(
@@ -62,10 +64,12 @@ export function viewportFor(points: Point[], width = 600, height = 390): Viewpor
       ),
     ),
   );
+  const rounded = Math.round(zoom * 100) / 100;
+  const headShift = MARKER_HEAD / 2 / (TILE * 2 ** rounded);
   return {
-    latitude: latitudeFromMercatorY((top + bottom) / 2),
+    latitude: latitudeFromMercatorY((top + bottom) / 2 - headShift),
     longitude: (east + west) / 2,
-    zoom: Math.round(zoom * 100) / 100,
+    zoom: rounded,
   };
 }
 

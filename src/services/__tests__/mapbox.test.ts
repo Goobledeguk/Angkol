@@ -92,7 +92,8 @@ describe("map viewport and coordinates", () => {
       800,
       800,
     );
-    expect(view.latitude).toBeCloseTo(12.07, 8);
+    expect(view.latitude).toBeGreaterThan(12.07);
+    expect(view.latitude - 12.07).toBeLessThan(0.0005);
     expect(view.longitude).toBe(124.59);
     expect(view.zoom).toBe(16);
   });
@@ -100,7 +101,8 @@ describe("map viewport and coordinates", () => {
   it("centers the route bounds and zooms farther out on a narrow image", () => {
     const view = mapbox.viewportFor([pickup, destination], 600, 390);
     const narrow = mapbox.viewportFor([pickup, destination], 100, 390);
-    expect(view.latitude).toBeCloseTo(12.08, 5);
+    expect(view.latitude).toBeGreaterThan(12.08);
+    expect(view.latitude - 12.08).toBeLessThan(0.005);
     expect(view.longitude).toBeCloseTo(124.6, 8);
     expect(view.zoom).toBeGreaterThan(narrow.zoom);
   });
@@ -114,9 +116,17 @@ describe("map viewport and coordinates", () => {
       1,
       1,
     );
-    expect(view.latitude).toBeCloseTo(0, 8);
+    expect(Number.isFinite(view.latitude)).toBe(true);
+    expect(view.latitude).toBeGreaterThanOrEqual(0);
     expect(view.longitude).toBe(0);
     expect(view.zoom).toBe(2);
+  });
+
+  it("shifts the camera north so the top marker head is not clipped", () => {
+    const tall = mapbox.viewportFor([pickup, destination], 600, 2000);
+    const short = mapbox.viewportFor([pickup, destination], 600, 160);
+    expect(short.latitude).toBeGreaterThan((pickup.latitude + destination.latitude) / 2);
+    expect(short.zoom).toBeLessThan(tall.zoom);
   });
 
   it("maps the center pixel to the camera coordinates", () => {

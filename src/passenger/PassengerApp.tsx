@@ -1642,9 +1642,13 @@ export default function PassengerApp({
             >
               <View>
                 <Text style={ps.departTime}>
-                  {nextDeparture(route, data.serverTime)}
+                  {nextDeparture(route, data.serverTime).replace("Tomorrow ", "")}
                 </Text>
-                <Text style={ps.tiny}>{waitLabel(route, data.serverTime)}</Text>
+                <Text style={ps.tiny}>
+                  {nextDeparture(route, data.serverTime).startsWith("Tomorrow")
+                    ? "Tomorrow"
+                    : waitLabel(route, data.serverTime)}
+                </Text>
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={ps.label}>{route.name}</Text>
