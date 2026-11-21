@@ -1,3 +1,5 @@
+import { tripRef } from "../domain/vehicles";
+import { statusLabel } from "../domain/format";
 import React, { useEffect, useRef, useState } from "react";
 import { router, useLocalSearchParams } from "expo-router";
 import type { AdminDashboardProps } from "./AdminDashboard";
@@ -392,7 +394,7 @@ export default function AdminDashboard({
   );
   const todays = trips.filter((t: any) => isToday(t.createdAt)),
     completed = todays.filter((t: any) => t.status === "Completed");
-  const openReports = reports.filter((r: any) => r.status !== "resolved");
+  const openReports = reports.filter((r: any) => !["resolved", "closed", "dismissed"].includes(String(r.status || "").toLowerCase()));
   const stale = vehicles.filter((v: any) => v.stale),
     live = vehicles.filter((v: any) => !v.stale);
   const routes = (Array.isArray(d.routes)?d.routes:[]).filter((r: any) => r.active),
@@ -411,7 +413,7 @@ export default function AdminDashboard({
       (tripStatus === "All statuses" || t.status === tripStatus) &&
       (!tripDate ||
         new Date(t.createdAt).toLocaleDateString("en-CA") === tripDate) &&
-      `${t.id} ${t.passenger} ${t.driver || ""}`
+      `${t.id} ${tripRef(t.id)} ${t.passenger} ${t.driver || ""}`
         .toLowerCase()
         .includes(search.toLowerCase()),
   );
@@ -483,7 +485,7 @@ export default function AdminDashboard({
         // 2: People
         [
           { label: "Total bookings", value: data.trips.length, note: `${completed.length} completed today`, icon: "route" },
-          { label: "Completed rate", value: `${todays.length ? Math.round((completed.length / todays.length) * 100) : 0}%`, note: "Fulfillment reliability", icon: "arrow", tone: "blue" },
+          { label: "Completed today", value: todays.length ? `${Math.round((completed.length / todays.length) * 100)}%` : "—", note: todays.length ? `${completed.length} of ${todays.length} bookings today` : "No bookings yet today", icon: "arrow", tone: "blue" },
           { label: "Average wait", value: averageWait !== null ? `${averageWait}s` : "—", note: "Dispatch to pickup ETA", icon: "clock", tone: "amber" },
           { label: "Open reports", value: openReports.length, note: "Grievances under investigation", icon: "warning", tone: "red" },
         ],
@@ -497,7 +499,7 @@ export default function AdminDashboard({
         // 4: Trips & reports
         [
           { label: "Total bookings", value: trips.length, note: "Operational trip records", icon: "route" },
-          { label: "Completed rate", value: `${todays.length ? Math.round((completed.length / todays.length) * 100) : 0}%`, note: "Fulfillment reliability", icon: "arrow", tone: "blue" },
+          { label: "Completed today", value: todays.length ? `${Math.round((completed.length / todays.length) * 100)}%` : "—", note: todays.length ? `${completed.length} of ${todays.length} bookings today` : "No bookings yet today", icon: "arrow", tone: "blue" },
           { label: "Open reports", value: openReports.length, note: "Grievances under investigation", icon: "warning", tone: openReports.length ? "red" : "gray" },
           { label: "Average wait", value: averageWait !== null ? `${averageWait}s` : "—", note: "Dispatch to pickup", icon: "clock", tone: "amber" },
         ],
@@ -585,7 +587,7 @@ export default function AdminDashboard({
                       open("Trip details", t.id);
                     }}
                   >
-                    {shortId(t.id)}
+                    {tripRef(t.id)}
                   </button>
                 </td>
                 <td>
@@ -673,7 +675,7 @@ export default function AdminDashboard({
               <div className="aa-chart" style={{ display: "flex", gap: 10, padding: "4px 2px 0", alignItems: "flex-end", minHeight: 170 }}>
                 {hours.map((h, i) => (
                   <div className="aa-barcol" key={h} title={`${String(h).padStart(2, "0")}:00 · ${counts[i]} completed trips`} style={{ flex: "1 1 0", minWidth: 28 }}>
-                    <div className="aa-bar" style={{ height: `${Math.max(6, (counts[i] / max) * 100)}%`, width: "100%", background: "linear-gradient(180deg,#1B8A5A,#0F5A3A)", borderRadius: 8 }} />
+                    <div className="aa-bar" style={counts[i] ? { height: `${Math.max(6, (counts[i] / max) * 100)}%`, width: "100%", background: "linear-gradient(180deg,#1B8A5A,#0F5A3A)", borderRadius: 8 } : { height: 2, width: "100%", background: "#dcefe6", borderRadius: 2 }} />
                     <span style={{ fontSize: 10 }}>{String(h).padStart(2, "0")}</span>
                   </div>
                 ))}
@@ -1302,7 +1304,7 @@ export default function AdminDashboard({
                     <span>
                       <strong>{r.details.slice(0, 50)}</strong>
                       <small>
-                        {r.reporter} · {r.status}
+                        {r.reporter} · {statusLabel(r.status)}
                       </small>
                     </span>
                     <Glyph name="report" size={14} />
@@ -1458,7 +1460,7 @@ export default function AdminDashboard({
       { id: "FT-2404", passenger: "Paolo R. Cruz", driver: "Limuel Rosino", plate: "ABC 1231", status: "Accepted", fare: 13, createdAt: new Date(now - 8 * 60000).toISOString(), pickup: { name: "Cathedral" }, destination: { name: "Rawis" }, timestamps: { Accepted: now - 480000 } },
       { id: "FT-2405", passenger: "Ana G. Reyes", driver: "Unassigned", plate: "PUV 3096", status: "Requested", fare: 15, createdAt: new Date(now - 2 * 60000).toISOString(), pickup: { name: "City Hall" }, destination: { name: "Oquendo" }, timestamps: {} },
     ] as unknown as Trip[];
-    const shownFleetTrips = populatedFleetTrips.filter((t) => (tripStatus === "All statuses" || t.status === tripStatus) && (!tripDate || new Date(t.createdAt).toLocaleDateString("en-CA") === tripDate) && `${t.id} ${t.passenger} ${t.driver || ""} ${(t as any).plate || ""}`.toLowerCase().includes(search.toLowerCase()));
+    const shownFleetTrips = populatedFleetTrips.filter((t) => (tripStatus === "All statuses" || t.status === tripStatus) && (!tripDate || new Date(t.createdAt).toLocaleDateString("en-CA") === tripDate) && `${t.id} ${tripRef(t.id)} ${t.passenger} ${t.driver || ""} ${(t as any).plate || ""}`.toLowerCase().includes(search.toLowerCase()));
     content = (
       <>
         <div className="aa-toolbar">
