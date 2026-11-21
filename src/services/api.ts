@@ -599,8 +599,6 @@ export async function api<T = { ok: boolean }>(
           distance_km: trip.distance,
           duration_min: trip.minutes,
           route_polyline: trip.geometry,
-          driver_name: trip.driver || "",
-          driver_plate: trip.plate || "",
         })
         .select()
         .single();
