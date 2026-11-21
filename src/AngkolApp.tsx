@@ -9,6 +9,7 @@ import type { Snapshot } from "./types/types";
 import Auth from "./auth/Auth";
 import PassengerApp from "./passenger/PassengerApp";
 import DriverApp from "./driver/DriverApp";
+import DriverPending from "./driver/DriverPending";
 import AdminDashboard from "./admin/AdminDashboard";
 
 export default function AngkolApp() {
@@ -17,14 +18,39 @@ export default function AngkolApp() {
   const [sharing, setSharing] = useState(false);
   const insets = useSafeAreaInsets();
   const [fade] = useState(() => new Animated.Value(0));
+  const [restoring, setRestoring] = useState(!!supabase);
   const hasData = !!data;
   const userId = data?.user?.id;
+
+  useEffect(() => {
+    if (!supabase) {
+      return;
+    }
+    let active = true;
+    void (async () => {
+      try {
+        const { data: session } = await supabase.auth.getSession();
+        if (session.session && active) {
+          setData(await api<Snapshot>("/state"));
+        }
+      } catch {
+        await clearSession();
+      } finally {
+        if (active) {
+          setRestoring(false);
+        }
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, []);
+
   useEffect(() => {
     fade.setValue(0);
     Animated.timing(fade, { toValue: 1, duration: 220, useNativeDriver: true }).start();
   }, [hasData, userId, fade]);
 
-  // Realtime: refresh the snapshot when shared tables change.
   useEffect(() => {
     if (!supabase || !userId) {return;}
     const client = supabase;
@@ -74,6 +100,10 @@ export default function AngkolApp() {
     router.setParams({ screen: undefined });
   }
 
+  if (restoring) {
+    return <View style={{ flex: 1, backgroundColor: "#FFFFFF" }} />;
+  }
+
   if (!data) {
     return (
       <SafeAreaView style={{ flex: 1, backgroundColor: "#FFFFFF" }} edges={["top", "bottom"]}>
@@ -101,6 +131,8 @@ export default function AngkolApp() {
             <AdminDashboard {...props} />
           ) : data.user.role === "Passenger" ? (
             <PassengerApp {...props} />
+          ) : data.user.applicationStatus === "pending" || data.user.applicationStatus === "declined" ? (
+            <DriverPending user={data.user} refresh={refresh} logout={logout} />
           ) : (
             <DriverApp
               {...props}

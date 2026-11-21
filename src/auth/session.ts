@@ -98,8 +98,17 @@ export async function registerAccount(input: Registration) {
     },
   });
   if (error) {throw new Error(friendly(error.message));}
-  if (!data.session) {
-    throw new Error("Account created. Confirm your email, then sign in.");
+  return { needsConfirmation: data.session === null };
+}
+
+export async function requestPasswordReset(email: string) {
+  const { error } = await db().auth.resetPasswordForEmail(
+    email.trim().toLowerCase(),
+  );
+  if (error) {
+    throw new Error(
+      "Could not send the password reset email. Check your email address and try again.",
+    );
   }
 }
 
