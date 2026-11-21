@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
+import { greeting, nextDeparture } from "../domain/schedule";
 import {
   View,
   Text,
@@ -155,39 +156,6 @@ const time = (at: string | number) =>
   });
 const date = (at: string | number) =>
   new Date(at).toLocaleDateString("en-CA", { timeZone: "Asia/Manila" });
-function departure(route: Snapshot["routes"][number], now: number) {
-  if (
-    route.scheduled === false ||
-    !route.interval ||
-    !route.startsAt ||
-    !route.endsAt
-  ) {
-    return "No fixed schedule";
-  }
-  const minute = (s: string) => {
-    const [h, m] = s.split(":").map(Number);
-    return h * 60 + m;
-  };
-  const current = minute(
-      new Date(now).toLocaleTimeString("en-GB", {
-        timeZone: "Asia/Manila",
-        hour12: false,
-        hour: "2-digit",
-        minute: "2-digit",
-      }),
-    ),
-    start = minute(route.startsAt),
-    end = minute(route.endsAt),
-    next = Math.max(
-      start,
-      start +
-        Math.ceil((current - start) / Math.max(1, route.interval)) *
-          Math.max(1, route.interval),
-    );
-  return next > end
-    ? `Tomorrow ${route.startsAt}`
-    : `${String(Math.floor(next / 60)).padStart(2, "0")}:${String(next % 60).padStart(2, "0")}`;
-}
 export default function DriverApp({
   data,
   busy,
@@ -208,6 +176,7 @@ export default function DriverApp({
     trip?: string;
   }>();
   const puj = data.user.role === "PUJ / PUV driver";
+  const online = data.user.available && sharing;
   const aliases: Record<string, string> = {
     Home: "Dashboard",
     "My trips": "Records",
@@ -566,14 +535,7 @@ export default function DriverApp({
     footer: React.ReactNode = null,
     back: string | null = null;
   if (page === "Dashboard") {
-    const hour = Number(
-      new Date(data.serverTime).toLocaleTimeString("en-GB", {
-        timeZone: "Asia/Manila",
-        hour: "2-digit",
-        hourCycle: "h23",
-      }),
-    );
-    title = `${hour >= 5 && hour < 12 ? "Maupay nga aga" : hour < 18 && hour >= 12 ? "Maupay nga kulop" : "Maupay nga gab-i"}, ${data.user.name.split(" ")[0]}`;
+    title = `${greeting(data.serverTime)}, ${data.user.name.split(" ")[0]}`;
     content = (
       <>
         <View style={ps.banner}>
@@ -586,9 +548,11 @@ export default function DriverApp({
                 <Text style={[ps.section, { color: c.green }]}>
                   {!data.user.verified
                     ? "Awaiting approval"
-                    : data.user.available
+                    : online
                       ? "You’re available"
-                      : "You’re offline"}
+                      : data.user.available
+                        ? "Reconnecting GPS…"
+                        : "You’re offline"}
                 </Text>
                 <Text style={ps.small}>
                   {data.user.verified
@@ -600,7 +564,7 @@ export default function DriverApp({
               </View>
               <Switch
                 accessibilityLabel="Driver availability"
-                value={data.user.available}
+                value={online}
                 disabled={locked || !data.user.verified || !sharing}
                 onValueChange={(available) => {
                   void action("/availability", { available });
@@ -658,7 +622,7 @@ export default function DriverApp({
               />
             </View>
             <Text style={[ps.bannerTitle, { fontSize: 34 }]}>
-              {activeRun ? "In progress" : departure(assigned, data.serverTime)}
+              {activeRun ? "In progress" : nextDeparture(assigned, data.serverTime)}
             </Text>
             <Text style={ps.bannerSub}>
               {data.terminals.find((t) => t.routeId === assigned.id)?.name ||
@@ -705,7 +669,7 @@ export default function DriverApp({
             <View style={ps.card}>
               <Text style={ps.locationCaption}>Scheduled departure</Text>
               <Text style={[ps.fare, { flexShrink: 1, fontSize: 22, lineHeight: 28 }]} numberOfLines={1} adjustsFontSizeToFit>
-                {departure(assigned, data.serverTime)}
+                {nextDeparture(assigned, data.serverTime)}
               </Text>
               <Text style={ps.body}>
                 {data.terminals.find((t) => t.routeId === assigned.id)?.name ||
@@ -731,7 +695,7 @@ export default function DriverApp({
                 <View key={r.id} style={ps.card}>
                   <View style={ps.between}>
                     <Text style={ps.label}>{r.name}</Text>
-                    <Tag text={departure(r, data.serverTime)} />
+                    <Tag text={nextDeparture(r, data.serverTime)} />
                   </View>
                   <Text style={ps.small}>
                     {r.scheduled === false
@@ -1231,7 +1195,7 @@ export default function DriverApp({
                   text={
                     r.scheduled === false
                       ? "Live driver location"
-                      : `Departs ${departure(r, data.serverTime)}`
+                      : `Departs ${nextDeparture(r, data.serverTime)}`
                   }
                 />
                 <Tag
