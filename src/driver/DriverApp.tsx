@@ -1,5 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { greeting, nextDeparture } from "../domain/schedule";
+import { tripRef } from "../domain/vehicles";
+import { statusLabel } from "../domain/format";
 import {
   View,
   Text,
@@ -177,6 +179,7 @@ export default function DriverApp({
   }>();
   const puj = data.user.role === "PUJ / PUV driver";
   const online = data.user.available && sharing;
+  const unread = data.notifications.filter((n) => !n.read).length;
   const aliases: Record<string, string> = {
     Home: "Dashboard",
     "My trips": "Records",
@@ -472,7 +475,7 @@ export default function DriverApp({
               </View>
             </View>
             <Text style={ps.tiny} numberOfLines={2}>
-              {r.id.slice(0, 20)} · {r.totalBoarded} passenger boardings ·{" "}
+              {tripRef(r.id)} · {r.totalBoarded} passenger boardings ·{" "}
               {r.stops.length} stops
             </Text>
             <Button
@@ -515,7 +518,7 @@ export default function DriverApp({
               </View>
             </View>
             <Text style={ps.tiny}>
-              {t.id.slice(0, 20)} · {t.distance} km · {t.minutes} min
+              {tripRef(t.id)} · {t.distance} km · {t.minutes} min
             </Text>
             <Button
               title="View trip record"
@@ -1510,18 +1513,34 @@ export default function DriverApp({
     content = (
       <>
         <Button
-          title="Mark all as read"
+          title={unread ? `Mark ${unread} as read` : "All caught up"}
           light
+          disabled={locked || !unread}
           onPress={() => {
             void action("/notifications/read", {});
           }}
         />
         {data.notifications.map((n) => (
-          <View key={n.id} style={ps.card}>
-            <Text style={ps.label}>{n.message}</Text>
-            <Text style={ps.small}>
-              {date(n.createdAt)} · {time(n.createdAt)}
-            </Text>
+          <View
+            key={n.id}
+            style={[ps.card, { flexDirection: "row", gap: 12, alignItems: "flex-start" }]}
+            accessibilityLabel={`${n.read ? "" : "Unread. "}${n.message}`}
+          >
+            <View
+              style={{
+                width: 8,
+                height: 8,
+                borderRadius: 4,
+                marginTop: 7,
+                backgroundColor: n.read ? "transparent" : c.amber,
+              }}
+            />
+            <View style={{ flex: 1, gap: 6 }}>
+              <Text style={[ps.label, n.read && { fontWeight: "500" }]}>{n.message}</Text>
+              <Text style={ps.small}>
+                {date(n.createdAt)} · {time(n.createdAt)}
+              </Text>
+            </View>
           </View>
         ))}
         {!data.notifications.length && <Hint text="You’re all caught up." />}
@@ -1550,7 +1569,7 @@ export default function DriverApp({
             void perform(async () => {
               if (
                 await action("/report", {
-                  details: report,
+                  details: report.trim(),
                   tripId: params.trip || null,
                 })
               ) {
@@ -1561,7 +1580,7 @@ export default function DriverApp({
         />
         {data.reports.map((r) => (
           <View key={r.id} style={ps.card}>
-            <Tag text={r.status} />
+            <Tag text={statusLabel(r.status)} />
             <Text style={ps.body}>{r.details}</Text>
           </View>
         ))}
@@ -1622,7 +1641,11 @@ export default function DriverApp({
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={
-            page === "Earnings" ? "Share cash records" : "Notifications"
+            page === "Earnings"
+              ? "Share cash records"
+              : unread
+                ? `Notifications, ${unread} unread`
+                : "Notifications"
           }
           style={ps.iconButton}
           onPress={() =>
@@ -1635,6 +1658,7 @@ export default function DriverApp({
             }
             size={22}
           />
+          {page !== "Earnings" && unread > 0 && <View style={ps.unreadDot} />}
         </Pressable>
       </View>
       <ScrollView

@@ -44,6 +44,17 @@ export const ps = StyleSheet.create({
     justifyContent: "center",
     flexShrink: 0,
   },
+  unreadDot: {
+    position: "absolute",
+    top: 9,
+    right: 10,
+    width: 9,
+    height: 9,
+    borderRadius: 5,
+    backgroundColor: c.amber,
+    borderWidth: 2,
+    borderColor: "#E5F0E9",
+  },
   content: { paddingHorizontal: 22, paddingBottom: 28, gap: 22, flexGrow: 1 },
   scroll: { flex: 1 },
   section: {

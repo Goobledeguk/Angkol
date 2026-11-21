@@ -21,6 +21,8 @@ import { Share, Linking } from "../services/previewActions";
 import { api } from "../services/api";
 import { currentPoint } from "../services/location";
 import { distanceKm } from "../services/mapbox";
+import { isStale, lastSeen, tripRef, vehicleForDriver } from "../domain/vehicles";
+import { statusLabel } from "../domain/format";
 import { greeting as greetingFor, nextDeparture } from "../domain/schedule";
 import type { Point, Quote, Route, Snapshot, Trip } from "../types/types";
 import CalbayogMap from "../map/CalbayogMap";
@@ -185,7 +187,7 @@ const fullDate = (at: number | string) =>
     year: "numeric",
   });
 function tripText(trip: Trip) {
-  return `Angkol · ${trip.id}\n${trip.status}\n${trip.pickup} → ${trip.destination}\nDriver: ${trip.driver || "Awaiting assignment"}${trip.plate ? ` · ${trip.plate}` : ""}\n${trip.demoPayment ? `${trip.demoPayment.method} TEST ONLY — no money charged; actual fare remains payable. Demo reference: ${trip.demoPayment.reference}\nFare` : "Fixed cash fare"}: ${money(trip.fare)}${trip.sampleFare ? " (sample fare)" : ""}\n${fullDate(trip.createdAt)} · ${stamp(trip.createdAt)}`;
+  return `Angkol trip ${tripRef(trip.id)}\n${trip.status}\n${trip.pickup} → ${trip.destination}\nDriver: ${trip.driver || "Awaiting assignment"}${trip.plate ? ` · ${trip.plate}` : ""}\n${trip.demoPayment ? `${trip.demoPayment.method} TEST ONLY — no money charged; actual fare remains payable. Demo reference: ${trip.demoPayment.reference}\nFare` : "Fixed cash fare"}: ${money(trip.fare)}${trip.sampleFare ? " (sample fare)" : ""}\n${fullDate(trip.createdAt)} · ${stamp(trip.createdAt)}`;
 }
 
 export default function PassengerApp({
@@ -257,13 +259,14 @@ export default function PassengerApp({
   );
   const trip =
     data.trips.find((t) => t.id === params.trip) || active || data.trips[0];
-  const vehicle = data.vehicles.find((v) => v.id === trip?.driverId);
+  const vehicle = vehicleForDriver(data.vehicles, trip?.driverId, trip?.plate);
   const routes = data.routes.filter((r) => r.active),
     terminals = data.terminals.filter((t) => t.active);
   const selectedRoute =
     routes.find((route) => route.id === routeId) || routes[0];
   const terminal = terminals.find((t) => t.id === terminalId) || terminals[0];
   const locked = working || busy;
+  const unread = data.notifications.filter((n) => !n.read).length;
   const go = (next: string, id?: string) => {
     setError("");
     router.setParams({ screen: next, trip: id || "" });
@@ -463,7 +466,7 @@ export default function PassengerApp({
         }
         vehicles={
           journey === "trip"
-            ? data.vehicles.filter((v) => v.id === trip?.driverId)
+            ? vehicle ? [vehicle] : []
             : data.vehicles
         }
         terminals={journey === "terminal" ? terminals : []}
@@ -991,7 +994,7 @@ export default function PassengerApp({
   } else if (page === "Ride accepted") {
     back = "Home";
     subtitle = trip
-      ? `${trip.id.slice(0, 20)} · ${trip.status}`
+      ? `Trip ${tripRef(trip.id)} · ${trip.status}`
       : "Your current ride";
     title =
       trip?.status === "Cancelled"
@@ -1261,7 +1264,7 @@ export default function PassengerApp({
   } else if (page === "Track ride") {
     back = "Home";
     subtitle = trip
-      ? `${trip.id.slice(0, 20)} · ${trip.status}`
+      ? `Trip ${tripRef(trip.id)} · ${trip.status}`
       : "Your current ride";
     title =
       trip?.status === "Cancelled"
@@ -1319,16 +1322,16 @@ export default function PassengerApp({
               </Text>
             </View>
           </View>
-          {vehicle?.stale ? (
+          {vehicle && isStale(vehicle.location.updatedAt, data.serverTime) ? (
             <Hint
               icon="eye-off-outline"
-              text={`Driver location is stale · last update ${stamp(vehicle.location.updatedAt)}. Showing the last known position; arrival time may change.`}
+              text={`Driver location is old (${lastSeen(vehicle.location.updatedAt, data.serverTime).toLowerCase()}). Showing the last known position; arrival time may change.`}
             />
           ) : vehicle ? (
             <Hint
               info
               icon="navigate-outline"
-              text={`Driver GPS updated ${stamp(vehicle.location.updatedAt)}. Road time is an estimate, not a live traffic ETA.`}
+              text={`Driver GPS updated ${lastSeen(vehicle.location.updatedAt, data.serverTime).toLowerCase()}. Road time is an estimate, not a live traffic ETA.`}
             />
           ) : (
             <Hint text="The driver’s live location is not available yet. Your trip status will update automatically." />
@@ -1689,7 +1692,7 @@ export default function PassengerApp({
               ? `–${stamp(trip.timestamps.Completed)}`
               : ""}
           </Text>
-          <Text style={ps.bannerSub}>Trip ID: {trip.id}</Text>
+          <Text style={ps.bannerSub}>Trip {tripRef(trip.id)}</Text>
         </View>
         {receiptDetails(trip)}
         {trip.status === "Completed" && (
@@ -1852,26 +1855,41 @@ export default function PassengerApp({
     content = (
       <>
         <Action
-          title="Mark all as read"
+          title={unread ? `Mark ${unread} as read` : "All caught up"}
           light
-          disabled={locked}
+          disabled={locked || !unread}
           onPress={() => {
             void action("/notifications/read", {});
           }}
         />
         {data.notifications.map((item) => (
-          <View key={item.id} style={ps.card}>
-            <Text
-              style={[
-                ps.body,
-                !item.read && { fontWeight: "600", color: c.ink },
-              ]}
-            >
-              {item.message}
-            </Text>
-            <Text style={ps.tiny}>
-              {fullDate(item.createdAt)} · {stamp(item.createdAt)}
-            </Text>
+          <View
+            key={item.id}
+            style={[ps.card, { flexDirection: "row", gap: 12, alignItems: "flex-start" }]}
+            accessibilityLabel={`${item.read ? "" : "Unread. "}${item.message}`}
+          >
+            <View
+              style={{
+                width: 8,
+                height: 8,
+                borderRadius: 4,
+                marginTop: 7,
+                backgroundColor: item.read ? "transparent" : c.amber,
+              }}
+            />
+            <View style={{ flex: 1, gap: 6 }}>
+              <Text
+                style={[
+                  ps.body,
+                  !item.read && { fontWeight: "600", color: c.ink },
+                ]}
+              >
+                {item.message}
+              </Text>
+              <Text style={ps.tiny}>
+                {fullDate(item.createdAt)} · {stamp(item.createdAt)}
+              </Text>
+            </View>
           </View>
         ))}
         {!data.notifications.length && (
@@ -1890,7 +1908,7 @@ export default function PassengerApp({
           icon="shield-checkmark-outline"
           text="Location access is optional. Driver positions are shown only when available, and stale positions are labeled. Share trip status only with people you choose."
         />
-        {params.trip ? <Text style={ps.small}>Trip: {params.trip}</Text> : null}
+        {params.trip ? <Text style={ps.small}>About trip {tripRef(params.trip)}</Text> : null}
         <Text style={ps.label}>Tell us what happened</Text>
         <TextInput
           accessibilityLabel="Support report details"
@@ -1920,7 +1938,7 @@ export default function PassengerApp({
         />
         {data.reports.map((item) => (
           <View style={ps.card} key={item.id}>
-            <Tag text={item.status} />
+            <Tag text={statusLabel(item.status)} />
             <Text style={ps.body}>{item.details}</Text>
             <Text style={ps.tiny}>{fullDate(item.createdAt)}</Text>
           </View>
@@ -1964,11 +1982,12 @@ export default function PassengerApp({
         {!back && (
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="Notifications"
+            accessibilityLabel={unread ? `Notifications, ${unread} unread` : "Notifications"}
             style={ps.iconButton}
             onPress={() => go("Notifications")}
           >
             <Icon name="notifications-outline" size={22} />
+            {unread > 0 && <View style={ps.unreadDot} />}
           </Pressable>
         )}
       </View>
