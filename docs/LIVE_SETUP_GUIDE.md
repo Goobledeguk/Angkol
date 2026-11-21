@@ -68,9 +68,15 @@ data.
 ### 4.1 Create the project
 
 1. Create a project at <https://supabase.com/dashboard>.
-2. Open **Authentication → Sign In / Providers → Email** and turn **Confirm
-   email** off. This lets registration sign the user in immediately.
-3. Copy the Project URL and anon key into `.env`.
+2. **Confirm email** (Authentication → Sign In / Providers → Email) can stay
+   on. When it is on, registration returns to the sign-in screen and tells
+   the user to open the confirmation link first. Turn it off only for testing.
+3. Open **Authentication → URL Configuration** and add these to **Redirect
+   URLs** so password reset links open the app:
+   - `angkol://reset-password`
+   - `exp://**` (Expo Go during development)
+   - your web portal URL followed by `/reset-password`
+4. Copy the Project URL and publishable key into `.env`.
 
 ### 4.2 Run the schema
 
