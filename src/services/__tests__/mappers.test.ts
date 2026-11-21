@@ -367,6 +367,8 @@ describe("mapTrip", () => {
   it("maps the complete booking and prefers the booking's plate", () => {
     expect(mapTrip(booking, users, drivers)).toStrictEqual({
       id: "booking-1",
+      serviceType: "Tricycle",
+      routeId: null,
       pickup: "Market",
       destination: "Pier",
       pickupPoint: pickup,
@@ -390,6 +392,18 @@ describe("mapTrip", () => {
       timestamps: { Completed: now + 1000 },
       rating: 4,
       pickupNote: "Gate 2",
+    });
+  });
+
+  test.each([
+    ["PUJ/PUV", "route-1", "PUJ/PUV", "route-1"],
+    ["Tricycle", null, "Tricycle", null],
+    [null, null, "Tricycle", null],
+    [undefined, undefined, "Tricycle", null],
+  ])("maps service %p and route %p", (service_type, routes_id, serviceType, routeId) => {
+    expect(mapTrip({ ...booking, service_type, routes_id }, users, drivers)).toMatchObject({
+      serviceType,
+      routeId,
     });
   });
 
@@ -431,6 +445,8 @@ describe("mapTrip", () => {
       ),
     ).toStrictEqual({
       id: "booking-2",
+      serviceType: "Tricycle",
+      routeId: null,
       pickup: "Pickup",
       destination: "Destination",
       pickupPoint: { name: "Pickup", latitude: 0, longitude: 0 },

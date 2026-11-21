@@ -316,6 +316,17 @@ export async function api<T = { ok: boolean }>(
     const { error } = await client.rpc("delete_my_account");
     raise(error);
     await clearSession();
+  } else if (
+    parts[1] === "documents" &&
+    parts[2] === "license" &&
+    parts[3] &&
+    parts.length === 4 &&
+    (!method || method === "GET")
+  ) {
+    const { data, error } = await client.storage
+      .from("driver-documents")
+      .createSignedUrl(`license/${parts[3]}.jpg`, 600);
+    result = { url: error ? null : (data?.signedUrl ?? null) };
   } else {
     const userId = await currentUserId();
 
@@ -569,6 +580,11 @@ export async function api<T = { ok: boolean }>(
       if (body.routeId !== undefined) {patch.routes_id = body.routeId || null;}
       if (body.capacity !== undefined) {patch.capacity = num(body.capacity, 18);}
       if (body.status !== undefined) {patch.status = body.status;}
+      if (body.status === "Decommissioned") {
+        patch.active = false;
+      } else if (typeof body.active === "boolean") {
+        patch.active = body.active;
+      }
       if (body.currentDriver !== undefined)
         {patch.current_driver = str(body.currentDriver);}
       if (body.vehicleType !== undefined) {patch.vehicle_type = body.vehicleType;}

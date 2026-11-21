@@ -299,6 +299,14 @@ describe("vehicles", () => {
       },
     ],
     [{ capacity: 0 }, { capacity: 0 }],
+    [{ active: true }, { active: true }],
+    [{ active: false }, { active: false }],
+    [{ active: "false", name: "Bus" }, { name: "Bus" }],
+    [{ status: "Decommissioned" }, { status: "Decommissioned", active: false }],
+    [
+      { status: "Decommissioned", active: true },
+      { status: "Decommissioned", active: false },
+    ],
     [{ extra: "ignored" }, {}],
   ])("patches only recognized vehicle fields in %p", async (body, patch) => {
     harness.fake.table("vehicles", [

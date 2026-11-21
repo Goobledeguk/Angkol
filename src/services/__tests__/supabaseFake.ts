@@ -10,6 +10,7 @@ export function createSupabaseFake() {
   const expected = {
     table: new Map<string, ExpectedCall[]>(),
     rpc: new Map<string, ExpectedCall[]>(),
+    storage: new Map<string, ExpectedCall[]>(),
   };
 
   function enqueue(
@@ -49,6 +50,19 @@ export function createSupabaseFake() {
 
   const client = {
     auth,
+    storage: {
+      from: jest.fn((bucket: string) => {
+        const call = async (method: string, ...args: unknown[]) => {
+          const { steps, data, error } = consume("storage", bucket);
+          expect([[method, ...args]]).toStrictEqual(steps);
+          return { data, error };
+        };
+        return {
+          upload: (...args: unknown[]) => call("upload", ...args),
+          createSignedUrl: (...args: unknown[]) => call("createSignedUrl", ...args),
+        };
+      }),
+    },
     from: jest.fn((table: string) => {
       const { steps: expectedSteps, data, error } = consume("table", table);
       const steps: Step[] = [];
@@ -111,6 +125,8 @@ export function createSupabaseFake() {
       data: unknown = null,
       error?: string,
     ) => enqueue("rpc", name, [["rpc", ...args]], data, error),
+    storage: (bucket: string, step: Step, data: unknown = null, error?: string) =>
+      enqueue("storage", bucket, [step], data, error),
     verify() {
       const remaining = Object.entries(expected).flatMap(([kind, calls]) =>
         [...calls.entries()]

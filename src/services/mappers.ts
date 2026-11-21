@@ -138,6 +138,8 @@ export function mapTrip(
 
   return {
     id: booking.booking_id,
+    serviceType: booking.service_type ?? "Tricycle",
+    routeId: booking.routes_id ?? null,
     pickup: pickupPoint.name,
     destination: destinationPoint.name,
     pickupPoint,
