@@ -1,7 +1,9 @@
 import { db } from "./supabase";
-import { directions } from "./mapbox";
+import { directions, searchPlaces } from "./mapbox";
+import { driverVehicleId, isStale } from "../domain/vehicles";
 import {
   FALLBACK,
+  mapLocation,
   mapRoute,
   mapRun,
   mapTrip,
@@ -36,6 +38,7 @@ const USER_COLUMNS =
 const DRIVER_COLUMNS =
   "driver_id,user_id,operational_classification,availability_status,association,plate_number,capacity,franchise_name,routes_id,verified,current_lat,current_lng,location_updated_at";
 const ADMIN_ROLES = ["Administrator", "Vehicle Owner / Operator"];
+const MAX_PHOTO_URL_LENGTH = 1_500_000;
 
 async function myProfile(): Promise<{ user: any; driver: any }> {
   const { data, error } = await db().rpc("my_profile");
@@ -59,6 +62,17 @@ async function currentUserId(): Promise<string> {
 
 function raise(error: { message: string } | null) {
   if (error) {throw new ApiError(error.message, 400);}
+}
+
+function passengerCount(value: unknown) {
+  if (value === undefined) {
+    return 0;
+  }
+  const count = typeof value === "string" ? Number(value) : value;
+  if (typeof count !== "number" || !Number.isSafeInteger(count) || count < 0) {
+    throw new ApiError("Passenger counts must be non-negative whole numbers.", 400);
+  }
+  return count;
 }
 
 /* ------------------------------------------------------------------ snapshot */
@@ -118,6 +132,10 @@ async function loadSnapshot(): Promise<Snapshot> {
 
   raise(usersResult.error);
   raise(driversResult.error);
+  raise(routesResult.error);
+  raise(terminalsResult.error);
+  raise(vehiclesResult.error);
+  raise(bookingsResult.error);
 
   const users = (usersResult.data ?? []) as any[];
   const drivers = (driversResult.data ?? []) as any[];
@@ -146,27 +164,22 @@ async function loadSnapshot(): Promise<Snapshot> {
   const vehicles = ((vehiclesResult.data ?? []) as any[]).map(mapVehicle);
   if (user.role === "Passenger") {
     for (const row of drivers) {
-      if (row.current_lat == null || row.current_lng == null) {continue;}
       const driverUser = userMap.get(row.user_id);
       if (!driverUser) {continue;}
+      const name = str(driverUser.name);
+      const location = mapLocation(row, name);
+      if (!location) {continue;}
       if (vehicles.some((vehicle) => vehicle.plate === row.plate_number)) {continue;}
       vehicles.push({
-        id: `driver-${row.user_id}`,
-        name: str(driverUser.name),
+        id: driverVehicleId(row.user_id),
+        name,
         kind: "Tricycle driver",
         vehicleType: "Tricycle",
         plate: str(row.plate_number),
         routeId: row.routes_id ?? null,
         capacity: num(row.capacity, 3),
-        location: {
-          name: str(driverUser.name),
-          latitude: num(row.current_lat),
-          longitude: num(row.current_lng),
-          updatedAt: row.location_updated_at
-            ? Date.parse(row.location_updated_at)
-            : Date.now(),
-        },
-        stale: !row.location_updated_at,
+        location,
+        stale: isStale(location.updatedAt, Date.now()),
         status: "In transit",
       });
     }
@@ -288,6 +301,12 @@ export async function api<T = { ok: boolean }>(
 ): Promise<T> {
   const body = (input || {}) as Record<string, any>;
   const parts = endpoint.split("/");
+  const searchQuery = endpoint.startsWith("/search")
+    ? decodeURIComponent(endpoint.split("q=")[1] || "").trim()
+    : null;
+  if (searchQuery !== null && searchQuery.length < 2) {
+    return [] as T;
+  }
   const client = db();
   let result: unknown = { ok: true };
 
@@ -309,19 +328,33 @@ export async function api<T = { ok: boolean }>(
         (row) => row.application_status === "pending",
       );
       result = { count: items.length, items };
-    } else if (endpoint.startsWith("/search")) {
-      const query = decodeURIComponent(endpoint.split("q=")[1] || "").trim();
-      const { data, error } = await client
-        .from("landmarks")
-        .select("*")
-        .ilike("name", `%${query}%`)
-        .limit(8);
+    } else if (searchQuery !== null) {
+      const pattern = searchQuery.replace(/[\\%_*]/g, "\\$&");
+      const [{ data, error }, places] = await Promise.all([
+        client
+          .from("landmarks")
+          .select("*")
+          .ilike("name", `%${pattern}%`)
+          .limit(8),
+        searchPlaces(searchQuery).catch((): Point[] => []),
+      ]);
       raise(error);
-      result = (data ?? []).map((row: any) => ({
+      const landmarks: Point[] = (data ?? []).map((row: any) => ({
         name: row.name,
         latitude: num(row.latitude),
         longitude: num(row.longitude),
       }));
+      const matches = new Map<string, Point>();
+      for (const point of [...landmarks, ...places]) {
+        const name = point.name.toLowerCase();
+        if (!matches.has(name)) {
+          matches.set(name, point);
+        }
+        if (matches.size === 8) {
+          break;
+        }
+      }
+      result = [...matches.values()];
     } else if (endpoint === "/quote") {
       const pickup = body.pickup as Point;
       const destination = body.destination as Point;
@@ -391,6 +424,7 @@ export async function api<T = { ok: boolean }>(
       const trip = body.trip as Trip;
       if (!trip) {throw new ApiError("No trip provided.", 400);}
       if (!body.routeId) {throw new ApiError("Choose a PUJ/PUV route.", 400);}
+      const distance = Math.min(100, Math.max(0.1, num(trip.distance)));
       const { data, error } = await client
         .from("bookings")
         .insert({
@@ -404,7 +438,7 @@ export async function api<T = { ok: boolean }>(
           dropoff_name: trip.destination,
           service_type: "PUJ/PUV",
           payment_method: "Cash",
-          distance_km: trip.distance,
+          distance_km: Math.round(distance * 10) / 10,
           duration_min: trip.minutes,
           route_polyline: trip.geometry,
         })
@@ -431,10 +465,18 @@ export async function api<T = { ok: boolean }>(
       });
       raise(error);
     } else if (endpoint === "/profile/photo") {
-      const photo =
-        typeof body.photo === "string" && body.photo.startsWith("data:image/")
-          ? body.photo
-          : null;
+      const photo: unknown = body.photo;
+      if (photo !== null) {
+        if (typeof photo !== "string") {
+          throw new ApiError("Choose an image to use as your profile photo.", 400);
+        }
+        if (photo.length > MAX_PHOTO_URL_LENGTH) {
+          throw new ApiError("Choose a profile photo under 1.5 MB.", 400);
+        }
+        if (!/^data:image\/[a-z0-9.+-]+;base64,[a-z0-9+/]+={0,2}$/i.test(photo)) {
+          throw new ApiError("Choose an image to use as your profile photo.", 400);
+        }
+      }
       const { error } = await client
         .from("users")
         .update({ photo })
@@ -538,6 +580,7 @@ export async function api<T = { ok: boolean }>(
       result = { ok: true };
     } else if (parts[1] === "drivers") {
       const target = parts[2];
+      const patch: Record<string, unknown> = {};
       const verified = body.verified;
       const applicationStatus = body.applicationStatus as
         | "pending"
@@ -558,14 +601,16 @@ export async function api<T = { ok: boolean }>(
           if (applicationStatus === "accepted") {userPatch.verified = true;}
           if (applicationStatus === "declined") {userPatch.verified = false;}
         }
-        const { error } = await client
+        const { data, error } = await client
           .from("users")
           .update(userPatch)
-          .eq("user_id", target);
+          .eq("user_id", target)
+          .select("verified")
+          .maybeSingle();
         raise(error);
+        if (!data) {throw new ApiError("Driver profile not found.", 404);}
+        patch.verified = data.verified;
       }
-      const patch: Record<string, unknown> = {};
-      if (verified !== undefined) {patch.verified = !!verified;}
       if (body.routeId !== undefined) {patch.routes_id = body.routeId || null;}
       if (body.association !== undefined) {patch.association = str(body.association);}
       if (Object.keys(patch).length) {
@@ -665,11 +710,17 @@ export async function api<T = { ok: boolean }>(
         .eq("request_id", parts[2]);
       raise(error);
     } else if (endpoint === "/runs") {
+      const boarded = passengerCount(body.boarded);
       const me = await client
         .from("drivers")
-        .select("*")
+        .select("routes_id,plate_number,capacity")
         .eq("user_id", userId)
         .maybeSingle();
+      raise(me.error);
+      const capacity = num(me.data?.capacity, 18);
+      if (boarded > capacity) {
+        throw new ApiError("Boarding would exceed the vehicle's capacity.", 400);
+      }
       const routeId = me.data?.routes_id;
       const routeResult = routeId
         ? await client.from("routes").select("*").eq("routes_id", routeId).maybeSingle()
@@ -682,7 +733,6 @@ export async function api<T = { ok: boolean }>(
         .select("name")
         .eq("user_id", userId)
         .maybeSingle();
-      const boarded = num(body.boarded);
       const fare = num(route.fare);
       const stops = Array.isArray(route.stops) ? route.stops : [];
       const { data, error } = await client
@@ -692,7 +742,7 @@ export async function api<T = { ok: boolean }>(
           routes_id: route.routes_id,
           route_name: route.route_name,
           plate: str(me.data?.plate_number),
-          capacity: num(me.data?.capacity, 18),
+          capacity,
           fare,
           reference: str(route.reference) || "Fare matrix",
           status: "In progress",
@@ -735,63 +785,72 @@ export async function api<T = { ok: boolean }>(
         .maybeSingle();
       raise(runError);
       if (!run) {throw new ApiError("Trip record not found.", 404);}
+      if (run.driver_id !== userId) {
+        throw new ApiError("Only the assigned driver can update this run.", 403);
+      }
+      if (run.status === "Completed") {
+        throw new ApiError("This run is already completed.", 400);
+      }
 
       const stops = Array.isArray(run.stops) ? run.stops : [];
       const fare = num(run.fare);
-      if (body.action === "complete" || body.status === "Completed") {
-        const { error } = await client
-          .from("driver_runs")
-          .update({
-            status: "Completed",
-            ended_at: new Date().toISOString(),
-            stop_index: Math.max(0, stops.length - 1),
-            onboard: 0,
-            cash_fares: num(run.total_boarded) * fare,
-            revision: num(run.revision, 1) + 1,
-          })
-          .eq("run_id", run.run_id);
-        raise(error);
-        const { error: eventError } = await client
-          .from("driver_run_events")
-          .insert({
-            run_id: run.run_id,
-            stop: str(stops[stops.length - 1]?.name) || "Final stop",
-            boarded: 0,
-            alighted: num(run.total_boarded),
-            onboard: 0,
-            type: "complete",
-          });
-        raise(eventError);
-      } else {
-        const index = num(run.stop_index);
-        const onboard = Math.max(
-          0,
-          num(run.onboard) + num(body.boarded) - num(body.alighted),
-        );
-        const totalBoarded = num(run.total_boarded) + num(body.boarded);
-        const { error } = await client
-          .from("driver_runs")
-          .update({
-            onboard,
-            total_boarded: totalBoarded,
-            cash_fares: totalBoarded * fare,
-            stop_index: Math.min(index + 1, Math.max(0, stops.length - 1)),
-            revision: num(run.revision, 1) + 1,
-          })
-          .eq("run_id", run.run_id);
-        raise(error);
-        const { error: eventError } = await client
-          .from("driver_run_events")
-          .insert({
-            run_id: run.run_id,
-            stop: str(stops[index]?.name) || "Stop",
-            boarded: num(body.boarded),
-            alighted: num(body.alighted),
-            onboard,
-            type: "stop",
-          });
-        raise(eventError);
+      const revision = num(run.revision, 1);
+      const conflict =
+        "This run changed. Refresh it before making another update.";
+      if (body.revision !== undefined && num(body.revision) !== revision) {
+        throw new ApiError(conflict, 409);
       }
+      const complete = body.action === "complete" || body.status === "Completed";
+      const previousOnboard = num(run.onboard);
+      const boarded = complete ? 0 : passengerCount(body.boarded);
+      const alighted = complete ? previousOnboard : passengerCount(body.alighted);
+      if (!complete && alighted > previousOnboard) {
+        throw new ApiError(
+          "More passengers cannot get off than are on board.",
+          400,
+        );
+      }
+      const onboard = previousOnboard - alighted + boarded;
+      if (!complete && onboard > num(run.capacity, 18)) {
+        throw new ApiError("Boarding would exceed the vehicle's capacity.", 400);
+      }
+      const totalBoarded = num(run.total_boarded) + boarded;
+      const index = num(run.stop_index);
+      const lastIndex = Math.max(0, stops.length - 1);
+      const { data: updatedRun, error } = await client
+        .from("driver_runs")
+        .update({
+          ...(complete
+            ? { status: "Completed", ended_at: new Date().toISOString() }
+            : { total_boarded: totalBoarded }),
+          onboard,
+          cash_fares: totalBoarded * fare,
+          stop_index: complete ? lastIndex : Math.min(index + 1, lastIndex),
+          revision: revision + 1,
+        })
+        .eq("run_id", run.run_id)
+        .eq("driver_id", userId)
+        .eq("revision", revision)
+        .eq("status", run.status)
+        .select("run_id")
+        .maybeSingle();
+      raise(error);
+      if (!updatedRun) {
+        throw new ApiError(conflict, 409);
+      }
+      const { error: eventError } = await client
+        .from("driver_run_events")
+        .insert({
+          run_id: run.run_id,
+          stop: complete
+            ? str(stops[lastIndex]?.name) || "Final stop"
+            : str(stops[index]?.name) || "Stop",
+          boarded,
+          alighted,
+          onboard,
+          type: complete ? "complete" : "stop",
+        });
+      raise(eventError);
 
       const { data: fresh } = await client
         .from("driver_runs")

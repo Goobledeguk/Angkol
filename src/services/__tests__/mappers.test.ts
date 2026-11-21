@@ -1,4 +1,5 @@
 import {
+  FALLBACK,
   mapRoute,
   mapRun,
   mapTrip,
@@ -171,12 +172,12 @@ describe("mapUser", () => {
     expect(mapUser({}, { current_lat, current_lng }).location).toBeNull();
   });
 
-  it("accepts zero coordinates and uses the current clock without a timestamp", () => {
+  it("accepts real zero coordinates and leaves a missing timestamp unset", () => {
     expect(mapUser({}, { current_lat: 0, current_lng: 0 }).location).toEqual({
       name: "Current location",
       latitude: 0,
       longitude: 0,
-      updatedAt: now,
+      updatedAt: 0,
     });
   });
 });
@@ -319,11 +320,22 @@ describe("mapVehicle", () => {
     expect([vehicle.name, vehicle.location.name]).toEqual(["ABC", "ABC"]);
   });
 
-  it("coerces null coordinates to zero", () => {
-    expect(
-      mapVehicle({ current_lat: null, current_lng: null }).location,
-    ).toMatchObject({ latitude: 0, longitude: 0 });
-  });
+  test.each([
+    [null, null],
+    [undefined, 124.59],
+    [12.07, null],
+  ])(
+    "uses a stale fallback for coordinates (%p, %p) even with a recent timestamp",
+    (current_lat, current_lng) => {
+      expect(
+        mapVehicle({
+          current_lat,
+          current_lng,
+          location_updated_at: timestamp,
+        }),
+      ).toMatchObject({ location: { ...FALLBACK, updatedAt: 0 }, stale: true });
+    },
+  );
 
   test.each([
     [new Date(now - 299_999).toISOString(), false],
@@ -333,7 +345,13 @@ describe("mapVehicle", () => {
     [null, true],
     [undefined, true],
   ])("marks timestamp %p stale=%p", (location_updated_at, stale) => {
-    expect(mapVehicle({ location_updated_at }).stale).toBe(stale);
+    expect(
+      mapVehicle({
+        current_lat: 12.07,
+        current_lng: 124.59,
+        location_updated_at,
+      }).stale,
+    ).toBe(stale);
   });
 });
 

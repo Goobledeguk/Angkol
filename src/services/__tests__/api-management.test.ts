@@ -25,19 +25,43 @@ describe("profile, availability, and notifications", () => {
     await expect(api("/profile", body)).resolves.toEqual(ok);
   });
 
+  test.each(["data:image/png;base64,AA==", null])(
+    "stores photo %p",
+    async (photo) => {
+      harness.fake.table("users", [
+        ["update", { photo }],
+        ["eq", "user_id", "rider"],
+      ]);
+      await expect(api("/profile/photo", { photo })).resolves.toEqual(ok);
+    },
+  );
+
   test.each([
-    ["data:image/png;base64,AA==", "data:image/png;base64,AA=="],
-    ["https://example.test/avatar.png", null],
-    ["file:///avatar.jpg", null],
-    ["data:text/plain;base64,AA==", null],
-    [123, null],
-    [undefined, null],
-  ])("stores photo %p as %p", async (photo, expectedPhoto) => {
-    harness.fake.table("users", [
-      ["update", { photo: expectedPhoto }],
-      ["eq", "user_id", "rider"],
-    ]);
-    await expect(api("/profile/photo", { photo })).resolves.toEqual(ok);
+    "https://example.test/avatar.png",
+    "file:///avatar.jpg",
+    "data:text/plain;base64,AA==",
+    "data:image/jpeg;base64,",
+    "data:image/jpeg;base64,AA==!!!",
+    "",
+    123,
+    undefined,
+  ])(
+    "rejects unsupported photo value %p without updating the user",
+    async (photo) => {
+      await expect(api("/profile/photo", { photo })).rejects.toMatchObject({
+        status: 400,
+      });
+      expect(harness.fake.client.from).not.toHaveBeenCalled();
+    },
+  );
+
+  it("rejects a photo data URL larger than 1.5 MB", async () => {
+    const photo = `data:image/jpeg;base64,${"A".repeat(1_500_000)}`;
+    await expect(api("/profile/photo", { photo })).rejects.toMatchObject({
+      status: 400,
+      message: "Choose a profile photo under 1.5 MB.",
+    });
+    expect(harness.fake.client.from).not.toHaveBeenCalled();
   });
 
   test.each([
@@ -300,23 +324,32 @@ describe("driver management", () => {
     [
       { applicationStatus: "accepted" },
       { verified: true, application_status: "accepted" },
-      null,
+      { verified: true },
     ],
     [
       { applicationStatus: "declined" },
       { verified: false, application_status: "declined" },
-      null,
+      { verified: false },
     ],
-    [{ applicationStatus: "pending" }, { application_status: "pending" }, null],
+    [
+      { applicationStatus: "pending" },
+      { application_status: "pending" },
+      { verified: true },
+    ],
+    [
+      { applicationStatus: "pending", association: "Co-op" },
+      { application_status: "pending" },
+      { verified: false, association: "Co-op" },
+    ],
     [
       { verified: false, applicationStatus: "accepted" },
       { verified: true, application_status: "accepted" },
-      { verified: false },
+      { verified: true },
     ],
     [
       { verified: true, applicationStatus: "declined" },
       { verified: false, application_status: "declined" },
-      { verified: true },
+      { verified: false },
     ],
     [
       { verified: true, applicationStatus: "pending" },
@@ -334,10 +367,16 @@ describe("driver management", () => {
     "updates the user and driver according to %p",
     async (body, userPatch, driverPatch) => {
       if (userPatch) {
-        harness.fake.table("users", [
-          ["update", userPatch],
-          ["eq", "user_id", "driver-1"],
-        ]);
+        harness.fake.table(
+          "users",
+          [
+            ["update", userPatch],
+            ["eq", "user_id", "driver-1"],
+            ["select", "verified"],
+            ["maybeSingle"],
+          ],
+          { verified: driverPatch?.verified },
+        );
       }
       if (driverPatch) {
         harness.fake.table("drivers", [
@@ -361,6 +400,8 @@ describe("driver management", () => {
       [
         ["update", { verified: true, application_status: "accepted" }],
         ["eq", "user_id", "driver-1"],
+        ["select", "verified"],
+        ["maybeSingle"],
       ],
       null,
       "permission denied",

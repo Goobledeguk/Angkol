@@ -20,6 +20,7 @@ const run = {
   routes_id: "r1",
   route_name: "Market loop",
   plate: "ABC",
+  capacity: 4,
   stops,
   fare: "14.5",
   status: "In progress",
@@ -54,7 +55,11 @@ function startLookups(
     : null;
   harness.fake.table(
     "drivers",
-    [["select", "*"], ["eq", "user_id", "rider"], ["maybeSingle"]],
+    [
+      ["select", "routes_id,plate_number,capacity"],
+      ["eq", "user_id", "rider"],
+      ["maybeSingle"],
+    ],
     driver,
   );
   harness.fake.table(
@@ -76,10 +81,7 @@ function updateRun(
   fresh: boolean = true,
 ) {
   harness.fake.table("driver_runs", currentRunQuery, runRow);
-  harness.fake.table("driver_runs", [
-    ["update", patch],
-    ["eq", "run_id", "run-1"],
-  ]);
+  expectRunUpdate(patch, runRow.revision ?? 1);
   harness.fake.table("driver_run_events", [["insert", event]]);
   harness.fake.table(
     "driver_runs",
@@ -97,6 +99,26 @@ function updateRun(
       : null,
   );
   profile();
+}
+
+function expectRunUpdate(
+  patch: Record<string, unknown>,
+  revision: unknown,
+  updated: unknown = { run_id: "run-1" },
+) {
+  harness.fake.table(
+    "driver_runs",
+    [
+      ["update", patch],
+      ["eq", "run_id", "run-1"],
+      ["eq", "driver_id", "rider"],
+      ["eq", "revision", revision],
+      ["eq", "status", "In progress"],
+      ["select", "run_id"],
+      ["maybeSingle"],
+    ],
+    updated,
+  );
 }
 
 describe("starting a driver run", () => {
@@ -266,6 +288,30 @@ describe("starting a driver run", () => {
       message: "route query failed",
     });
   });
+
+  it("rejects negative boarding when starting a run", async () => {
+    await expect(api("/runs", { boarded: -1 })).rejects.toMatchObject({
+      status: 400,
+      message: "Passenger counts must be non-negative whole numbers.",
+    });
+    expect(harness.fake.client.from).not.toHaveBeenCalled();
+  });
+
+  it("rejects departure boarding beyond assigned capacity", async () => {
+    harness.fake.table(
+      "drivers",
+      [
+        ["select", "routes_id,plate_number,capacity"],
+        ["eq", "user_id", "rider"],
+        ["maybeSingle"],
+      ],
+      { capacity: 3 },
+    );
+    await expect(api("/runs", { boarded: 4 })).rejects.toMatchObject({
+      status: 400,
+      message: "Boarding would exceed the vehicle's capacity.",
+    });
+  });
 });
 
 describe("progressing a driver run", () => {
@@ -337,7 +383,7 @@ describe("progressing a driver run", () => {
     ]);
   });
 
-  it("clamps onboard to zero and stays at the last stop", async () => {
+  it("allows everyone to alight and stays at the last stop", async () => {
     updateRun(
       {
         onboard: 0,
@@ -350,15 +396,82 @@ describe("progressing a driver run", () => {
         run_id: "run-1",
         stop: "Pier",
         boarded: 0,
-        alighted: 9,
+        alighted: 2,
         onboard: 0,
         type: "stop",
       },
       { ...run, stop_index: 1 },
     );
     await expect(
-      api<DriverRun>("/runs/run-1", { alighted: 9 }),
+      api<DriverRun>("/runs/run-1", { alighted: 2 }),
     ).resolves.toMatchObject({ onboard: 0, stopIndex: 1 });
+  });
+
+  test.each([
+    [{ boarded: -1 }, "Passenger counts must be non-negative whole numbers."],
+    [{ alighted: -1 }, "Passenger counts must be non-negative whole numbers."],
+    [{ boarded: 1.5 }, "Passenger counts must be non-negative whole numbers."],
+    [
+      { boarded: 3, alighted: 3 },
+      "More passengers cannot get off than are on board.",
+    ],
+    [
+      { boarded: 4, alighted: 1 },
+      "Boarding would exceed the vehicle's capacity.",
+    ],
+  ])("rejects invalid stop counts %p", async (body, message) => {
+    harness.fake.table("driver_runs", currentRunQuery, run);
+    await expect(api("/runs/run-1", body)).rejects.toMatchObject({
+      status: 400,
+      message,
+    });
+  });
+
+  test.each([{ boarded: 1 }, { action: "complete" }])(
+    "rejects updates to a completed run for %p",
+    async (body) => {
+      harness.fake.table("driver_runs", currentRunQuery, {
+        ...run,
+        status: "Completed",
+      });
+      await expect(api("/runs/run-1", body)).rejects.toMatchObject({
+        status: 400,
+        message: "This run is already completed.",
+      });
+    },
+  );
+
+  it("rejects updates from someone other than the run's driver", async () => {
+    harness.fake.table("driver_runs", currentRunQuery, {
+      ...run,
+      driver_id: "someone-else",
+    });
+    await expect(api("/runs/run-1")).rejects.toMatchObject({ status: 403 });
+  });
+
+  it("rejects a stale revision without updating the run", async () => {
+    harness.fake.table("driver_runs", currentRunQuery, run);
+    await expect(
+      api("/runs/run-1", { revision: 2, boarded: 1 }),
+    ).rejects.toMatchObject({ status: 409 });
+  });
+
+  it("skips writing the event when the run changes before the update", async () => {
+    harness.fake.table("driver_runs", currentRunQuery, run);
+    expectRunUpdate(
+      {
+        onboard: 3,
+        total_boarded: 6,
+        cash_fares: 87,
+        stop_index: 1,
+        revision: 4,
+      },
+      3,
+      null,
+    );
+    await expect(
+      api("/runs/run-1", { revision: 3, boarded: 1 }),
+    ).rejects.toMatchObject({ status: 409 });
   });
 
   it("defaults the stop and revision when a run has no stops or revision", async () => {
@@ -420,19 +533,16 @@ describe("progressing a driver run", () => {
 
   it("surfaces an event write error after the run row is updated", async () => {
     harness.fake.table("driver_runs", currentRunQuery, run);
-    harness.fake.table("driver_runs", [
-      [
-        "update",
-        {
-          onboard: 2,
-          total_boarded: 5,
-          cash_fares: 72.5,
-          stop_index: 1,
-          revision: 4,
-        },
-      ],
-      ["eq", "run_id", "run-1"],
-    ]);
+    expectRunUpdate(
+      {
+        onboard: 2,
+        total_boarded: 5,
+        cash_fares: 72.5,
+        stop_index: 1,
+        revision: 4,
+      },
+      3,
+    );
     harness.fake.table(
       "driver_run_events",
       [
@@ -476,7 +586,7 @@ describe("progressing a driver run", () => {
           run_id: "run-1",
           stop,
           boarded: 0,
-          alighted: 5,
+          alighted: 2,
           onboard: 0,
           type: "complete",
         },
@@ -490,7 +600,7 @@ describe("progressing a driver run", () => {
         totalBoarded: 5,
         cashFares: 72.5,
         revision: 4,
-        events: [{ stop, boarded: 0, alighted: 5, type: "complete" }],
+        events: [{ stop, boarded: 0, alighted: 2, type: "complete" }],
       });
     },
   );

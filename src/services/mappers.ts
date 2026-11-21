@@ -7,6 +7,7 @@ import type {
   User,
   Vehicle,
 } from "../types/types";
+import { isStale } from "../domain/vehicles";
 
 export const FALLBACK: Point = {
   name: "Calbayog City Hall",
@@ -24,10 +25,25 @@ export const shortTime = (value: unknown, fallback: string) => {
   return /^\d{2}:\d{2}/.test(text) ? text.slice(0, 5) : fallback;
 };
 
+export function mapLocation(row: any, name: string) {
+  if (row?.current_lat == null || row?.current_lng == null) {
+    return null;
+  }
+  const latitude = num(row.current_lat, NaN);
+  const longitude = num(row.current_lng, NaN);
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+    return null;
+  }
+  return {
+    name,
+    latitude,
+    longitude,
+    updatedAt: Date.parse(row.location_updated_at) || 0,
+  };
+}
+
 export function mapUser(row: any, driver?: any): User {
   const role = (row.assigned_roles?.[0] ?? "Passenger") as Role;
-  const hasLocation =
-    driver?.current_lat != null && driver?.current_lng != null;
   return {
     id: row.user_id,
     email: str(row.email),
@@ -49,16 +65,7 @@ export function mapUser(row: any, driver?: any): User {
     franchiseName: driver?.franchise_name || row.franchise_name || undefined,
     capacity: num(driver?.capacity),
     routeId: driver?.routes_id ?? null,
-    location: hasLocation
-      ? {
-          name: "Current location",
-          latitude: num(driver.current_lat),
-          longitude: num(driver.current_lng),
-          updatedAt: driver.location_updated_at
-            ? Date.parse(driver.location_updated_at)
-            : Date.now(),
-        }
-      : null,
+    location: mapLocation(driver, "Current location"),
   };
 }
 
@@ -81,26 +88,22 @@ export function mapRoute(row: any): Route {
 }
 
 export function mapVehicle(row: any): Vehicle {
-  const lat = num(row.current_lat, FALLBACK.latitude);
-  const lng = num(row.current_lng, FALLBACK.longitude);
-  const updatedAt = row.location_updated_at
-    ? Date.parse(row.location_updated_at)
-    : 0;
+  const name = str(row.name) || str(row.plate_number);
+  const location = mapLocation(row, name || FALLBACK.name) ?? {
+    ...FALLBACK,
+    name: name || FALLBACK.name,
+    updatedAt: 0,
+  };
   return {
     id: row.vehicle_id,
-    name: str(row.name) || str(row.plate_number),
+    name,
     kind: "PUJ / PUV driver",
     vehicleType: row.vehicle_type || "Jeepney",
     plate: str(row.plate_number),
     routeId: row.routes_id ?? null,
     capacity: num(row.capacity, 18),
-    location: {
-      name: str(row.name) || str(row.plate_number) || FALLBACK.name,
-      latitude: lat,
-      longitude: lng,
-      updatedAt,
-    },
-    stale: !updatedAt || Date.now() - updatedAt > 5 * 60 * 1000,
+    location,
+    stale: isStale(location.updatedAt, Date.now()),
     status: row.status ?? "In Terminal",
     ownerId: row.owner_id ?? undefined,
     currentDriver: str(row.current_driver) || undefined,

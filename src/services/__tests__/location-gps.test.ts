@@ -7,6 +7,8 @@ import {
   stopSharing,
 } from "../location";
 import { reverseGeocode } from "../mapbox";
+import { db } from "../supabase";
+import { createSupabaseFake } from "./supabaseFake";
 
 jest.mock("expo-location", () => ({
   Accuracy: { High: 4 },
@@ -25,17 +27,32 @@ jest.mock("../supabase", () => ({ db: jest.fn() }));
 
 const loc = Location as jest.Mocked<typeof Location>;
 const geocode = reverseGeocode as jest.MockedFunction<typeof reverseGeocode>;
+const supabase = jest.mocked(db);
+let fake: ReturnType<typeof createSupabaseFake>;
 
 const position = (latitude: number, longitude: number) =>
   ({ coords: { latitude, longitude } }) as Location.LocationObject;
 
 beforeEach(() => {
   jest.clearAllMocks();
+  fake = createSupabaseFake();
+  supabase.mockReturnValue(fake.client as unknown as ReturnType<typeof db>);
 });
 
 afterEach(async () => {
   await stopSharing();
+  fake.verify();
 });
+
+function expectVehicleLookup() {
+  fake.table("vehicles", [
+    ["select", "vehicle_id"],
+    ["eq", "driver_id", "driver-1"],
+    ["order", "vehicle_id"],
+    ["limit", 1],
+    ["maybeSingle"],
+  ]);
+}
 
 describe("insideServiceArea", () => {
   it("accepts points in Calbayog", () => {
@@ -130,6 +147,7 @@ describe("resumeSharing", () => {
   });
 
   it("starts watching when permission was already granted", async () => {
+    expectVehicleLookup();
     loc.getForegroundPermissionsAsync.mockResolvedValue({
       status: "granted",
     } as never);
@@ -144,6 +162,7 @@ describe("resumeSharing", () => {
   });
 
   it("stopSharing removes the watcher", async () => {
+    expectVehicleLookup();
     const remove = jest.fn();
     loc.getForegroundPermissionsAsync.mockResolvedValue({
       status: "granted",

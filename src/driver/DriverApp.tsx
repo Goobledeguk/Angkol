@@ -1450,7 +1450,7 @@ export default function DriverApp({
             disabled={locked}
             onPress={() => {
               void perform(async () => {
-                await action("/profile/photo", { photo: "" }, "PATCH");
+                await action("/profile/photo", { photo: null }, "PATCH");
               });
             }}
           />

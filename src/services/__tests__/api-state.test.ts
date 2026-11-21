@@ -56,6 +56,7 @@ function snapshotTables(
       ["order", "station_name"],
     ],
     data.terminals,
+    errors.terminals,
   );
   table(
     "vehicles",
@@ -64,6 +65,7 @@ function snapshotTables(
       ["order", "name"],
     ],
     data.vehicles,
+    errors.vehicles,
   );
   table(
     "bookings",
@@ -73,6 +75,7 @@ function snapshotTables(
       ["limit", 80],
     ],
     data.bookings,
+    errors.bookings,
   );
   table(
     "driver_runs",
@@ -82,6 +85,7 @@ function snapshotTables(
       ["limit", 40],
     ],
     data.runs,
+    errors.runs,
   );
   table(
     "stop_requests",
@@ -90,6 +94,7 @@ function snapshotTables(
       ["order", "created_at"],
     ],
     data.stops,
+    errors.stops,
   );
   table(
     "reports",
@@ -98,6 +103,7 @@ function snapshotTables(
       ["order", "created_at", descending],
     ],
     data.reports,
+    errors.reports,
   );
   table(
     "notifications",
@@ -108,6 +114,7 @@ function snapshotTables(
       ["limit", 30],
     ],
     data.notifications,
+    errors.notifications,
   );
   table(
     "landmarks",
@@ -116,6 +123,7 @@ function snapshotTables(
       ["order", "name"],
     ],
     data.landmarks,
+    errors.landmarks,
   );
   table(
     "fare_matrices",
@@ -124,6 +132,7 @@ function snapshotTables(
       ["eq", "active", true],
     ],
     data.fares,
+    errors.fares,
   );
   table(
     "audit_logs",
@@ -133,6 +142,7 @@ function snapshotTables(
       ["limit", 20],
     ],
     data.logs,
+    errors.logs,
   );
 }
 
@@ -343,7 +353,7 @@ describe("the state snapshot", () => {
       { id: "existing", plate: "TRI 1", stale: true },
       { id: "driver-present", plate: "NO TIME", stale: true },
     ]);
-    expect(vehicles[1].location.updatedAt).toBe(now);
+    expect(vehicles[1].location.updatedAt).toBe(0);
   });
 
   it("fills defaults for empty collections and nullable snapshot rows", async () => {
@@ -382,17 +392,18 @@ describe("the state snapshot", () => {
     });
   });
 
-  it("currently treats an old tricycle location as fresh if it has a timestamp", async () => {
-    const oldTimestamp = new Date(now - 86_400_000).toISOString();
-    passengerProfile([ana], [{ ...driver, location_updated_at: oldTimestamp }]);
+  test.each([
+    [300_000, false],
+    [300_001, true],
+  ])("marks driver fixes %i ms old stale=%p", async (age, stale) => {
+    const updatedAt = now - age;
+    passengerProfile([ana], [
+      { ...driver, location_updated_at: new Date(updatedAt).toISOString() },
+    ]);
     snapshotTables();
     const { vehicles } = await api<Snapshot>("/state");
     expect(vehicles).toMatchObject([
-      {
-        id: "driver-driver-1",
-        stale: false,
-        location: { updatedAt: now - 86_400_000 },
-      },
+      { id: "driver-driver-1", stale, location: { updatedAt } },
     ]);
   });
 
@@ -477,11 +488,41 @@ describe("the state snapshot", () => {
     },
   );
 
-  it("currently substitutes an empty route list for a route query failure", async () => {
+  test.each(["routes", "terminals", "vehicles", "bookings"])(
+    "surfaces a failed %s read",
+    async (table) => {
+      passengerProfile();
+      snapshotTables({}, { [table]: "query failed" });
+      await expect(api<Snapshot>("/state")).rejects.toMatchObject({
+        status: 400,
+        message: "query failed",
+      });
+    },
+  );
+
+  it("keeps the snapshot usable when optional reads fail", async () => {
     passengerProfile();
-    snapshotTables({}, { routes: "route query failed" });
+    snapshotTables(
+      {},
+      {
+        runs: "query failed",
+        stops: "query failed",
+        reports: "query failed",
+        notifications: "query failed",
+        landmarks: "query failed",
+        fares: "query failed",
+        logs: "query failed",
+      },
+    );
     await expect(api<Snapshot>("/state")).resolves.toMatchObject({
-      routes: [],
+      runs: [],
+      stopRequests: [],
+      reports: [],
+      notifications: [],
+      landmarks: [fallback],
+      baseFare: 25,
+      perKm: 8,
+      logs: [],
     });
   });
 });

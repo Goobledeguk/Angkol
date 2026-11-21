@@ -34,6 +34,33 @@ function response(json: unknown, ok = true) {
   } as unknown as Response);
 }
 
+function decodePath(url: string) {
+  const encoded = decodeURIComponent(
+    url.match(/path-4\+0b4f3c-0\.9\(([^)]+)\)/)![1],
+  );
+  const coordinates: number[][] = [];
+  let latitude = 0;
+  let longitude = 0;
+  let index = 0;
+  function delta() {
+    let value = 0;
+    let shift = 0;
+    let chunk: number;
+    do {
+      chunk = encoded.charCodeAt(index++) - 63;
+      value |= (chunk & 31) << shift;
+      shift += 5;
+    } while (chunk >= 32);
+    return value & 1 ? ~(value >> 1) : value >> 1;
+  }
+  while (index < encoded.length) {
+    latitude += delta();
+    longitude += delta();
+    coordinates.push([longitude / 1e5, latitude / 1e5]);
+  }
+  return coordinates;
+}
+
 beforeEach(() => {
   jest.replaceProperty(process, "env", { ...process.env });
   fetchMock = jest
@@ -162,14 +189,42 @@ describe("static map URLs", () => {
     ).toBe(mapbox.staticMapUrl(scene));
   });
 
-  it("samples a long route and keeps both endpoints in the current path overlay", () => {
-    const coordinates = Array.from({ length: 82 }, (_, index) => [index, 12]);
+  it("URI-encodes Google's precision-five example in the path overlay", () => {
+    const coordinates = [
+      [-120.2, 38.5],
+      [-120.95, 40.7],
+      [-126.453, 43.252],
+    ];
     const url = mapbox.staticMapUrl({
       ...scene,
       path: { type: "LineString", coordinates },
+    });
+    expect(url).toContain(
+      "path-4+0b4f3c-0.9(_p~iF~ps%7CU_ulLnnqC_mqNvxq%60%40)",
+    );
+  });
+
+  it("downsamples only as needed to fit the URL budget and keeps both endpoints", () => {
+    const coordinates = Array.from({ length: 6001 }, (_, index) => [
+      110 + index / 1000,
+      10 + index / 2000,
+    ]);
+    const url = mapbox.staticMapUrl({
+      ...scene,
+      path: { type: "LineString", coordinates },
+      pickup,
+      destination,
+      markers: [pickup],
     })!;
-    expect(url).toContain("path-4+0b4f3c-0.9(0,12,2,12,4,12");
-    expect(url).toContain("78,12,80,12,81,12)/");
+    expect(url.length).toBeLessThan(8192);
+    expect(url).toMatch(
+      /pin-s\+1f7a5c.*path-4\+0b4f3c.*pin-s\+0b4f3c.*pin-s\+c69c57/,
+    );
+    const decoded = decodePath(url);
+    expect(decoded.length).toBeGreaterThan(2);
+    expect(decoded.length).toBeLessThan(coordinates.length);
+    expect(decoded[0]).toEqual(coordinates[0]);
+    expect(decoded.at(-1)).toEqual(coordinates.at(-1));
   });
 });
 

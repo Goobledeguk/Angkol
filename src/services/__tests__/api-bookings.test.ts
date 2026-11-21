@@ -1,11 +1,14 @@
 import { api, ApiError } from "../api";
-import { directions } from "../mapbox";
+import { directions, searchPlaces } from "../mapbox";
 import type { Quote, Trip } from "../../types/types";
 import { driverColumns, ok, setupApiHarness, userColumns } from "./apiHarness";
 import { booking, destination, geometry, now, pickup } from "./fixtures";
 
 jest.mock("../supabase", () => ({ db: jest.fn() }));
-jest.mock("../mapbox", () => ({ directions: jest.fn() }));
+jest.mock("../mapbox", () => ({
+  directions: jest.fn(),
+  searchPlaces: jest.fn(),
+}));
 
 const harness = setupApiHarness();
 const route = { distanceKm: 2.74, minutes: 8, geometry };
@@ -24,6 +27,7 @@ const coordinates = {
 
 beforeEach(() => {
   jest.mocked(directions).mockReset().mockResolvedValue(route);
+  jest.mocked(searchPlaces).mockReset().mockResolvedValue([]);
 });
 
 function fare(data: unknown = "45.50", error?: string) {
@@ -133,15 +137,65 @@ describe("landmark search", () => {
     await expect(api("/search?q=%20City%20Hall%20")).resolves.toEqual([
       { name: "City Hall", latitude: 12.07, longitude: 124.59 },
     ]);
+    expect(searchPlaces).toHaveBeenCalledWith("City Hall");
   });
 
-  it("uses a match-all filter when the query is omitted", async () => {
-    harness.fake.table("landmarks", [
-      ["select", "*"],
-      ["ilike", "name", "%%"],
-      ["limit", 8],
+  test.each(["/search", "/search?q=%20P%20"])(
+    "skips searches shorter than two characters for %s",
+    async (endpoint) => {
+      await expect(api(endpoint)).resolves.toEqual([]);
+      expect(harness.fake.client.auth.getUser).not.toHaveBeenCalled();
+      expect(harness.fake.client.from).not.toHaveBeenCalled();
+      expect(searchPlaces).not.toHaveBeenCalled();
+    },
+  );
+
+  it("returns unique landmarks before Mapbox matches and caps the merged list at eight", async () => {
+    const landmarks = [
+      pickup,
+      { ...pickup, name: "mArKeT" },
+      { ...pickup, name: "Market Annex" },
+    ];
+    harness.fake.table(
+      "landmarks",
+      [
+        ["select", "*"],
+        ["ilike", "name", "%Market%"],
+        ["limit", 8],
+      ],
+      landmarks,
+    );
+    const remote = Array.from({ length: 8 }, (_, index) => ({
+      ...destination,
+      name: `Place ${index}`,
+    }));
+    jest
+      .mocked(searchPlaces)
+      .mockResolvedValue([
+        { ...destination, name: "MARKET" },
+        remote[0],
+        { ...destination, name: "place 0" },
+        ...remote.slice(1),
+      ]);
+    await expect(api("/search?q=Market")).resolves.toEqual([
+      landmarks[0],
+      landmarks[2],
+      ...remote.slice(0, 6),
     ]);
-    await expect(api("/search")).resolves.toEqual([]);
+  });
+
+  it("returns landmarks when Mapbox fails", async () => {
+    harness.fake.table(
+      "landmarks",
+      [
+        ["select", "*"],
+        ["ilike", "name", "%Pier%"],
+        ["limit", 8],
+      ],
+      [destination],
+    );
+    jest.mocked(searchPlaces).mockRejectedValue(new Error("offline"));
+    await expect(api("/search?q=Pier")).resolves.toEqual([destination]);
   });
 
   it("surfaces search errors as ApiError", async () => {
@@ -347,34 +401,42 @@ describe("PUJ/PUV and trip actions", () => {
     });
   });
 
-  it("stores the route and cash payment, with a deduplicated identity lookup", async () => {
-    harness.fake.table(
-      "bookings",
-      [
+  test.each([
+    [2.74, 2.7],
+    [0, 0.1],
+    [200, 100],
+  ])(
+    "stores the route and adjusts the straight-line distance %p to %p km",
+    async (distance, distance_km) => {
+      harness.fake.table(
+        "bookings",
         [
-          "insert",
-          {
-            ...coordinates,
-            user_id: "rider",
-            routes_id: "r1",
-            service_type: "PUJ/PUV",
-            payment_method: "Cash",
-          },
+          [
+            "insert",
+            {
+              ...coordinates,
+              distance_km,
+              user_id: "rider",
+              routes_id: "r1",
+              service_type: "PUJ/PUV",
+              payment_method: "Cash",
+            },
+          ],
+          ["select"],
+          ["single"],
         ],
-        ["select"],
-        ["single"],
-      ],
-      { ...booking, driver_id: "rider" },
-    );
-    bookingLookups("rider");
-    await expect(
-      api<Trip>("/book-puj", { trip, routeId: "r1" }),
-    ).resolves.toMatchObject({
-      id: "booking-1",
-      driverId: "rider",
-      passenger: "Jo",
-    });
-  });
+        { ...booking, driver_id: "rider" },
+      );
+      bookingLookups("rider");
+      await expect(
+        api<Trip>("/book-puj", { trip: { ...trip, distance }, routeId: "r1" }),
+      ).resolves.toMatchObject({
+        id: "booking-1",
+        driverId: "rider",
+        passenger: "Jo",
+      });
+    },
+  );
 
   test.each([
     ["4", 4],
