@@ -558,7 +558,9 @@ export default function PassengerApp({
             label="Payment"
             value={
               value.paymentStatus === "paid"
-                ? "Paid"
+                ? demo
+                  ? "Paid"
+                  : "Paid in cash"
                 : value.paymentStatus === "pending"
                   ? "Awaiting confirmation"
                   : "Pay the driver in cash"
@@ -942,7 +944,9 @@ export default function PassengerApp({
       content = (
         <Hint text="This seat was held for 3 hours and has been released. Book again when you are ready to ride." />
       );
-      footer = <Action title="Back to Home" onPress={() => go("Home")} />;
+      footer = (
+        <Action title="Book a PUV seat again" icon="bus-outline" onPress={() => go("Routes")} />
+      );
     } else {
       content = (
         <>
@@ -988,9 +992,10 @@ export default function PassengerApp({
           disabled={locked}
           onPress={() =>
             perform(async () => {
-              await action(`/trips/${pujTrip.id}`, { status: "Completed" });
-              await refresh();
-              go("PUJ complete", pujTrip.id);
+              if (await action(`/trips/${pujTrip.id}`, { status: "Completed" })) {
+                haptic.success();
+                go("PUJ complete", pujTrip.id);
+              }
             })
           }
         />
@@ -1000,7 +1005,9 @@ export default function PassengerApp({
     title = "Trip complete";
     subtitle = "Salamat sa pagsakay!";
     back = "Home";
-    const pujTrip = data.trips.find((t) => t.id === params.trip);
+    const pujTrip = data.trips.find(
+      (t) => t.id === params.trip && t.status === "Completed",
+    );
     content = pujTrip ? (
       <>
         <View style={ps.banner}>
@@ -1856,7 +1863,9 @@ export default function PassengerApp({
         onBook={() => go("Journey")}
         onOpen={(trip) =>
           go(
-            trip.status === "Expired" || trip.status === "Requested"
+            trip.serviceType === "PUJ/PUV" && trip.status === "Expired"
+              ? "PUJ arrived"
+              : trip.status === "Expired" || trip.status === "Requested"
               ? "Ride accepted"
               : ["Completed", "Cancelled"].includes(trip.status)
                 ? trip.serviceType === "PUJ/PUV" && trip.status === "Completed"

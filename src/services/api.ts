@@ -64,9 +64,22 @@ async function currentUserId(): Promise<string> {
   return data.user.id;
 }
 
+const CONFLICTS: Record<string, string> = {
+  bookings_one_active_per_passenger: "You already have an active ride.",
+  bookings_one_active_per_driver: "Finish your current ride before accepting another.",
+  driver_runs_one_active_per_driver: "Finish your current run before starting another.",
+};
+
 function raise(error: { message: string; code?: string } | null) {
   if (error) {
-    throw new ApiError(error.message, error.code === "40001" ? 409 : 400);
+    const conflict =
+      error.code === "23505"
+        ? Object.entries(CONFLICTS).find(([name]) => error.message.includes(name))?.[1]
+        : undefined;
+    throw new ApiError(
+      conflict ?? error.message,
+      error.code === "40001" || conflict ? 409 : 400,
+    );
   }
 }
 

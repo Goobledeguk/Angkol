@@ -171,6 +171,22 @@ export default function DriverPending({
         </View>
       )}
 
+      {!declined && hasLicense && (
+        <View style={{ gap: 8 }}>
+          <Button
+            title={uploading ? "Uploading…" : "Replace license photo"}
+            secondary
+            onPress={() => void addLicense("camera")}
+            disabled={uploading}
+          />
+          {problem ? (
+            <Text style={[ps.body, { color: "#B33A1E" }]} accessibilityLiveRegion="assertive">
+              {problem}
+            </Text>
+          ) : null}
+        </View>
+      )}
+
       {checked && !declined ? (
         <Text style={[ps.body, { color: c.green }]} accessibilityLiveRegion="polite">
           Not approved yet. We check again automatically while this screen is open.
