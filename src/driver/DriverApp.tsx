@@ -22,6 +22,9 @@ import CalbayogMap from "../map/CalbayogMap";
 import { ps, passengerColors as c } from "../passenger/passengerStyles";
 import DriverAvatar from "../common/DriverAvatar";
 import { pickDriverPhoto, Share, Linking } from "../services/previewActions";
+import { isFinished } from "../domain/roles";
+import { haptic } from "../common/haptics";
+import { useNow } from "../common/useNow";
 
 type Props = {
   data: Snapshot;
@@ -233,21 +236,25 @@ export default function DriverApp({
   const lock = useRef(false),
     scroll = useRef<React.ComponentRef<typeof ScrollView>>(null);
   const locked = busy || working;
+  const now = useNow(15_000);
   const runs = data.runs || [],
     activeRun = runs.find((r) => r.status === "In progress"),
     run = runs.find((r) => r.id === params.run) || activeRun || runs[0];
   const trips = data.trips.filter((t) => t.driverId === data.user.id),
     requests = data.trips
-      .filter((t) => t.status === "Requested" && data.user.available)
+      .filter(
+        (t) =>
+          t.status === "Requested" &&
+          data.user.available &&
+          (!t.expires || t.expires > now),
+      )
       .sort((a, b) =>
         data.user.location
           ? awayKm(data.user.location, a.pickupPoint) -
             awayKm(data.user.location, b.pickupPoint)
           : 0,
       ),
-    activeTrip = trips.find(
-      (t) => !["Completed", "Cancelled"].includes(t.status),
-    ),
+    activeTrip = trips.find((t) => !isFinished(t)),
     trip = trips.find((t) => t.id === params.trip) || activeTrip || trips[0];
   const assigned = data.routes.find((r) => r.id === data.user.routeId),
     stops = activeRun?.stops || assigned?.stops || [];
@@ -1106,6 +1113,13 @@ export default function DriverApp({
             {Boolean(t.pickupNote) && (
               <Text style={ps.body}>Pickup note: {t.pickupNote}</Text>
             )}
+            {t.expires ? (
+              <Text style={[ps.small, t.expires - now < 120_000 && { color: "#9A5B13" }]}>
+                {t.expires - now < 60_000
+                  ? "Closing in under a minute"
+                  : `Open for ${Math.ceil((t.expires - now) / 60_000)} more min`}
+              </Text>
+            ) : null}
             <Button
               title="Accept ride request"
               disabled={
@@ -1114,6 +1128,7 @@ export default function DriverApp({
               onPress={() => {
                 void perform(async () => {
                   if (await action(`/trips/${t.id}`, { status: "Accepted" })) {
+                    haptic.success();
                     go("Trip", t.id);
                   }
                 });
@@ -1124,11 +1139,18 @@ export default function DriverApp({
               light
               disabled={locked}
               onPress={() => {
+                haptic.tap();
                 void action(`/trips/${t.id}/decline`, {});
               }}
             />
           </View>
         ))}
+        {requests.length > 0 && (!data.user.available || !sharing) && (
+          <Hint text="Go online and share your location to accept these rides." />
+        )}
+        {requests.length > 0 && !!activeTrip && (
+          <Hint text="Finish your current ride before accepting another." />
+        )}
         {!requests.length && (
           <Hint text="No rides are offered to you right now. Approved, available drivers with recent GPS receive nearby offers." />
         )}
@@ -1206,8 +1228,15 @@ export default function DriverApp({
           icon="checkmark-outline"
           disabled={locked}
           onPress={() => {
-            void action(`/trips/${trip.id}`, {
-              status: next[trip.status as keyof typeof next],
+            const status = next[trip.status as keyof typeof next];
+            void action(`/trips/${trip.id}`, { status }).then((saved) => {
+              if (saved) {
+                if (status === "Completed") {
+                  haptic.success();
+                } else {
+                  haptic.tap();
+                }
+              }
             });
           }}
         />

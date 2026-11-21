@@ -11,6 +11,7 @@ import type { Point, Route, Snapshot, Trip } from "../types/types";
 import CalbayogMap from "../map/CalbayogMap";
 import { Icon, money } from "../common/ui";
 import { ps, passengerColors as c } from "./passengerStyles";
+import { isFinished } from "../domain/roles";
 
 type IconName = React.ComponentProps<typeof Icon>["name"];
 function Tile({ icon, dark = false }: { icon: IconName; dark?: boolean }) {
@@ -118,7 +119,7 @@ const date = (value: string) =>
     day: "numeric",
     year: "numeric",
   });
-const isPast = (trip: Trip) => ["Completed", "Cancelled"].includes(trip.status);
+const isPast = (trip: Trip) => isFinished(trip);
 
 export function PassengerHomeScreen({
   data,
@@ -128,6 +129,7 @@ export function PassengerHomeScreen({
   onTerminals,
   onDestination,
   onTrack,
+  onRideAgain,
 }: {
   data: Snapshot;
   active?: Trip;
@@ -136,7 +138,25 @@ export function PassengerHomeScreen({
   onTerminals: () => void;
   onDestination: (point: Point) => void;
   onTrack: () => void;
+  onRideAgain?: (trip: Trip) => void;
 }) {
+  const lastRide = active
+    ? undefined
+    : data.trips.find(
+        (trip) => trip.status === "Completed" && trip.serviceType !== "PUJ/PUV",
+      );
+  const puv = active?.serviceType === "PUJ/PUV";
+  const activeTitle = !active
+    ? ""
+    : active.status === "Requested"
+      ? "Finding your driver"
+      : active.status === "In progress"
+        ? "Enjoy your journey"
+        : active.status === "Arrived"
+          ? puv
+            ? "Your seat is reserved"
+            : "Your driver is at the pickup"
+          : "Your ride is on the way";
   const places = [
     ...new Map(
       data.trips.map((trip) => [trip.destinationPoint.name, trip.destinationPoint]),
@@ -170,19 +190,35 @@ export function PassengerHomeScreen({
           onPress={onTrack}
           style={({ pressed }) => [v.activeRide, pressed && ps.pressed]}
         >
-          <Tile icon="bicycle-outline" />
+          <Tile icon={puv ? "bus-outline" : "bicycle-outline"} />
           <View style={{ flex: 1, gap: 4 }}>
-            <Text style={v.label}>
-              {active.status === "In progress"
-                ? "Enjoy your journey"
-                : "Your ride is on the way"}
-            </Text>
+            <Text style={v.label}>{activeTitle}</Text>
             <Text numberOfLines={1} style={v.small}>
-              {active.driver || "Your driver"}
-              {active.plate ? `, ${active.plate}` : ""}
+              {active.status === "Requested"
+                ? `${active.pickup} to ${active.destination}`
+                : `${active.driver || "Your driver"}${active.plate ? `, ${active.plate}` : ""}`}
             </Text>
           </View>
           <Icon name="chevron-forward" size={19} />
+        </Pressable>
+      )}
+      {lastRide && onRideAgain && (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`Ride again from ${lastRide.pickup} to ${lastRide.destination}`}
+          onPress={() => onRideAgain(lastRide)}
+          style={({ pressed }) => [v.activeRide, pressed && ps.pressed]}
+        >
+          <Tile icon="repeat" />
+          <View style={{ flex: 1, gap: 4 }}>
+            <Text style={v.label}>Ride again</Text>
+            <Text numberOfLines={1} style={v.small}>
+              {lastRide.pickup} to {lastRide.destination}
+            </Text>
+          </View>
+          <Text style={[v.label, { color: c.green, fontVariant: ["tabular-nums"] }]}>
+            {money(lastRide.fare)}
+          </Text>
         </Pressable>
       )}
       <Section
@@ -555,7 +591,10 @@ export function PassengerTripsScreen({
         >
           <View style={ps.between}>
             <View style={ps.row}><Icon name="calendar-outline" size={16} color={c.green} /><Text style={v.small}>{date(trip.createdAt)}</Text></View>
-            <Pill label={trip.status} quiet={trip.status === "Cancelled"} />
+            <Pill
+              label={trip.status === "Expired" ? "No driver found" : trip.status}
+              quiet={trip.status === "Cancelled" || trip.status === "Expired"}
+            />
           </View>
           <View style={v.journeyPath}>
             <View style={{ flex: 1, gap: 12 }}>
@@ -575,14 +614,18 @@ export function PassengerTripsScreen({
           >
             <View style={{ gap: 4 }}>
               <Text style={v.link}>
-                {isPast(trip) ? "View receipt" : "Track your ride"}
+                {trip.status === "Expired"
+                  ? "Request again"
+                  : isPast(trip)
+                    ? "View receipt"
+                    : "Track your ride"}
               </Text>
               <Text style={v.caption}>
                 {trip.distance} km · {trip.minutes} min
               </Text>
             </View>
             <Text style={[v.price, { fontSize: 13, lineHeight: 18 }]}>
-              {money(trip.status === "Cancelled" ? 0 : trip.fare)}
+              {money(trip.status === "Cancelled" || trip.status === "Expired" ? 0 : trip.fare)}
             </Text>
           </View>
         </Pressable>

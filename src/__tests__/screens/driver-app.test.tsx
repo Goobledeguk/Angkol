@@ -128,7 +128,9 @@ describe("Driver availability", () => {
   });
 
   it("opens the nearby requests list from the dashboard", async () => {
-    await openDriver("Dashboard", { trips: [makeTrip()] });
+    await openDriver("Dashboard", {
+      trips: [makeTrip({ expires: Date.now() + 10 * 60_000 })],
+    });
     await press("1 nearby ride request");
     expect(setParams).toHaveBeenCalledWith({
       screen: "Requests",

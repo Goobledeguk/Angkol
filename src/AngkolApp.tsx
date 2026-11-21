@@ -9,7 +9,7 @@ import { uploadPendingLicense } from "./services/documents";
 import type { Snapshot } from "./types/types";
 import { useNow } from "./common/useNow";
 import { useAppActive } from "./common/useAppActive";
-import { hasLiveTrip, isDriverRole } from "./domain/roles";
+import { activeTripFor, hasLiveTrip, isDriverRole } from "./domain/roles";
 import Auth from "./auth/Auth";
 import PassengerApp from "./passenger/PassengerApp";
 import DriverApp from "./driver/DriverApp";
@@ -18,6 +18,7 @@ import AdminDashboard from "./admin/AdminDashboard";
 
 const LIVE_POLL_MS = 10_000;
 const ONLINE_POLL_MS = 20_000;
+const APPROVAL_POLL_MS = 30_000;
 
 export default function AngkolApp() {
   const [data, setData] = useState<Snapshot | null>(null);
@@ -96,7 +97,18 @@ export default function AngkolApp() {
     }
   }, [userId, refresh]);
   const foreground = useAppActive(resume);
-  const pollEvery = !foreground ? 0 : live ? LIVE_POLL_MS : sharing ? ONLINE_POLL_MS : 0;
+  const waiting = !!data && !!activeTripFor(data);
+  const awaitingApproval =
+    !!data && isDriverRole(data.user.role) && data.user.applicationStatus === "pending";
+  const pollEvery = !foreground
+    ? 0
+    : live
+      ? LIVE_POLL_MS
+      : sharing || waiting
+        ? ONLINE_POLL_MS
+        : awaitingApproval
+          ? APPROVAL_POLL_MS
+          : 0;
   useEffect(() => {
     if (!pollEvery) {
       return;

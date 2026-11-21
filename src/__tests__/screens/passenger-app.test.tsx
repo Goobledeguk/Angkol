@@ -224,22 +224,53 @@ describe("Passenger tracking and receipt", () => {
     expect(screen.queryByText(new RegExp(trip.id))).toBeNull();
   });
 
-  it("rates the selected trip and exposes the stored rating", async () => {
+  it("rates an unrated trip once", async () => {
     const { action } = await openPassenger(
       "Receipt",
       {
         trips: [
           makeTrip({ status: "Completed" }),
-          { ...trip, status: "Completed", rating: 3 },
+          { ...trip, status: "Completed", rating: null },
         ],
       },
       { trip: trip.id },
     );
-    expect(button("Rate 3 out of 5")).toBeSelected();
     await press("Rate 5 out of 5");
     expect(action).toHaveBeenCalledWith(`/trips/${trip.id}/rating`, {
       rating: 5,
     });
+    expect(button("Rate 4 out of 5")).toBeDisabled();
+  });
+
+  it("shows a stored rating without letting it change", async () => {
+    await openPassenger(
+      "Receipt",
+      { trips: [{ ...trip, status: "Completed", rating: 3 }] },
+      { trip: trip.id },
+    );
+    expect(screen.getByLabelText("You rated this ride 3 out of 5")).toBeOnTheScreen();
+    expect(screen.queryByRole("button", { name: "Rate 5 out of 5" })).toBeNull();
+  });
+
+  it("offers to send an expired request again", async () => {
+    await openPassenger(
+      "Ride accepted",
+      {
+        trips: [
+          {
+            ...trip,
+            status: "Expired",
+            driver: undefined,
+            driverId: null,
+            timestamps: { Requested: trip.createdAt ? Date.parse(trip.createdAt) : 0, Expired: Date.now() },
+          },
+        ],
+      },
+      { trip: trip.id },
+    );
+    expect(screen.getByText("No driver this time")).toBeOnTheScreen();
+    expect(screen.getByText("Every nearby driver was busy")).toBeOnTheScreen();
+    expect(button("Request this ride again")).toBeEnabled();
   });
 });
 

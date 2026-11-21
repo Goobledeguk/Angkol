@@ -30,6 +30,10 @@ import CalbayogMap from "../map/CalbayogMap";
 import { Icon, money } from "../common/ui";
 import { ps, passengerColors as c } from "./passengerStyles";
 import DriverAvatar from "../common/DriverAvatar";
+import { isFinished } from "../domain/roles";
+import { haptic } from "../common/haptics";
+import { SearchCountdown } from "./SearchCountdown";
+import { RateTrip } from "./RateTrip";
 
 type Props = {
   data: Snapshot;
@@ -255,9 +259,7 @@ export default function PassengerApp({
   const submitting = useRef(false),
     scroll = useRef<React.ComponentRef<typeof ScrollView>>(null),
     previousStatuses = useRef(new Map(data.trips.map((t) => [t.id, t.status])));
-  const active = data.trips.find(
-    (t) => !["Completed", "Cancelled"].includes(t.status),
-  );
+  const active = data.trips.find((t) => !isFinished(t));
   const trip =
     data.trips.find((t) => t.id === params.trip) || active || data.trips[0];
   const vehicle = vehicleForDriver(data.vehicles, trip?.driverId, trip?.plate);
@@ -289,11 +291,17 @@ export default function PassengerApp({
         previous !== value.status
       ) {
         if (value.status === "Completed") {
+          haptic.success();
           router.setParams({ screen: "Receipt", trip: value.id });
         } else if (value.status === "Arrived") {
+          haptic.tap();
           router.setParams({ screen: "Arrived", trip: value.id });
         } else if (value.status === "In progress") {
           router.setParams({ screen: "Track ride", trip: value.id });
+        } else if (value.status === "Accepted") {
+          haptic.success();
+        } else if (value.status === "Expired") {
+          haptic.warning();
         }
       }
       previousStatuses.current.set(value.id, value.status);
@@ -354,6 +362,22 @@ export default function PassengerApp({
         return;
       }
       const next = await api<Quote>("/quote", { pickup, destination });
+      setQuote(next);
+      go("Choose ride");
+    });
+  const rideAgain = (from: Trip) =>
+    perform(async () => {
+      if (active) {
+        go("Track ride", active.id);
+        return;
+      }
+      setPickup(from.pickupPoint);
+      setDestination(from.destinationPoint);
+      setGpsAt(null);
+      const next = await api<Quote>("/quote", {
+        pickup: from.pickupPoint,
+        destination: from.destinationPoint,
+      });
       setQuote(next);
       go("Choose ride");
     });
@@ -529,6 +553,18 @@ export default function PassengerApp({
           <Text style={ps.body}>Total fare</Text>
           <Text style={ps.total}>{money(value.fare)}</Text>
         </View>
+        {"paymentStatus" in value && value.paymentStatus ? (
+          <SummaryRow
+            label="Payment"
+            value={
+              value.paymentStatus === "paid"
+                ? "Paid"
+                : value.paymentStatus === "pending"
+                  ? "Awaiting confirmation"
+                  : "Pay the driver in cash"
+            }
+          />
+        ) : null}
 
         {demo && (
           <Text style={ps.small}>
@@ -549,7 +585,14 @@ export default function PassengerApp({
         onBook={() => go("Journey")}
         onRoutes={() => go("Routes")}
         onTerminals={() => go("Terminals")}
-        onTrack={() => go("Track ride", active?.id)}
+        onTrack={() =>
+          active?.status === "Requested"
+            ? go("Ride accepted", active.id)
+            : active?.serviceType === "PUJ/PUV"
+              ? go("PUJ arrived", active.id)
+              : go("Track ride", active?.id)
+        }
+        onRideAgain={rideAgain}
         onDestination={(point) => {
           setDestination(point);
           setQuote(null);
@@ -828,7 +871,7 @@ export default function PassengerApp({
           <Hint
             info
             icon="information-circle-outline"
-            text="Booking a PUJ/PUV confirms your seat and the vehicle arrives at your pickup point."
+            text="Booking holds a seat on the next PUV on this route that still has room. Pay the driver or conductor when you board."
           />
         </>
       );
@@ -887,44 +930,60 @@ export default function PassengerApp({
       );
     }
   } else if (page === "PUJ arrived") {
-    title = "Your PUJ/PUV has arrived";
-    subtitle = "Board now — driver is at your pickup";
-    back = null;
     const pujTrip = data.trips.find((t) => t.id === params.trip);
+    const unit = data.vehicles.find((v) => v.id === pujTrip?.vehicleId);
+    title = pujTrip?.status === "Expired" ? "Seat released" : "Your seat is reserved";
+    subtitle = unit ? `${unit.name} · ${unit.plate}` : "Board at your stop";
+    back = pujTrip?.status === "Expired" ? "Home" : null;
     if (!pujTrip) {
       content = <Hint text="Trip not found." />;
+      footer = <Action title="Back to Home" onPress={() => go("Home")} />;
+    } else if (pujTrip.status === "Expired") {
+      content = (
+        <Hint text="This seat was held for 3 hours and has been released. Book again when you are ready to ride." />
+      );
       footer = <Action title="Back to Home" onPress={() => go("Home")} />;
     } else {
       content = (
         <>
-          <View style={[ps.banner, { backgroundColor: "#0B5942" }]}>
-            <View style={ps.row}>
-              <Icon name="checkmark-circle-outline" size={33} color="white" />
-              <View style={{ flex: 1 }}>
-                <Text style={ps.bannerTitle}>Your ride is here!</Text>
+          <View style={ps.banner}>
+            <View style={ps.between}>
+              <View style={{ flex: 1, gap: 4 }}>
+                <Text style={ps.bannerTitle}>
+                  {unit?.name || pujTrip.driver || "Your PUV"}
+                </Text>
                 <Text style={ps.bannerSub}>
-                  {pujTrip.driver} · {pujTrip.plate}
+                  {[unit?.vehicleType, unit?.plate || pujTrip.plate].filter(Boolean).join(" · ")}
                 </Text>
               </View>
+              <View style={ps.check}>
+                <Icon name="bus" size={19} />
+              </View>
+            </View>
+            <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
+              <Tag icon="checkmark" text="Seat held for you" />
+              {pujTrip.expires ? (
+                <Tag icon="time-outline" text={`Until ${stamp(pujTrip.expires)}`} />
+              ) : null}
             </View>
           </View>
           <View style={ps.card}>
             <Locations pickup={pujTrip.pickup} destination={pujTrip.destination} />
             <View style={ps.divider} />
-            <SummaryRow label="Fare" value={money(pujTrip.fare)} strong />
+            <SummaryRow label="Fixed fare" value={money(pujTrip.fare)} strong />
             <SummaryRow label="Driver" value={pujTrip.driver || "—"} />
-            <SummaryRow label="Plate" value={pujTrip.plate || "—"} />
+            <SummaryRow label="Plate" value={unit?.plate || pujTrip.plate || "—"} />
           </View>
           <Hint
             info
             icon="bus-outline"
-            text="Board the vehicle at the marked pickup point. Pay your fare directly to the driver or conductor."
+            text="Show this screen when you board. Pay the fixed fare to the driver or conductor, then tap the button below once you are on your way."
           />
         </>
       );
       footer = (
         <Action
-          title={working ? "Completing…" : "Board & complete trip"}
+          title={working ? "Saving…" : "I've boarded and paid"}
           icon="checkmark-done-outline"
           disabled={locked}
           onPress={() =>
@@ -960,33 +1019,12 @@ export default function PassengerApp({
         </View>
         {receiptDetails(pujTrip)}
         {fares(pujTrip)}
-        <Text style={[ps.label, { textAlign: "center" }]}>
-          How was your ride?
-        </Text>
-        <View style={[ps.row, { justifyContent: "space-around" }]}>
-          {[1, 2, 3, 4, 5].map((rating) => (
-            <Pressable
-              key={rating}
-              accessibilityRole="button"
-              accessibilityLabel={`Rate ${rating} out of 5`}
-              disabled={locked}
-              onPress={() =>
-                void action(`/trips/${pujTrip.id}/rating`, { rating })
-              }
-              style={ps.star}
-            >
-              <Icon
-                name={
-                  pujTrip.rating && rating <= pujTrip.rating
-                    ? "star"
-                    : "star-outline"
-                }
-                size={27}
-                color={c.amber}
-              />
-            </Pressable>
-          ))}
-        </View>
+        <RateTrip
+          rating={pujTrip.rating}
+          driver={pujTrip.driver}
+          disabled={locked}
+          onRate={(rating) => action(`/trips/${pujTrip.id}/rating`, { rating })}
+        />
       </>
     ) : (
       <Hint text="No trip found." />
@@ -1000,7 +1038,9 @@ export default function PassengerApp({
     title =
       trip?.status === "Cancelled"
         ? "Ride cancelled"
-        : trip?.status === "Arrived"
+        : trip?.status === "Expired"
+          ? "No driver this time"
+          : trip?.status === "Arrived"
           ? "Your driver has arrived"
           : trip?.driver
             ? "Your ride is accepted"
@@ -1010,6 +1050,48 @@ export default function PassengerApp({
         <Hint text="You have no active ride. Choose a destination to start a new journey." />
       );
       footer = <Action title="Back to Home" onPress={() => go("Home")} />;
+    } else if (trip.status === "Expired") {
+      content = (
+        <>
+          <View style={[ps.card, { backgroundColor: "#FBF7EF", borderColor: "#EADFC9" }]}>
+            <View style={ps.row}>
+              <View style={[ps.check, { backgroundColor: "#F3E6CC" }]}>
+                <Icon name="hourglass-outline" size={19} color="#8A5A12" />
+              </View>
+              <Text style={[ps.section, { flex: 1 }]}>
+                Every nearby driver was busy
+              </Text>
+            </View>
+            <Text style={ps.body}>
+              Your request stayed open for 10 minutes and nobody picked it up.
+              Nothing was charged. Send it again and we will ask the drivers who
+              are online now.
+            </Text>
+          </View>
+          <View style={ps.card}>
+            <Locations pickup={trip.pickup} destination={trip.destination} />
+            <View style={ps.divider} />
+            <SummaryRow label="Last quoted fare" value={money(trip.fare)} />
+            <SummaryRow
+              label="Request closed"
+              value={trip.timestamps.Expired ? stamp(trip.timestamps.Expired) : "—"}
+            />
+          </View>
+        </>
+      );
+      footer = (
+        <>
+          <Action
+            title={working ? "Getting a fresh fare…" : "Request this ride again"}
+            icon="refresh"
+            disabled={locked}
+            onPress={() => rideAgain(trip)}
+          />
+          <Pressable accessibilityRole="button" onPress={() => go("Home")}>
+            <Text style={ps.textLink}>Back to Home</Text>
+          </Pressable>
+        </>
+      );
     } else {
       const statuses = [
         "Requested",
@@ -1130,16 +1212,17 @@ export default function PassengerApp({
       );
       footer = (
         <>
-          {["Requested", "Accepted"].includes(trip.status) && (
+          {trip.status === "Requested" && trip.expires ? (
+            <SearchCountdown expires={trip.expires} />
+          ) : null}
+          {trip.status === "Accepted" && (
             <View
               accessibilityLiveRegion="polite"
               style={[ps.row, { justifyContent: "center", gap: 10, minHeight: 52 }]}
             >
               <ActivityIndicator color={c.green} />
               <Text style={[ps.label, { color: c.green }]}>
-                {trip.status === "Requested"
-                  ? "Finding a nearby driver…"
-                  : `${trip.driver || "Your driver"} is on the way`}
+                {`${trip.driver || "Your driver"} is on the way`}
               </Text>
             </View>
           )}
@@ -1703,38 +1786,12 @@ export default function PassengerApp({
         {trip.status === "Completed" && (
           <>
             {fares(trip)}
-            <Text style={[ps.label, { textAlign: "center" }]}>
-              How was your ride
-              {trip.driver ? ` with ${trip.driver.split(" ")[0]}` : ""}?
-            </Text>
-            <View style={[ps.row, { justifyContent: "space-around" }]}>
-              {[1, 2, 3, 4, 5].map((rating) => (
-                <Pressable
-                  key={rating}
-                  accessibilityRole="button"
-                  accessibilityLabel={`Rate ${rating} out of 5`}
-                  accessibilityState={{
-                    selected: trip.rating === rating,
-                    disabled: locked,
-                  }}
-                  disabled={locked}
-                  onPress={() => {
-                    void action(`/trips/${trip.id}/rating`, { rating });
-                  }}
-                  style={ps.star}
-                >
-                  <Icon
-                    name={
-                      trip.rating && rating <= trip.rating
-                        ? "star"
-                        : "star-outline"
-                    }
-                    size={27}
-                    color={c.amber}
-                  />
-                </Pressable>
-              ))}
-            </View>
+            <RateTrip
+              rating={trip.rating}
+              driver={trip.driver}
+              disabled={locked}
+              onRate={(rating) => action(`/trips/${trip.id}/rating`, { rating })}
+            />
           </>
         )}
         <Pressable
@@ -1799,11 +1856,17 @@ export default function PassengerApp({
         onBook={() => go("Journey")}
         onOpen={(trip) =>
           go(
-            ["Completed", "Cancelled"].includes(trip.status)
-              ? "Receipt"
-              : trip.status === "Arrived"
-                ? "Arrived"
-                : "Track ride",
+            trip.status === "Expired" || trip.status === "Requested"
+              ? "Ride accepted"
+              : ["Completed", "Cancelled"].includes(trip.status)
+                ? trip.serviceType === "PUJ/PUV" && trip.status === "Completed"
+                  ? "PUJ complete"
+                  : "Receipt"
+                : trip.serviceType === "PUJ/PUV"
+                  ? "PUJ arrived"
+                  : trip.status === "Arrived"
+                    ? "Arrived"
+                    : "Track ride",
             trip.id,
           )
         }
