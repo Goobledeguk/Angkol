@@ -506,12 +506,14 @@ export function PassengerTripsScreen({
   const [tab, setTab] = useState("Past");
   const [mode, setMode] = useState("All rides");
   const active = trips.filter((trip) => !isPast(trip));
-  const visible =
-    mode === "PUJ / PUV"
-      ? []
-      : trips
-          .filter((trip) => (tab === "Active" ? !isPast(trip) : isPast(trip)))
-          .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
+  const isPuj = (trip: Trip) => trip.serviceType === "PUJ/PUV";
+  const visible = trips
+    .filter((trip) => (tab === "Active" ? !isPast(trip) : isPast(trip)))
+    .filter((trip) =>
+      mode === "All rides" ? true : mode === "PUJ / PUV" ? isPuj(trip) : !isPuj(trip),
+    )
+    .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
+  const modes = ["All rides", "Tricycle", "PUJ / PUV"];
   return (
     <View style={v.stack}>
       <View style={v.segments}>
@@ -541,10 +543,8 @@ export function PassengerTripsScreen({
       </View>
       <Section
         title={tab === "Past" ? "Recent journeys" : "Your current ride"}
-        action={mode === "All rides" ? "All rides ▾" : "PUJ / PUV ▾"}
-        onPress={() =>
-          setMode(mode === "All rides" ? "PUJ / PUV" : "All rides")
-        }
+        action={`${mode} ▾`}
+        onPress={() => setMode(modes[(modes.indexOf(mode) + 1) % modes.length])}
       />
       {visible.map((trip) => (
         <Pressable
@@ -562,10 +562,10 @@ export function PassengerTripsScreen({
               <View style={ps.row}><View style={v.journeyDot} /><Text style={[v.label, { flex: 1 }]}>{trip.pickup}</Text></View>
               <View style={ps.row}><View style={[v.journeyDot, { backgroundColor: c.amber }]} /><Text style={[v.label, { flex: 1 }]}>{trip.destination}</Text></View>
             </View>
-            <Tile icon="bicycle-outline" />
+            <Tile icon={isPuj(trip) ? "bus-outline" : "bicycle-outline"} />
           </View>
           <Text style={v.small}>
-            Tricycle · {trip.driver || "No driver assigned"}
+            {isPuj(trip) ? "PUJ/PUV" : "Tricycle"} · {trip.driver || "No driver assigned"}
           </Text>
           <View
             style={[
@@ -597,7 +597,7 @@ export function PassengerTripsScreen({
             }
             detail={
               mode === "PUJ / PUV"
-                ? "Terminal pickup requests are shown on Routes."
+                ? "PUJ/PUV rides you book appear here. Terminal pickup requests are on Routes."
                 : "Book a local ride and keep all your journeys in one place."
             }
             icon="time-outline"
