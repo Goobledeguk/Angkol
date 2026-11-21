@@ -33,6 +33,8 @@ npm start                 # Expo dev server
 npm run web               # web build/dev
 npm run typecheck         # tsc --noEmit
 npm run lint              # expo lint
+npm test                  # Jest unit and component tests
+npm run test:ci           # Jest in CI mode
 npm run build:web         # static web export
 npm run build:native      # android + ios export
 ```
@@ -49,6 +51,8 @@ npm run build:native      # android + ios export
 | `src/services/mapbox.ts` | Static map URL, directions, geocoding |
 | `src/services/location.ts` | Foreground GPS sharing to `drivers` / `vehicles` |
 | `supabase/migrations/` | Tables, RLS, RPCs, triggers, seed data |
+| `src/domain/` | Pure business rules (schedules, roles, vehicles, formatting) |
+| `src/testing/fixtures.ts` | Shared fixture data for tests |
 
 ## Account roles
 
