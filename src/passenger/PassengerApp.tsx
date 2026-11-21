@@ -19,6 +19,9 @@ import { router, useLocalSearchParams } from "expo-router";
 import { confirmAccountDeletion } from "../common/confirmAccountDeletion";
 import { Share, Linking } from "../services/previewActions";
 import { api } from "../services/api";
+import { currentPoint } from "../services/location";
+import { distanceKm } from "../services/mapbox";
+import { greeting as greetingFor, nextDeparture } from "../domain/schedule";
 import type { Point, Quote, Route, Snapshot, Trip } from "../types/types";
 import CalbayogMap from "../map/CalbayogMap";
 import { Icon, money } from "../common/ui";
@@ -181,38 +184,6 @@ const fullDate = (at: number | string) =>
     month: "short",
     year: "numeric",
   });
-function nextDeparture(route: Snapshot["routes"][number], now: number) {
-  if (
-    route.scheduled === false ||
-    !route.interval ||
-    !route.startsAt ||
-    !route.endsAt
-  ) {
-    return "No fixed schedule";
-  }
-  const clock = new Date(now).toLocaleTimeString("en-GB", {
-    timeZone: "Asia/Manila",
-    hour12: false,
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-  const minutes = (v: string) => {
-    const [h, m] = v.split(":").map(Number);
-    return h * 60 + m;
-  };
-  const start = minutes(route.startsAt),
-    end = minutes(route.endsAt),
-    current = minutes(clock);
-  const next = Math.max(
-    start,
-    start +
-      Math.ceil((current - start) / Math.max(1, route.interval)) *
-        Math.max(1, route.interval),
-  );
-  return next > end
-    ? `Tomorrow ${route.startsAt}`
-    : `${String(Math.floor(next / 60)).padStart(2, "0")}:${String(next % 60).padStart(2, "0")}`;
-}
 function tripText(trip: Trip) {
   return `Angkol · ${trip.id}\n${trip.status}\n${trip.pickup} → ${trip.destination}\nDriver: ${trip.driver || "Awaiting assignment"}${trip.plate ? ` · ${trip.plate}` : ""}\n${trip.demoPayment ? `${trip.demoPayment.method} TEST ONLY — no money charged; actual fare remains payable. Demo reference: ${trip.demoPayment.reference}\nFare` : "Fixed cash fare"}: ${money(trip.fare)}${trip.sampleFare ? " (sample fare)" : ""}\n${fullDate(trip.createdAt)} · ${stamp(trip.createdAt)}`;
 }
@@ -358,7 +329,8 @@ export default function PassengerApp({
   }
   const gps = () =>
     perform(async () => {
-      setPickup(data.landmarks[0] || null);
+      const here = await currentPoint();
+      setPickup(here);
       setGpsAt(Date.now());
       setQuote(null);
     });
@@ -505,19 +477,7 @@ export default function PassengerApp({
     ? "Sample fares only · not an official LGU fares"
     : "Cash payments go directly to your driver";
   const tabPages = ["Home", "Routes", "Terminals", "Trips", "Profile"];
-  const cityHour = Number(
-    new Date(data.serverTime).toLocaleTimeString("en-GB", {
-      timeZone: "Asia/Manila",
-      hour: "2-digit",
-      hourCycle: "h23",
-    }),
-  );
-  const greeting =
-    cityHour >= 5 && cityHour < 12
-      ? "Maupay nga aga"
-      : cityHour >= 12 && cityHour < 18
-        ? "Maupay nga kulop"
-        : "Maupay nga gab-i";
+  const greeting = greetingFor(data.serverTime);
   let title = "Where to today?",
     subtitle = `${greeting}, ${data.user.name.split(" ")[0]}`,
     back: string | null = null;
@@ -890,21 +850,15 @@ export default function PassengerApp({
                 destination: to.name,
                 pickupPoint: from,
                 destinationPoint: to,
-                distance: 2.5,
+                distance: Math.round(distanceKm(from, to) * 10) / 10,
                 fare: pujRoute.fare,
                 minutes: pujRoute.interval || 15,
                 passengerId: data.user.id,
                 passenger: data.user.name,
-                driverId: `puj-driver-${pujRoute.id}`,
-                driver: "Limuel Rosino",
-                plate: "ABC 1234",
-                status: "Arrived", // walk-up PUJ trips are recorded as arrived
+                driverId: null,
+                status: "Requested",
                 createdAt: new Date().toISOString(),
-                timestamps: {
-                  Requested: Date.now(),
-                  Accepted: Date.now(),
-                  Arrived: Date.now(),
-                },
+                timestamps: { Requested: Date.now() },
                 rating: null,
                 sampleFare: false,
                 expires: Date.now() + 10 * 60 * 1000,
