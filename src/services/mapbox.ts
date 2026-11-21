@@ -75,35 +75,33 @@ export function pointAt(view: Viewport, x: number, y: number, width: number, hei
   return { latitude, longitude };
 }
 
-export function staticMapUrl(options: {
-  points: Point[];
+export type MapScene = {
+  pickup?: Point | null;
+  destination?: Point | null;
+  markers?: Point[];
   path?: Geometry | null;
+  view: Viewport;
   width: number;
   height: number;
-}): string | null {
+};
+
+export function distanceKm(a: Point, b: Point) {
+  const rad = Math.PI / 180;
+  const dLat = (b.latitude - a.latitude) * rad;
+  const dLng = (b.longitude - a.longitude) * rad;
+  const h =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(a.latitude * rad) * Math.cos(b.latitude * rad) * Math.sin(dLng / 2) ** 2;
+  return 6371 * 2 * Math.asin(Math.sqrt(h));
+}
+
+export function staticMapUrl(scene: MapScene): string | null {
   if (!hasMapbox) {return null;}
-  const { points, path } = options;
-  const width = Math.min(1280, Math.max(1, Math.round(options.width)));
-  const height = Math.min(1280, Math.max(1, Math.round(options.height)));
-  const fitted = [
-    ...points,
-    ...(path?.coordinates ?? []).map(([longitude, latitude]) => ({ name: "", latitude, longitude })),
-  ];
-  const view = viewportFor(fitted, width, height);
-
+  const { pickup, destination, markers = [], path, view, width, height } = scene;
   const overlays: string[] = [];
-  const pickup = points[0];
-  if (pickup) {
-    overlays.push(`pin-s+0b4f3c(${pickup.longitude},${pickup.latitude})`);
+  for (const marker of markers.slice(0, 8)) {
+    overlays.push(`pin-s+1f7a5c(${marker.longitude},${marker.latitude})`);
   }
-  const destination = points[1];
-  if (destination) {
-    overlays.push(`pin-s+c69c57(${destination.longitude},${destination.latitude})`);
-  }
-  for (const v of points.slice(2, 8)) {
-    overlays.push(`pin-s+1f7a5c(${v.longitude},${v.latitude})`);
-  }
-
   const coords = path?.coordinates ?? [];
   if (coords.length >= 2) {
     const step = Math.max(1, Math.ceil(coords.length / 80));
@@ -112,6 +110,12 @@ export function staticMapUrl(options: {
       .map(([longitude, latitude]) => `${longitude},${latitude}`)
       .join(",");
     overlays.push(`path-4+0b4f3c-0.9(${line})`);
+  }
+  if (pickup) {
+    overlays.push(`pin-s+0b4f3c(${pickup.longitude},${pickup.latitude})`);
+  }
+  if (destination) {
+    overlays.push(`pin-s+c69c57(${destination.longitude},${destination.latitude})`);
   }
 
   const overlay = overlays.length ? `${overlays.join(",")}/` : "";
