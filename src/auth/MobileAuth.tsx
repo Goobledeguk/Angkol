@@ -242,6 +242,20 @@ export default function MobileAuth({
     setSignup(create);
     setStep(1);
     setFieldErr({});
+    setInfo("");
+    setName("");
+    setBirthday("");
+    setPhone("");
+    setEmail("");
+    setPassword("");
+    setLicense("");
+    setAssociation("");
+    setFranchiseName("");
+    setPlate("");
+    setPermitNo("");
+    setCapacity("3");
+    setConsent(false);
+    setLicenseDoc(false);
     // eslint-disable-next-line react-hooks/immutability -- Reanimated SharedValue is mutated via .value by design
     translateY.value = withSpring(0);
   }, [translateY]);
@@ -337,12 +351,14 @@ export default function MobileAuth({
                 }
               : { ...base, role: "Passenger" },
         );
-        setPassword("");
         if (needsConfirmation) {
+          const sentTo = email.trim();
           changeMode(false);
-          setInfo(`We sent a confirmation link to ${email.trim()}. Open it, then sign in here.`);
+          setEmail(sentTo);
+          setInfo(`We sent a confirmation link to ${sentTo}. Open it, then sign in here.`);
           return;
         }
+        setPassword("");
       } else {
         await signInAccount(email, password);
         setPassword("");
@@ -351,7 +367,7 @@ export default function MobileAuth({
     } catch (error) {
       const err = error as any;
       const msg = err?.message || "Something went wrong.";
-      setFieldErr({ password: msg });
+      setFieldErr(signup ? { form: msg } : { password: msg });
     } finally {
       setBusy(false);
     }
@@ -828,7 +844,8 @@ export default function MobileAuth({
                     ) : null}
                   </View>
                 )}
-<SolidButton
+{fieldError("form")}
+                <SolidButton
                   title={
                     busy
                       ? role === "Driver"
