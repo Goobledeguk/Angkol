@@ -4,7 +4,7 @@
     "slug": "angkol",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/angkol-icon.png",
+    "icon": "./assets/app-icon.png",
     "userInterfaceStyle": "light",
     "splash": {
       "image": "./assets/angkol-icon.png",
@@ -19,8 +19,8 @@
       "package": "com.angkol.app",
       "blockedPermissions": ["android.permission.RECORD_AUDIO"],
       "adaptiveIcon": {
-        "backgroundColor": "#0B5D45",
-        "foregroundImage": "./assets/angkol-icon.png"
+        "backgroundColor": "#0F5D45",
+        "foregroundImage": "./assets/adaptive-icon-foreground.png"
       },
       "predictiveBackGestureEnabled": false,
       "softwareKeyboardLayoutMode": "pan"
