@@ -489,6 +489,10 @@ export async function api<T = { ok: boolean }>(
 
   if (endpoint === "/logout") {
     await clearSession();
+  } else if (endpoint === "/account/delete") {
+    const { error } = await client.rpc("delete_my_account");
+    raise(error);
+    await clearSession();
   } else {
     const userId = await currentUserId();
 

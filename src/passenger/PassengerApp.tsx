@@ -16,6 +16,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { router, useLocalSearchParams } from "expo-router";
+import { confirmAccountDeletion } from "../common/confirmAccountDeletion";
 import { Share, Linking } from "../services/previewActions";
 import { api } from "../services/api";
 import type { Point, Quote, Route, Snapshot, Trip } from "../types/types";
@@ -1816,6 +1817,15 @@ export default function PassengerApp({
         onSignOut={() => {
           void logout();
         }}
+        onDeleteAccount={() =>
+          confirmAccountDeletion(() => {
+            void perform(async () => {
+              if (await action("/account/delete", {})) {
+                await logout();
+              }
+            });
+          })
+        }
       />
     );
   } else if (page === "Trips") {

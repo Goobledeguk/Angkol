@@ -616,6 +616,7 @@ export function PassengerProfileScreen({
   onNotifications,
   onSupport,
   onSignOut,
+  onDeleteAccount,
   busy,
 }: {
   data: Snapshot;
@@ -624,6 +625,7 @@ export function PassengerProfileScreen({
   onNotifications: () => void;
   onSupport: () => void;
   onSignOut: () => void;
+  onDeleteAccount: () => void;
   busy: boolean;
 }) {
   const [alerts, setAlerts] = useState(true);
@@ -751,9 +753,15 @@ export function PassengerProfileScreen({
         </Pressable>
       </View>
       <Button title="Sign out" secondary onPress={onSignOut} disabled={busy} />
-      <Text style={[v.caption, { textAlign: "center" }]}>
-        Angkol · Your city. Your next ride.
-      </Text>
+      <Pressable
+        accessibilityRole="button"
+        disabled={busy}
+        onPress={onDeleteAccount}
+        hitSlop={8}
+        style={({ pressed }) => [{ alignSelf: "center", paddingVertical: 8 }, pressed && ps.pressed]}
+      >
+        <Text style={[v.small, { color: "#C53B1D", fontWeight: "700" }]}>Delete account</Text>
+      </Pressable>
     </View>
   );
 }

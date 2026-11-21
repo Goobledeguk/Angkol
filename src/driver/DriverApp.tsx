@@ -11,6 +11,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { router, useLocalSearchParams } from "expo-router";
+import { confirmAccountDeletion } from "../common/confirmAccountDeletion";
 import type { Snapshot, DriverRun } from "../types/types";
 import { api } from "../services/api";
 import { Icon, money } from "../common/ui";
@@ -1481,6 +1482,21 @@ export default function DriverApp({
           onPress={() => {
             void perform(logout);
           }}
+        />
+        <Button
+          title="Delete account"
+          icon="trash-outline"
+          light
+          disabled={locked}
+          onPress={() =>
+            confirmAccountDeletion(() => {
+              void perform(async () => {
+                if (await action("/account/delete", {})) {
+                  await logout();
+                }
+              });
+            })
+          }
         />
       </>
     );
