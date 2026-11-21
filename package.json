@@ -58,7 +58,7 @@
       "<rootDir>/src"
     ],
     "testMatch": [
-      "<rootDir>/src/**/__tests__/*.test.ts?(x)"
+      "<rootDir>/src/**/__tests__/**/*.test.ts?(x)"
     ],
     "passWithNoTests": false,
     "transformIgnorePatterns": [
