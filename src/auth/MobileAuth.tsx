@@ -767,14 +767,14 @@ export default function MobileAuth({
                     {driverType === "PUJ / PUV driver" ? (
                       <View style={{ gap: 7 }}>
                         <Text style={[ps.small, { fontWeight: "700", color: "#18382C" }]}>Business / Franchise</Text>
-                        <Pressable accessibilityRole="button" onPress={() => setFranchiseOpen((v) => !v)} style={[ps.input, ps.row, { paddingVertical: 0, minHeight: 54, justifyContent: "space-between", borderColor: fieldErr.franchise ? "#C53B1D" : undefined }]}>
+                        <Pressable accessibilityRole="button" accessibilityLabel={franchiseName ? `Business or franchise: ${franchiseName}` : "Select business or franchise"} accessibilityState={{ expanded: franchiseOpen }} onPress={() => setFranchiseOpen((v) => !v)} style={[ps.input, ps.row, { paddingVertical: 0, minHeight: 54, justifyContent: "space-between", borderColor: fieldErr.franchise ? "#C53B1D" : undefined }]}>
                           <Text style={{ flex: 1, color: franchiseName ? c.ink : "#A2B0A7", fontSize: 14 }} numberOfLines={1}>{franchiseName || "Select business / franchise"}</Text>
                           <Icon name={franchiseOpen ? "chevron-up-outline" : "chevron-down-outline"} size={20} color="#6A7E73" />
                         </Pressable>
                         {franchiseOpen ? (
                           <View style={[ps.input, { paddingVertical: 4, gap: 2 }]}>
                             {[KENT_OWNER_FRANCHISE, "North Samar Transport Coop", "Samar PUJ Operators Association", "Visayas Commuter Lines"].map((item) => (
-                              <Pressable key={item} onPress={() => { setFranchiseName(item); setFranchiseOpen(false); clearErr("franchise"); }} style={{ paddingVertical: 11, paddingHorizontal: 10, borderRadius: 10, backgroundColor: franchiseName === item ? "#E5F4ED" : "transparent" }}>
+                              <Pressable key={item} accessibilityRole="radio" accessibilityState={{ selected: franchiseName === item }} onPress={() => { setFranchiseName(item); setFranchiseOpen(false); clearErr("franchise"); }} style={{ paddingVertical: 11, paddingHorizontal: 10, borderRadius: 10, backgroundColor: franchiseName === item ? "#E5F4ED" : "transparent" }}>
                                 <Text style={[ps.body, { color: franchiseName === item ? c.green : c.ink, fontWeight: franchiseName === item ? "700" : "500" }]}>{item}</Text>
                               </Pressable>
                             ))}
@@ -798,7 +798,7 @@ export default function MobileAuth({
                         </View>
                         <View style={{ gap: 7 }}>
                           <Text style={[ps.small, { fontWeight: "700", color: "#18382C" }]}>TODA (optional)</Text>
-                          <Pressable accessibilityRole="button" onPress={() => setAssocOpen((v) => !v)} style={[ps.input, ps.row, { paddingVertical: 0, minHeight: 54, justifyContent: "space-between" }]}>
+                          <Pressable accessibilityRole="button" accessibilityLabel={association ? `TODA: ${association}` : "Select TODA, optional"} accessibilityState={{ expanded: assocOpen }} onPress={() => setAssocOpen((v) => !v)} style={[ps.input, ps.row, { paddingVertical: 0, minHeight: 54, justifyContent: "space-between" }]}>
                             <Text style={{ flex: 1, color: association ? c.ink : "#A2B0A7", fontSize: 14 }} numberOfLines={1}>{association || "Select TODA / Not part of an association"}</Text>
                             <Icon name={assocOpen ? "chevron-up-outline" : "chevron-down-outline"} size={20} color="#6A7E73" />
                           </Pressable>
@@ -813,7 +813,7 @@ export default function MobileAuth({
                                 { value: "San Policarpo TODA", label: "San Policarpo TODA" },
                                 { value: "Gadgaran Drivers Association", label: "Gadgaran Drivers Association" },
                               ].map((item) => (
-                                <Pressable key={item.label} onPress={() => { setAssociation(item.value); setAssocOpen(false); }} style={{ paddingVertical: 11, paddingHorizontal: 10, borderRadius: 10, backgroundColor: association === item.value ? "#E5F4ED" : "transparent" }}>
+                                <Pressable key={item.label} accessibilityRole="radio" accessibilityState={{ selected: association === item.value }} onPress={() => { setAssociation(item.value); setAssocOpen(false); }} style={{ paddingVertical: 11, paddingHorizontal: 10, borderRadius: 10, backgroundColor: association === item.value ? "#E5F4ED" : "transparent" }}>
                                   <Text style={[ps.body, { color: association === item.value ? c.green : c.ink, fontWeight: association === item.value ? "700" : "500" }]}>{item.label}</Text>
                                 </Pressable>
                               ))}

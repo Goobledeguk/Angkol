@@ -36,8 +36,8 @@ export const ps = StyleSheet.create({
     marginTop: 2,
   },
   iconButton: {
-    width: 42,
-    minHeight: 42,
+    width: 44,
+    minHeight: 44,
     backgroundColor: "#E5F0E9",
     borderRadius: 15,
     alignItems: "center",
