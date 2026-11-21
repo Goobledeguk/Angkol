@@ -15,6 +15,7 @@ import DriverPending from "./driver/DriverPending";
 import AdminDashboard from "./admin/AdminDashboard";
 
 const LIVE_POLL_MS = 10_000;
+const ONLINE_POLL_MS = 20_000;
 
 export default function AngkolApp() {
   const [data, setData] = useState<Snapshot | null>(null);
@@ -87,15 +88,16 @@ export default function AngkolApp() {
   }, [userId, refresh]);
 
   const live = !!data && hasLiveTrip(data);
+  const pollEvery = live ? LIVE_POLL_MS : sharing ? ONLINE_POLL_MS : 0;
   useEffect(() => {
-    if (!live) {
+    if (!pollEvery) {
       return;
     }
     const timer = setInterval(() => {
       void refresh().catch(() => undefined);
-    }, LIVE_POLL_MS);
+    }, pollEvery);
     return () => clearInterval(timer);
-  }, [live, refresh]);
+  }, [pollEvery, refresh]);
 
   const driverShouldShare =
     !!data &&
