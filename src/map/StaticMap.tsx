@@ -12,6 +12,7 @@ import type { MapProps } from "./mapTypes";
 import type { Point } from "../types/types";
 import {
   hasMapbox,
+  pointAt,
   reverseGeocode,
   staticMapUrl,
   viewportFor,
@@ -46,7 +47,16 @@ export default function StaticMap({
     ...(stops ?? []).map((stop) => stop.point),
   ];
 
-  const view = viewportFor(points, width, height);
+  const imageWidth = Math.min(1280, Math.max(1, Math.round(width)));
+  const imageHeight = Math.min(1280, Math.max(1, Math.round(height)));
+  const view = viewportFor(
+    [
+      ...points,
+      ...(geometry?.coordinates ?? []).map(([longitude, latitude]) => ({ name: "", latitude, longitude })),
+    ],
+    imageWidth,
+    imageHeight,
+  );
   const source = staticMapUrl({
     points,
     path: geometry,
@@ -64,10 +74,13 @@ export default function StaticMap({
     };
     const x = native.locationX ?? native.offsetX ?? width / 2;
     const y = native.locationY ?? native.offsetY ?? height / 2;
-    const latitude =
-      view.north - (Math.min(y, height) / height) * (view.north - view.south);
-    const longitude =
-      view.west + (Math.min(x, width) / width) * (view.east - view.west);
+    const { latitude, longitude } = pointAt(
+      view,
+      x * (imageWidth / Math.max(width, 1)),
+      y * (imageHeight / Math.max(height, 1)),
+      imageWidth,
+      imageHeight,
+    );
     let name = "";
     try {
       name = await reverseGeocode(latitude, longitude);
@@ -92,7 +105,7 @@ export default function StaticMap({
         <Image
           source={{ uri: source }}
           style={[StyleSheet.absoluteFill, { width: "100%", height: "100%" }]}
-          resizeMode="cover"
+          resizeMode="stretch"
           accessibilityLabel="Calbayog City map"
         />
       ) : (
