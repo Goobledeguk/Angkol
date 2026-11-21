@@ -1,3 +1,4 @@
+import { createURL } from "expo-linking";
 import { db } from "../services/supabase";
 import type { Role } from "../types/types";
 
@@ -104,11 +105,46 @@ export async function registerAccount(input: Registration) {
 export async function requestPasswordReset(email: string) {
   const { error } = await db().auth.resetPasswordForEmail(
     email.trim().toLowerCase(),
+    { redirectTo: createURL("reset-password") },
   );
   if (error) {
     throw new Error(
       "Could not send the password reset email. Check your email address and try again.",
     );
+  }
+}
+
+export async function openRecoveryLink(url: string) {
+  const fragment = url.split("#")[1] ?? "";
+  const params = new URLSearchParams(fragment);
+  const accessToken = params.get("access_token");
+  const refreshToken = params.get("refresh_token");
+  if (params.get("error_description")) {
+    throw new Error(params.get("error_description") ?? "This reset link is not valid.");
+  }
+  if (!accessToken || !refreshToken) {
+    const { data } = await db().auth.getSession();
+    if (data.session) {
+      return;
+    }
+    throw new Error("This reset link is not valid or has expired. Request a new one from the sign-in screen.");
+  }
+  const { error } = await db().auth.setSession({
+    access_token: accessToken,
+    refresh_token: refreshToken,
+  });
+  if (error) {
+    throw new Error("This reset link has expired. Request a new one from the sign-in screen.");
+  }
+}
+
+export async function updatePassword(password: string) {
+  if (password.length < 10) {
+    throw new Error("Use at least 10 characters for your password.");
+  }
+  const { error } = await db().auth.updateUser({ password });
+  if (error) {
+    throw new Error(friendly(error.message));
   }
 }
 
