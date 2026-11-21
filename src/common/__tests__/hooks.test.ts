@@ -96,7 +96,7 @@ describe("useAppActive", () => {
   it("uses the latest onResume callback", async () => {
     const first = jest.fn();
     const second = jest.fn();
-    const { rerender } = await renderHook(({ cb }) => useAppActive(cb), { initialProps: { cb: first } });
+    const { rerender } = await renderHook(({ cb }: { cb: () => void }) => useAppActive(cb), { initialProps: { cb: first } });
     await rerender({ cb: second });
     await act(() => listener?.("inactive"));
     await act(() => listener?.("active"));
