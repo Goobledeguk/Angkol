@@ -1,0 +1,514 @@
+import { api } from "../api";
+import type { Snapshot } from "../../types/types";
+import { driverColumns, setupApiHarness, userColumns } from "./apiHarness";
+import { booking, now, pickup, timestamp } from "./fixtures";
+
+jest.mock("../supabase", () => ({ db: jest.fn() }));
+jest.mock("../mapbox", () => ({ directions: jest.fn() }));
+
+const harness = setupApiHarness();
+const fallback = {
+  name: "Calbayog City Hall",
+  latitude: 12.0676,
+  longitude: 124.5942,
+};
+const descending = { ascending: false };
+const rider = {
+  user_id: "rider",
+  email: "rider@example.test",
+  name: "Jo",
+  assigned_roles: ["Passenger"],
+};
+const ana = {
+  user_id: "driver-1",
+  name: "Ana",
+  assigned_roles: ["Tricycle driver"],
+};
+const driver = {
+  user_id: "driver-1",
+  current_lat: "12.07",
+  current_lng: "124.59",
+  plate_number: "TRI 1",
+  capacity: "3",
+  routes_id: "r1",
+  association: "Co-op",
+  location_updated_at: timestamp,
+};
+
+function snapshotTables(
+  data: Record<string, unknown> = {},
+  errors: Record<string, string> = {},
+) {
+  const { table } = harness.fake;
+  table(
+    "routes",
+    [
+      ["select", "*"],
+      ["order", "route_name"],
+    ],
+    data.routes,
+    errors.routes,
+  );
+  table(
+    "terminals",
+    [
+      ["select", "*"],
+      ["order", "station_name"],
+    ],
+    data.terminals,
+  );
+  table(
+    "vehicles",
+    [
+      ["select", "*"],
+      ["order", "name"],
+    ],
+    data.vehicles,
+  );
+  table(
+    "bookings",
+    [
+      ["select", "*"],
+      ["order", "created_at", descending],
+      ["limit", 80],
+    ],
+    data.bookings,
+  );
+  table(
+    "driver_runs",
+    [
+      ["select", "*, driver_run_events(*)"],
+      ["order", "started_at", descending],
+      ["limit", 40],
+    ],
+    data.runs,
+  );
+  table(
+    "stop_requests",
+    [
+      ["select", "*"],
+      ["order", "created_at"],
+    ],
+    data.stops,
+  );
+  table(
+    "reports",
+    [
+      ["select", "*"],
+      ["order", "created_at", descending],
+    ],
+    data.reports,
+  );
+  table(
+    "notifications",
+    [
+      ["select", "*"],
+      ["eq", "user_id", "rider"],
+      ["order", "created_at", descending],
+      ["limit", 30],
+    ],
+    data.notifications,
+  );
+  table(
+    "landmarks",
+    [
+      ["select", "*"],
+      ["order", "name"],
+    ],
+    data.landmarks,
+  );
+  table(
+    "fare_matrices",
+    [
+      ["select", "*"],
+      ["eq", "active", true],
+    ],
+    data.fares,
+  );
+  table(
+    "audit_logs",
+    [
+      ["select", "*"],
+      ["order", "created_at", descending],
+      ["limit", 20],
+    ],
+    data.logs,
+  );
+}
+
+function passengerProfile(
+  users: unknown = null,
+  drivers: unknown = null,
+  errors: { users?: string; drivers?: string } = {},
+) {
+  harness.fake.rpc("my_profile", [], { user: rider });
+  harness.fake.table("users", [["select", userColumns]], users, errors.users);
+  harness.fake.table(
+    "drivers",
+    [["select", driverColumns]],
+    drivers,
+    errors.drivers,
+  );
+}
+
+describe("the state snapshot", () => {
+  it("loads passenger state from scoped tables and maps every collection", async () => {
+    passengerProfile([{ ...rider, name: "Public name" }, ana], [driver]);
+    snapshotTables({
+      routes: [
+        {
+          routes_id: "r1",
+          route_name: "Market loop",
+          stops: [pickup],
+          fare: "14",
+        },
+      ],
+      terminals: [
+        {
+          terminal_id: "t1",
+          station_name: "Market",
+          routes_id: "r1",
+          latitude: "12.07",
+          longitude: "124.59",
+          active: true,
+        },
+      ],
+      vehicles: [{ vehicle_id: "v1", name: "Blue bus", plate_number: "BUS 1" }],
+      bookings: [booking],
+      runs: [
+        {
+          run_id: "run-1",
+          driver_id: "driver-1",
+          stops: [pickup],
+          started_at: timestamp,
+        },
+      ],
+      stops: [
+        {
+          request_id: "stop-1",
+          routes_id: "r1",
+          point: pickup,
+          passenger: "Jo",
+          user_id: "rider",
+          created_at: booking.expires_at,
+        },
+      ],
+      reports: [
+        {
+          report_id: "report-1",
+          booking_id: "booking-1",
+          reporter: "Jo",
+          status: "resolved",
+          details: "Late arrival",
+          created_at: booking.expires_at,
+        },
+      ],
+      notifications: [
+        {
+          notification_id: "n1",
+          message: "Trip accepted",
+          read: true,
+          created_at: booking.expires_at,
+        },
+      ],
+      landmarks: [{ name: "Market", latitude: "12.07", longitude: "124.59" }],
+      fares: [
+        { routes_id: "r1", base_fare: 5, per_kilometer_rate: 2 },
+        { routes_id: null, base_fare: "27", per_kilometer_rate: "9.5" },
+      ],
+      logs: [
+        {
+          log_id: "42",
+          event_type: "booking.accepted",
+          created_at: booking.expires_at,
+        },
+      ],
+    });
+    const snapshot = await api<Snapshot>("/state");
+    expect(snapshot).toMatchObject({
+      user: {
+        id: "rider",
+        name: "Jo",
+        email: "rider@example.test",
+        role: "Passenger",
+      },
+      users: [
+        { id: "rider", name: "Jo" },
+        { id: "driver-1", association: "Co-op" },
+      ],
+      routes: [{ id: "r1", name: "Market loop", stops: [pickup], fare: 14 }],
+      terminals: [
+        {
+          id: "t1",
+          name: "Market",
+          routeId: "r1",
+          point: pickup,
+          active: true,
+        },
+      ],
+      vehicles: [
+        { id: "v1", plate: "BUS 1" },
+        {
+          id: "driver-driver-1",
+          kind: "Tricycle driver",
+          plate: "TRI 1",
+          capacity: 3,
+          routeId: "r1",
+          status: "In transit",
+          stale: false,
+          location: {
+            name: "Ana",
+            latitude: 12.07,
+            longitude: 124.59,
+            updatedAt: now,
+          },
+        },
+      ],
+      trips: [
+        {
+          id: "booking-1",
+          passenger: "Jo",
+          driver: "Ana",
+          driverAssociation: "Co-op",
+        },
+      ],
+      runs: [{ id: "run-1", driver: "Ana", events: [] }],
+      stopRequests: [
+        {
+          id: "stop-1",
+          routeId: "r1",
+          point: pickup,
+          passenger: "Jo",
+          userId: "rider",
+          createdAt: Date.parse(booking.expires_at),
+        },
+      ],
+      reports: [
+        {
+          id: "report-1",
+          tripId: "booking-1",
+          reporter: "Jo",
+          status: "resolved",
+          details: "Late arrival",
+          createdAt: booking.expires_at,
+        },
+      ],
+      notifications: [
+        {
+          id: "n1",
+          message: "Trip accepted",
+          read: true,
+          createdAt: booking.expires_at,
+        },
+      ],
+      landmarks: [pickup],
+      logs: [{ id: 42, action: "booking.accepted", at: booking.expires_at }],
+      baseFare: 27,
+      perKm: 9.5,
+      fareApproved: true,
+      sampleMode: false,
+      fareReference: "Fare matrix",
+      serverTime: now,
+    });
+    expect(harness.fake.client.rpc.mock.calls).toEqual([["my_profile"]]);
+  });
+
+  it("skips duplicate plates, missing coordinates and drivers without a visible user", async () => {
+    passengerProfile(
+      [ana, { user_id: "present", name: "Ben" }],
+      [
+        driver,
+        { ...driver, user_id: "hidden", plate_number: "HIDDEN" },
+        {
+          ...driver,
+          user_id: "present",
+          plate_number: "NO FIX",
+          current_lat: null,
+        },
+        {
+          ...driver,
+          user_id: "present",
+          plate_number: "NO TIME",
+          location_updated_at: null,
+        },
+      ],
+    );
+    snapshotTables({
+      vehicles: [{ vehicle_id: "existing", plate_number: "TRI 1" }],
+    });
+    const { vehicles } = await api<Snapshot>("/state");
+    expect(
+      vehicles.map(({ id, plate, stale }) => ({ id, plate, stale })),
+    ).toEqual([
+      { id: "existing", plate: "TRI 1", stale: true },
+      { id: "driver-present", plate: "NO TIME", stale: true },
+    ]);
+    expect(vehicles[1].location.updatedAt).toBe(now);
+  });
+
+  it("fills defaults for empty collections and nullable snapshot rows", async () => {
+    passengerProfile();
+    snapshotTables({
+      stops: [{ request_id: "stop-1", passenger: null }],
+      reports: [{ report_id: "report-1" }],
+      notifications: [{ notification_id: "n1" }],
+      logs: [{ log_id: "invalid" }],
+    });
+    await expect(api<Snapshot>("/state")).resolves.toMatchObject({
+      users: [{ id: "rider" }],
+      routes: [],
+      vehicles: [],
+      terminals: [],
+      trips: [],
+      runs: [],
+      landmarks: [fallback],
+      baseFare: 25,
+      perKm: 8,
+      stopRequests: [{ id: "stop-1", passenger: "", createdAt: now }],
+      reports: [
+        {
+          id: "report-1",
+          tripId: null,
+          status: "open",
+          details: "",
+          reporter: "",
+          createdAt: timestamp,
+        },
+      ],
+      notifications: [
+        { id: "n1", message: "", read: false, createdAt: timestamp },
+      ],
+      logs: [{ id: 0, action: "", at: timestamp }],
+    });
+  });
+
+  it("currently treats an old tricycle location as fresh if it has a timestamp", async () => {
+    const oldTimestamp = new Date(now - 86_400_000).toISOString();
+    passengerProfile([ana], [{ ...driver, location_updated_at: oldTimestamp }]);
+    snapshotTables();
+    const { vehicles } = await api<Snapshot>("/state");
+    expect(vehicles).toMatchObject([
+      {
+        id: "driver-driver-1",
+        stale: false,
+        location: { updatedAt: now - 86_400_000 },
+      },
+    ]);
+  });
+
+  test.each(["Administrator", "Vehicle Owner / Operator"])(
+    "uses both privileged directory RPCs for %s",
+    async (role) => {
+      harness.fake.rpc("my_profile", [], {
+        user: {
+          ...rider,
+          assigned_roles: [role],
+          admin_level: "Technical Team",
+        },
+        driver: {
+          user_id: "rider",
+          availability_status: "available",
+          license_number: "LICENSE",
+        },
+      });
+      harness.fake.rpc("admin_users", [], [ana]);
+      harness.fake.rpc("admin_drivers", [], [driver]);
+      snapshotTables();
+      await expect(api<Snapshot>("/state")).resolves.toMatchObject({
+        user: {
+          id: "rider",
+          role,
+          adminLevel: "Technical Team",
+          available: true,
+          license: "LICENSE",
+        },
+        users: [
+          { id: "driver-1", association: "Co-op" },
+          { id: "rider", role },
+        ],
+        vehicles: [],
+      });
+      expect(harness.fake.client.rpc.mock.calls).toEqual([
+        ["my_profile"],
+        ["admin_users"],
+        ["admin_drivers"],
+      ]);
+    },
+  );
+
+  it("uses regular queries and no synthetic passenger vehicles for a driver", async () => {
+    harness.fake.rpc("my_profile", [], {
+      user: { ...rider, assigned_roles: ["Tricycle driver", "Administrator"] },
+    });
+    harness.fake.table("users", [["select", userColumns]], [ana]);
+    harness.fake.table("drivers", [["select", driverColumns]], [driver]);
+    snapshotTables();
+    await expect(api<Snapshot>("/state")).resolves.toMatchObject({
+      user: { role: "Tricycle driver" },
+      vehicles: [],
+    });
+  });
+
+  it("returns a 404 when my_profile has no user", async () => {
+    harness.fake.rpc("my_profile", [], { driver });
+    await expect(api("/state")).rejects.toMatchObject({
+      status: 404,
+      message: "No profile found for this account.",
+    });
+  });
+
+  it("surfaces the profile RPC error", async () => {
+    harness.fake.rpc("my_profile", [], null, "profile query failed");
+    await expect(api("/state")).rejects.toMatchObject({
+      status: 400,
+      message: "profile query failed",
+    });
+  });
+
+  test.each(["users", "drivers"] as const)(
+    "surfaces errors from the %s directory",
+    async (directory) => {
+      passengerProfile(null, null, { [directory]: "directory query failed" });
+      snapshotTables();
+      await expect(api("/state")).rejects.toMatchObject({
+        status: 400,
+        message: "directory query failed",
+      });
+    },
+  );
+
+  it("currently substitutes an empty route list for a route query failure", async () => {
+    passengerProfile();
+    snapshotTables({}, { routes: "route query failed" });
+    await expect(api<Snapshot>("/state")).resolves.toMatchObject({
+      routes: [],
+    });
+  });
+});
+
+describe("pending applications debug endpoint", () => {
+  it("returns only pending applicants from the admin RPC", async () => {
+    const pending = { user_id: "a", application_status: "pending" };
+    harness.fake.rpc(
+      "admin_users",
+      [],
+      [
+        pending,
+        { user_id: "b", application_status: "accepted" },
+        { user_id: "c", application_status: "declined" },
+      ],
+    );
+    await expect(api("/debug/pending-applications")).resolves.toEqual({
+      count: 1,
+      items: [pending],
+    });
+  });
+
+  it("returns an empty result when the RPC has no rows", async () => {
+    harness.fake.rpc("admin_users", []);
+    await expect(api("/debug/pending-applications")).resolves.toEqual({
+      count: 0,
+      items: [],
+    });
+  });
+});
