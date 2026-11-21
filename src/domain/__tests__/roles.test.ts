@@ -31,6 +31,7 @@ describe("isFinished", () => {
     ["In progress", false],
     ["Completed", true],
     ["Cancelled", true],
+    ["Expired", true],
   ])("%s → %s", (status, expected) => {
     expect(isFinished({ status })).toBe(expected);
   });
@@ -38,7 +39,9 @@ describe("isFinished", () => {
 
 describe("activeTripFor", () => {
   it("ignores finished trips", () => {
-    expect(activeTripFor(makeSnapshot())).toBeUndefined();
+    const expired = makeTrip({ status: "Expired" });
+    const data = makeSnapshot({ trips: [expired, ...makeSnapshot().trips] });
+    expect(activeTripFor(data)).toBeUndefined();
   });
 
   it("finds the passenger's open booking", () => {

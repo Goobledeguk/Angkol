@@ -369,6 +369,8 @@ describe("mapTrip", () => {
       id: "booking-1",
       serviceType: "Tricycle",
       routeId: null,
+      vehicleId: undefined,
+      paymentStatus: undefined,
       pickup: "Market",
       destination: "Pier",
       pickupPoint: pickup,
@@ -405,6 +407,27 @@ describe("mapTrip", () => {
       serviceType,
       routeId,
     });
+  });
+
+  it("maps the assigned vehicle and an expired booking's final timestamp", () => {
+    const row = {
+      ...booking,
+      service_type: "PUJ/PUV",
+      vehicle_id: "vehicle-1",
+      request_status: "Expired",
+      timestamps: { Expired: now },
+    };
+    expect(mapTrip(row, users, drivers)).toMatchObject({
+      vehicleId: "vehicle-1",
+      status: "Expired",
+      timestamps: { Expired: now },
+    });
+    expect(mapTrip({ ...row, vehicle_id: null }, users, drivers).vehicleId).toBeUndefined();
+  });
+
+  it.each(["pending", "unpaid", "paid"])("maps a trip record marked %s", (payment_status) => {
+    const trip = mapTrip({ ...booking, trip_records: { payment_status } }, users, drivers);
+    expect(trip.paymentStatus).toBe(payment_status);
   });
 
   test.each([
@@ -447,6 +470,8 @@ describe("mapTrip", () => {
       id: "booking-2",
       serviceType: "Tricycle",
       routeId: null,
+      vehicleId: undefined,
+      paymentStatus: undefined,
       pickup: "Pickup",
       destination: "Destination",
       pickupPoint: { name: "Pickup", latitude: 0, longitude: 0 },

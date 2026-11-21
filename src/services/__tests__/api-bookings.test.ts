@@ -1,4 +1,4 @@
-import { api, ApiError } from "../api";
+import { api, ApiError, clearSession } from "../api";
 import { directions, searchPlaces } from "../mapbox";
 import type { Quote, Trip } from "../../types/types";
 import { driverColumns, ok, setupApiHarness, userColumns } from "./apiHarness";
@@ -13,6 +13,9 @@ jest.mock("../mapbox", () => ({
 const harness = setupApiHarness();
 const route = { distanceKm: 2.74, minutes: 8, geometry };
 const quoteRequest = { pickup, destination };
+const outside = { ...pickup, latitude: 12.33 };
+const serviceAreaError = { status: 400, message: "Angkol only operates within Calbayog City." };
+const activeRideError = { status: 400, message: "You already have an active ride." };
 const coordinates = {
   pickup_latitude: 12.07,
   pickup_longitude: 124.59,
@@ -87,18 +90,48 @@ describe("session and account API", () => {
     });
   });
 
-  it("deletes the account through its RPC before signing out", async () => {
+  it("deletes a passenger account without touching storage", async () => {
+    harness.fake.rpc("my_profile", [], { user: { assigned_roles: ["Passenger"] } });
     harness.fake.rpc("delete_my_account", []);
     await expect(api("/account/delete")).resolves.toEqual(ok);
-    const { rpc, auth } = harness.fake.client;
+    const { rpc, auth, storage } = harness.fake.client;
     expect(auth.signOut).toHaveBeenCalledTimes(1);
-    expect(rpc.mock.invocationCallOrder[0]).toBeLessThan(
+    expect(rpc.mock.invocationCallOrder[1]).toBeLessThan(
       auth.signOut.mock.invocationCallOrder[0],
     );
-    expect(auth.getUser).not.toHaveBeenCalled();
+    expect(storage.from).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["Tricycle driver", undefined],
+    ["PUJ / PUV driver", { status: 404, message: "Object not found" }],
+    ["PUJ / PUV driver", { status: 400, statusCode: "404", message: "Object not found" }],
+  ] as const)("removes the %s license before deleting the account", async (role, error) => {
+    harness.fake.rpc("my_profile", [], { user: { assigned_roles: [role] } });
+    harness.fake.storage("driver-documents", ["remove", ["license/rider.jpg"]], null, error);
+    harness.fake.rpc("delete_my_account", []);
+    await expect(api("/account/delete")).resolves.toEqual(ok);
+    const { rpc, auth, storage } = harness.fake.client;
+    expect(storage.from.mock.invocationCallOrder[0]).toBeLessThan(rpc.mock.invocationCallOrder[1]);
+    expect(rpc.mock.invocationCallOrder[1]).toBeLessThan(auth.signOut.mock.invocationCallOrder[0]);
+  });
+
+  it("stops account deletion when removing the license fails", async () => {
+    harness.fake.rpc("my_profile", [], { user: { assigned_roles: ["Tricycle driver"] } });
+    harness.fake.storage("driver-documents", ["remove", ["license/rider.jpg"]], null, {
+      status: 403,
+      message: "Cannot remove license",
+    });
+    await expect(api("/account/delete")).rejects.toMatchObject({
+      status: 400,
+      message: "Cannot remove license",
+    });
+    expect(harness.fake.client.rpc.mock.calls).toEqual([["my_profile"]]);
+    expect(harness.fake.client.auth.signOut).not.toHaveBeenCalled();
   });
 
   it("preserves the session when account deletion fails", async () => {
+    harness.fake.rpc("my_profile", [], { user: { assigned_roles: ["Passenger"] } });
     harness.fake.rpc("delete_my_account", [], null, "cannot delete");
     await expect(api("/account/delete")).rejects.toMatchObject({
       status: 400,
@@ -243,6 +276,15 @@ describe("quotes and tricycle bookings", () => {
     expect(directions).toHaveBeenCalledWith(pickup, destination);
   });
 
+  it.each([{ pickup: outside, destination }, { pickup, destination: outside }])(
+    "rejects a quote outside the service area before any request for %p",
+    async (input) => {
+      await expect(api("/quote", input)).rejects.toMatchObject(serviceAreaError);
+      expect(harness.fake.client.auth.getUser).not.toHaveBeenCalled();
+      expect(directions).not.toHaveBeenCalled();
+    },
+  );
+
   it("rejects a null fare", async () => {
     fare(null);
     await expect(api("/quote", quoteRequest)).rejects.toMatchObject({
@@ -289,6 +331,34 @@ describe("quotes and tricycle bookings", () => {
       message: "Preview a route first.",
     });
   });
+
+  it("rejects a quote cleared while the booking checks the session", async () => {
+    const quote = await createQuote();
+    harness.fake.client.auth.getUser.mockImplementationOnce(async () => {
+      await clearSession();
+      return { data: { user: { id: "rider" } } };
+    });
+    await expect(api("/book", { quoteId: quote.id })).rejects.toMatchObject({
+      status: 400,
+      message: "Preview a route first.",
+    });
+    expect(harness.fake.client.from).not.toHaveBeenCalled();
+  });
+
+  it.each(["pickup", "destination"] as const)(
+    "checks the booked %s before any request when it changed after the quote",
+    async (point) => {
+      const points = { pickup: { ...pickup }, destination: { ...destination } };
+      fare();
+      const quote = await api<Quote>("/quote", points);
+      points[point].longitude = outside.longitude - 1;
+      harness.fake.client.auth.getUser.mockClear();
+
+      await expect(api("/book", { quoteId: quote.id })).rejects.toMatchObject(serviceAreaError);
+      expect(harness.fake.client.auth.getUser).not.toHaveBeenCalled();
+      expect(harness.fake.client.from).not.toHaveBeenCalled();
+    },
+  );
 
   test.each([0, 1])(
     "rejects a quote %i ms past the expiration time",
@@ -347,7 +417,7 @@ describe("quotes and tricycle bookings", () => {
     },
   );
 
-  it("allows retrying a quote after an insert error", async () => {
+  it("passes through the active-ride error and allows retrying the quote", async () => {
     const quote = await createQuote();
     const insert: Parameters<typeof harness.fake.table>[1] = [
       [
@@ -363,13 +433,10 @@ describe("quotes and tricycle bookings", () => {
       ["select"],
       ["single"],
     ];
-    harness.fake.table("bookings", insert, null, "insert failed");
+    harness.fake.table("bookings", insert, null, activeRideError.message);
     harness.fake.table("bookings", insert, { ...booking, driver_id: null });
     bookingLookups(null);
-    await expect(api("/book", { quoteId: quote.id })).rejects.toMatchObject({
-      status: 400,
-      message: "insert failed",
-    });
+    await expect(api("/book", { quoteId: quote.id })).rejects.toMatchObject(activeRideError);
     await expect(
       api<Trip>("/book", { quoteId: quote.id }),
     ).resolves.toMatchObject({ driverId: null, passenger: "Jo" });
@@ -401,6 +468,31 @@ describe("PUJ/PUV and trip actions", () => {
     });
   });
 
+  it.each(["pickupPoint", "destinationPoint"] as const)(
+    "rejects a PUJ/PUV %s outside the service area before any request",
+    async (point) => {
+      await expect(
+        api("/book-puj", { trip: { ...trip, [point]: outside }, routeId: "r1" }),
+      ).rejects.toMatchObject(serviceAreaError);
+      expect(harness.fake.client.auth.getUser).not.toHaveBeenCalled();
+    },
+  );
+
+  it("passes through the active-ride error for a PUJ/PUV booking", async () => {
+    harness.fake.table("bookings", [
+      ["insert", {
+        ...coordinates,
+        user_id: "rider",
+        routes_id: "r1",
+        service_type: "PUJ/PUV",
+        payment_method: "Cash",
+      }],
+      ["select"],
+      ["single"],
+    ], null, activeRideError.message);
+    await expect(api("/book-puj", { trip, routeId: "r1" })).rejects.toMatchObject(activeRideError);
+  });
+
   test.each([
     [2.74, 2.7],
     [0, 0.1],
@@ -425,7 +517,7 @@ describe("PUJ/PUV and trip actions", () => {
           ["select"],
           ["single"],
         ],
-        { ...booking, driver_id: "rider" },
+        { ...booking, driver_id: "rider", vehicle_id: "vehicle-1" },
       );
       bookingLookups("rider");
       await expect(
@@ -434,6 +526,7 @@ describe("PUJ/PUV and trip actions", () => {
         id: "booking-1",
         driverId: "rider",
         passenger: "Jo",
+        vehicleId: "vehicle-1",
       });
     },
   );

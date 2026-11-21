@@ -135,11 +135,19 @@ export function mapTrip(
   const created = booking.created_at
     ? Date.parse(booking.created_at)
     : Date.now();
+  const paymentStatus = booking.trip_records?.payment_status;
 
   return {
     id: booking.booking_id,
     serviceType: booking.service_type ?? "Tricycle",
     routeId: booking.routes_id ?? null,
+    vehicleId: booking.vehicle_id ?? undefined,
+    paymentStatus:
+      paymentStatus === "unpaid" ||
+      paymentStatus === "pending" ||
+      paymentStatus === "paid"
+        ? paymentStatus
+        : undefined,
     pickup: pickupPoint.name,
     destination: destinationPoint.name,
     pickupPoint,

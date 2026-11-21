@@ -259,6 +259,8 @@ describe("vehicles", () => {
 
   test.each([
     ["/vehicles/status", { id: "v1", status: "Arrived" }, "v1", "Arrived"],
+    ["/vehicles/status", { id: "v1", status: "Decommissioned" }, "v1", "Decommissioned"],
+    ["/vehicles/status", { id: "v1", status: "Broken / Inactive" }, "v1", "Broken / Inactive"],
     ["/vehicles/v2/status", { status: "In transit" }, "v2", "In transit"],
     [
       "/vehicles/v2/status",
@@ -270,7 +272,7 @@ describe("vehicles", () => {
     "updates vehicle status using %s and %p",
     async (endpoint, body, id, status) => {
       harness.fake.table("vehicles", [
-        ["update", { status }],
+        ["update", { status, active: status !== "Decommissioned" }],
         ["eq", "vehicle_id", id],
       ]);
       await expect(api(endpoint, body, "PATCH")).resolves.toEqual(ok);
@@ -569,15 +571,55 @@ describe("administrator configuration", () => {
     });
   });
 
-  it("updates the route-independent tricycle fare only", async () => {
-    harness.fake.table("fare_matrices", [
-      ["update", { base_fare: 28.5, per_kilometer_rate: 9 }],
-      ["eq", "vehicle_classification", "Tricycle"],
-      ["is", "routes_id", null],
-    ]);
-    await expect(
-      api("/configure", { type: "fare", baseFare: "28.5", perKm: "9" }),
-    ).resolves.toEqual(ok);
+  const fareConfig = { type: "fare", baseFare: "28.5", perKm: "9" };
+  const fareRates = { base_fare: 28.5, per_kilometer_rate: 9 };
+  const fareUpdate = [
+    ["update", fareRates],
+    ["eq", "vehicle_classification", "Tricycle"],
+    ["is", "routes_id", null],
+    ["eq", "active", true],
+    ["select", "fare_id"],
+  ] satisfies Parameters<typeof harness.fake.table>[1];
+  const fareId = "a34fd128-1707-4dc4-bb11-aedf9782c494";
+  const fareUpsert = [
+    ["upsert", {
+      ...fareRates,
+      fare_id: fareId,
+      vehicle_classification: "Tricycle",
+      routes_id: null,
+      tariff_tier: "REGULAR",
+      active: true,
+    }, { onConflict: "fare_id" }],
+    ["select", "fare_id"],
+    ["maybeSingle"],
+  ] satisfies Parameters<typeof harness.fake.table>[1];
+
+  it("updates the active route-independent tricycle fare", async () => {
+    harness.fake.table("fare_matrices", fareUpdate, [{ fare_id: "existing-fare" }]);
+    await expect(api("/configure", fareConfig)).resolves.toEqual(ok);
+  });
+
+  it("creates an active regular tricycle fare when no active row was updated", async () => {
+    harness.fake.table("fare_matrices", fareUpdate, []);
+    harness.fake.table("fare_matrices", fareUpsert, { fare_id: fareId });
+    await expect(api("/configure", fareConfig)).resolves.toEqual(ok);
+  });
+
+  it("surfaces a fare update error without attempting the upsert", async () => {
+    harness.fake.table("fare_matrices", fareUpdate, null, "Cannot update fare");
+    await expect(api("/configure", fareConfig)).rejects.toMatchObject({
+      status: 400,
+      message: "Cannot update fare",
+    });
+  });
+
+  it.each([
+    [undefined, "The tricycle fare could not be saved."],
+    ["Cannot insert fare", "Cannot insert fare"],
+  ])("fails when fare recovery writes no row (%p)", async (error, message) => {
+    harness.fake.table("fare_matrices", fareUpdate, []);
+    harness.fake.table("fare_matrices", fareUpsert, null, error);
+    await expect(api("/configure", fareConfig)).rejects.toMatchObject({ status: 400, message });
   });
 
   test.each([

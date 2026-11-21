@@ -2,7 +2,7 @@ import type { Role, Snapshot, Status, Trip } from "../types/types";
 
 export const ADMIN_ROLES: Role[] = ["Administrator", "Vehicle Owner / Operator"];
 export const DRIVER_ROLES: Role[] = ["Tricycle driver", "PUJ / PUV driver"];
-export const FINISHED: Status[] = ["Completed", "Cancelled"];
+export const FINISHED: Status[] = ["Completed", "Cancelled", "Expired"];
 export const LIVE: Status[] = ["Accepted", "Arrived", "In progress"];
 
 export const isAdminRole = (role: Role) => ADMIN_ROLES.includes(role);

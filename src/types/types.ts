@@ -43,7 +43,8 @@ export type Status =
   | "Arrived"
   | "In progress"
   | "Completed"
-  | "Cancelled";
+  | "Cancelled"
+  | "Expired";
 export type Quote = {
   id: string;
   pickup: string;
@@ -61,6 +62,8 @@ export type Quote = {
 export type Trip = Quote & {
   serviceType?: "Tricycle" | "PUJ/PUV";
   routeId?: string | null;
+  vehicleId?: string;
+  paymentStatus?: "unpaid" | "pending" | "paid";
   driverPhoto?: string;
   demoPayment?: {
     method: "GCash" | "Maya" | "Bank transfer";

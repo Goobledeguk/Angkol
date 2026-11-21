@@ -1,9 +1,15 @@
 type Step = [method: string, ...args: unknown[]];
+type FakeError = {
+  message: string;
+  code?: string;
+  status?: number;
+  statusCode?: string;
+};
 
 type ExpectedCall = {
   steps: Step[];
   data: unknown;
-  error: { message: string } | null;
+  error: FakeError | null;
 };
 
 export function createSupabaseFake() {
@@ -18,13 +24,13 @@ export function createSupabaseFake() {
     name: string,
     steps: Step[],
     data: unknown,
-    error?: string,
+    error?: string | FakeError,
   ) {
     const entries = expected[kind].get(name) ?? [];
     entries.push({
       steps,
       data,
-      error: error === undefined ? null : { message: error },
+      error: typeof error === "string" ? { message: error } : (error ?? null),
     });
     expected[kind].set(name, entries);
   }
@@ -60,6 +66,7 @@ export function createSupabaseFake() {
         return {
           upload: (...args: unknown[]) => call("upload", ...args),
           createSignedUrl: (...args: unknown[]) => call("createSignedUrl", ...args),
+          remove: (...args: unknown[]) => call("remove", ...args),
         };
       }),
     },
@@ -117,16 +124,20 @@ export function createSupabaseFake() {
       name: string,
       steps: Step[],
       data: unknown = null,
-      error?: string,
+      error?: string | FakeError,
     ) => enqueue("table", name, steps, data, error),
     rpc: (
       name: string,
       args: [] | [Record<string, unknown>],
       data: unknown = null,
-      error?: string,
+      error?: string | FakeError,
     ) => enqueue("rpc", name, [["rpc", ...args]], data, error),
-    storage: (bucket: string, step: Step, data: unknown = null, error?: string) =>
-      enqueue("storage", bucket, [step], data, error),
+    storage: (
+      bucket: string,
+      step: Step,
+      data: unknown = null,
+      error?: string | FakeError,
+    ) => enqueue("storage", bucket, [step], data, error),
     verify() {
       const remaining = Object.entries(expected).flatMap(([kind, calls]) =>
         [...calls.entries()]

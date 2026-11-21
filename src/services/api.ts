@@ -1,5 +1,7 @@
 import { db } from "./supabase";
 import { directions, searchPlaces } from "./mapbox";
+import { isDriverRole } from "../domain/roles";
+import { inServiceArea } from "../domain/serviceArea";
 import { driverVehicleId, isStale } from "../domain/vehicles";
 import {
   FALLBACK,
@@ -37,8 +39,10 @@ const USER_COLUMNS =
   "user_id,name,phone,contact_numbers,photo,assigned_roles,admin_level,franchise_name,verified,application_status,created_at";
 const DRIVER_COLUMNS =
   "driver_id,user_id,operational_classification,availability_status,association,plate_number,capacity,franchise_name,routes_id,verified,current_lat,current_lng,location_updated_at";
+const BOOKING_COLUMNS = "*, trip_records(payment_status)";
 const ADMIN_ROLES = ["Administrator", "Vehicle Owner / Operator"];
 const MAX_PHOTO_URL_LENGTH = 1_500_000;
+const TRICYCLE_FARE_ID = "a34fd128-1707-4dc4-bb11-aedf9782c494";
 
 async function myProfile(): Promise<{ user: any; driver: any }> {
   const { data, error } = await db().rpc("my_profile");
@@ -60,8 +64,21 @@ async function currentUserId(): Promise<string> {
   return data.user.id;
 }
 
-function raise(error: { message: string } | null) {
-  if (error) {throw new ApiError(error.message, 400);}
+function raise(error: { message: string; code?: string } | null) {
+  if (error) {
+    throw new ApiError(error.message, error.code === "40001" ? 409 : 400);
+  }
+}
+
+function requireServiceArea(pickup?: Point, destination?: Point) {
+  if (
+    !pickup ||
+    !destination ||
+    !inServiceArea(pickup) ||
+    !inServiceArea(destination)
+  ) {
+    throw new ApiError("Angkol only operates within Calbayog City.", 400);
+  }
 }
 
 function passengerCount(value: unknown) {
@@ -105,7 +122,7 @@ async function loadSnapshot(): Promise<Snapshot> {
     client.from("vehicles").select("*").order("name"),
     client
       .from("bookings")
-      .select("*")
+      .select(BOOKING_COLUMNS)
       .order("created_at", { ascending: false })
       .limit(80),
     client
@@ -161,21 +178,33 @@ async function loadSnapshot(): Promise<Snapshot> {
     active: !!row.active,
   }));
 
-  const vehicles = ((vehiclesResult.data ?? []) as any[]).map(mapVehicle);
+  const fleet = vehiclesResult.data ?? [];
+  const vehicles = (user.role === "Passenger"
+    ? fleet.filter(
+        (row) =>
+          row.active &&
+          row.status !== "Decommissioned" &&
+          row.status !== "Broken / Inactive",
+      )
+    : fleet
+  ).map(mapVehicle);
   if (user.role === "Passenger") {
+    const registeredPlates = new Set(fleet.map((row) => str(row.plate_number)));
     for (const row of drivers) {
       const driverUser = userMap.get(row.user_id);
       if (!driverUser) {continue;}
       const name = str(driverUser.name);
       const location = mapLocation(row, name);
+      const plate = str(row.plate_number);
       if (!location) {continue;}
-      if (vehicles.some((vehicle) => vehicle.plate === row.plate_number)) {continue;}
+      if (registeredPlates.has(plate)) {continue;}
+      registeredPlates.add(plate);
       vehicles.push({
         id: driverVehicleId(row.user_id),
         name,
         kind: "Tricycle driver",
         vehicleType: "Tricycle",
-        plate: str(row.plate_number),
+        plate,
         routeId: row.routes_id ?? null,
         capacity: num(row.capacity, 3),
         location,
@@ -225,9 +254,11 @@ async function loadSnapshot(): Promise<Snapshot> {
     longitude: num(row.longitude),
   }));
 
-  const fare = ((faresResult.data ?? []) as any[]).find(
-    (row) => row.routes_id == null,
+  const tricycleFares = (faresResult.data ?? []).filter(
+    (row) => row.routes_id == null && row.vehicle_classification === "Tricycle",
   );
+  const fare =
+    tricycleFares.find((row) => row.tariff_tier === "REGULAR") ?? tricycleFares[0];
 
   return {
     user,
@@ -246,9 +277,9 @@ async function loadSnapshot(): Promise<Snapshot> {
       action: str(row.event_type),
       at: row.created_at || new Date().toISOString(),
     })),
-    baseFare: num(fare?.base_fare, 25),
-    perKm: num(fare?.per_kilometer_rate, 8),
-    fareApproved: true,
+    baseFare: num(fare?.base_fare),
+    perKm: num(fare?.per_kilometer_rate),
+    fareApproved: !!fare,
     sampleMode: false,
     fareReference: "Fare matrix",
     serverTime: Date.now(),
@@ -307,12 +338,44 @@ export async function api<T = { ok: boolean }>(
   if (searchQuery !== null && searchQuery.length < 2) {
     return [] as T;
   }
+  const bookingQuote = endpoint === "/book" ? lastQuote : null;
+  if (endpoint === "/quote") {
+    if (!body.pickup || !body.destination) {
+      throw new ApiError("Choose both your pickup and destination.", 400);
+    }
+    requireServiceArea(body.pickup, body.destination);
+  } else if (bookingQuote && bookingQuote.quote.id === body.quoteId) {
+    requireServiceArea(
+      bookingQuote.quote.pickupPoint,
+      bookingQuote.quote.destinationPoint,
+    );
+  } else if (endpoint === "/book-puj") {
+    if (!body.trip) {
+      throw new ApiError("No trip provided.", 400);
+    }
+    if (!body.routeId) {
+      throw new ApiError("Choose a PUJ/PUV route.", 400);
+    }
+    requireServiceArea(body.trip.pickupPoint, body.trip.destinationPoint);
+  }
   const client = db();
   let result: unknown = { ok: true };
 
   if (endpoint === "/logout") {
     await clearSession();
   } else if (endpoint === "/account/delete") {
+    const userId = await currentUserId();
+    const { data: profile, error: profileError } =
+      await client.rpc("my_profile");
+    raise(profileError);
+    if (isDriverRole(profile?.user?.assigned_roles?.[0])) {
+      const { error: storageError } = await client.storage
+        .from("driver-documents")
+        .remove([`license/${userId}.jpg`]);
+      if (storageError?.status !== 404 && storageError?.statusCode !== "404") {
+        raise(storageError);
+      }
+    }
     const { error } = await client.rpc("delete_my_account");
     raise(error);
     await clearSession();
@@ -369,9 +432,6 @@ export async function api<T = { ok: boolean }>(
     } else if (endpoint === "/quote") {
       const pickup = body.pickup as Point;
       const destination = body.destination as Point;
-      if (!pickup || !destination) {
-        throw new ApiError("Choose both your pickup and destination.", 400);
-      }
       const route = await directions(pickup, destination);
       const distance = Math.round(route.distanceKm * 10) / 10;
       const { data: fare, error } = await client.rpc("quote_fare", {
@@ -399,16 +459,21 @@ export async function api<T = { ok: boolean }>(
       lastQuote = { quote, userId };
       result = quote;
     } else if (endpoint === "/book") {
-      if (!lastQuote || lastQuote.userId !== userId || lastQuote.quote.id !== body.quoteId) {
+      if (
+        !bookingQuote ||
+        bookingQuote !== lastQuote ||
+        bookingQuote.userId !== userId ||
+        bookingQuote.quote.id !== body.quoteId
+      ) {
         throw new ApiError("Preview a route first.", 400);
       }
-      if (lastQuote.quote.expires <= Date.now()) {
+      if (bookingQuote.quote.expires <= Date.now()) {
         throw new ApiError(
           "This fare quote expired. Request a fresh quote.",
           400,
         );
       }
-      const quote = lastQuote.quote;
+      const quote = bookingQuote.quote;
       const { data, error } = await client
         .from("bookings")
         .insert({
@@ -429,12 +494,12 @@ export async function api<T = { ok: boolean }>(
         .select()
         .single();
       raise(error);
-      lastQuote = null;
+      if (lastQuote === bookingQuote) {
+        lastQuote = null;
+      }
       result = await mapBookingRow(data, userId);
     } else if (endpoint === "/book-puj") {
       const trip = body.trip as Trip;
-      if (!trip) {throw new ApiError("No trip provided.", 400);}
-      if (!body.routeId) {throw new ApiError("Choose a PUJ/PUV route.", 400);}
       const distance = Math.min(100, Math.max(0.1, num(trip.distance)));
       const { data, error } = await client
         .from("bookings")
@@ -567,9 +632,13 @@ export async function api<T = { ok: boolean }>(
       (parts[1] === "vehicles" && parts[3] === "status")
     ) {
       const vehicleId = str(body.id) || parts[2];
+      const { status } = body;
       const { error } = await client
         .from("vehicles")
-        .update({ status: body.status })
+        .update({
+          status,
+          active: status === undefined ? undefined : status !== "Decommissioned",
+        })
         .eq("vehicle_id", vehicleId);
       raise(error);
       result = { ok: true };
@@ -694,12 +763,36 @@ export async function api<T = { ok: boolean }>(
         if (baseFare <= 0 || perKm <= 0) {
           throw new ApiError("Base fare and per-kilometre rate must be greater than zero.", 400);
         }
-        const { error } = await client
+        const rates = { base_fare: baseFare, per_kilometer_rate: perKm };
+        const { data: updated, error } = await client
           .from("fare_matrices")
-          .update({ base_fare: baseFare, per_kilometer_rate: perKm })
+          .update(rates)
           .eq("vehicle_classification", "Tricycle")
-          .is("routes_id", null);
+          .is("routes_id", null)
+          .eq("active", true)
+          .select("fare_id");
         raise(error);
+        if (!updated?.length) {
+          const { data: saved, error: saveError } = await client
+            .from("fare_matrices")
+            .upsert(
+              {
+                ...rates,
+                fare_id: TRICYCLE_FARE_ID,
+                vehicle_classification: "Tricycle",
+                routes_id: null,
+                tariff_tier: "REGULAR",
+                active: true,
+              },
+              { onConflict: "fare_id" },
+            )
+            .select("fare_id")
+            .maybeSingle();
+          raise(saveError);
+          if (!saved) {
+            throw new ApiError("The tricycle fare could not be saved.", 400);
+          }
+        }
         result = { ok: true };
       } else if (body.type === "toggle") {
         const table = body.collection === "terminals" ? "terminals" : "routes";
@@ -729,70 +822,23 @@ export async function api<T = { ok: boolean }>(
       const boarded = passengerCount(body.boarded);
       const me = await client
         .from("drivers")
-        .select("routes_id,plate_number,capacity")
+        .select("capacity")
         .eq("user_id", userId)
         .maybeSingle();
       raise(me.error);
-      const capacity = num(me.data?.capacity, 18);
-      if (boarded > capacity) {
+      if (me.data && boarded > num(me.data.capacity, 18)) {
         throw new ApiError("Boarding would exceed the vehicle's capacity.", 400);
       }
-      const routeId = me.data?.routes_id;
-      const routeResult = routeId
-        ? await client.from("routes").select("*").eq("routes_id", routeId).maybeSingle()
-        : await client.from("routes").select("*").limit(1).maybeSingle();
-      raise(routeResult.error);
-      const route = routeResult.data;
-      if (!route) {throw new ApiError("No route is configured yet.", 400);}
+      const { data, error } = await client.rpc("start_run", {
+        p_boarded: boarded,
+      });
+      raise(error);
       const profile = await client
         .from("users")
         .select("name")
         .eq("user_id", userId)
         .maybeSingle();
-      const fare = num(route.fare);
-      const stops = Array.isArray(route.stops) ? route.stops : [];
-      const { data, error } = await client
-        .from("driver_runs")
-        .insert({
-          driver_id: userId,
-          routes_id: route.routes_id,
-          route_name: route.route_name,
-          plate: str(me.data?.plate_number),
-          capacity,
-          fare,
-          reference: str(route.reference) || "Fare matrix",
-          status: "In progress",
-          stop_index: 0,
-          onboard: boarded,
-          total_boarded: boarded,
-          cash_fares: boarded * fare,
-          revision: 1,
-          stops,
-        })
-        .select()
-        .single();
-      raise(error);
-
-      let events: any[] = [];
-      if (boarded > 0) {
-        const { data: eventRow } = await client
-          .from("driver_run_events")
-          .insert({
-            run_id: data.run_id,
-            stop: str(stops[0]?.name) || "Terminal",
-            boarded,
-            alighted: 0,
-            onboard: boarded,
-            type: "departure",
-          })
-          .select()
-          .single();
-        events = eventRow ? [eventRow] : [];
-      }
-      result = mapRun(
-        { ...data, driver_run_events: events },
-        new Map([[userId, profile.data ?? {}]]),
-      );
+      result = mapRun(data, new Map([[userId, profile.data ?? {}]]));
     } else if (parts[1] === "runs") {
       const { data: run, error: runError } = await client
         .from("driver_runs")
@@ -808,8 +854,6 @@ export async function api<T = { ok: boolean }>(
         throw new ApiError("This run is already completed.", 400);
       }
 
-      const stops = Array.isArray(run.stops) ? run.stops : [];
-      const fare = num(run.fare);
       const revision = num(run.revision, 1);
       const conflict =
         "This run changed. Refresh it before making another update.";
@@ -826,59 +870,26 @@ export async function api<T = { ok: boolean }>(
           400,
         );
       }
-      const onboard = previousOnboard - alighted + boarded;
-      if (!complete && onboard > num(run.capacity, 18)) {
+      if (
+        !complete &&
+        previousOnboard - alighted + boarded > num(run.capacity, 18)
+      ) {
         throw new ApiError("Boarding would exceed the vehicle's capacity.", 400);
       }
-      const totalBoarded = num(run.total_boarded) + boarded;
-      const index = num(run.stop_index);
-      const lastIndex = Math.max(0, stops.length - 1);
-      const { data: updatedRun, error } = await client
-        .from("driver_runs")
-        .update({
-          ...(complete
-            ? { status: "Completed", ended_at: new Date().toISOString() }
-            : { total_boarded: totalBoarded }),
-          onboard,
-          cash_fares: totalBoarded * fare,
-          stop_index: complete ? lastIndex : Math.min(index + 1, lastIndex),
-          revision: revision + 1,
-        })
-        .eq("run_id", run.run_id)
-        .eq("driver_id", userId)
-        .eq("revision", revision)
-        .eq("status", run.status)
-        .select("run_id")
-        .maybeSingle();
+      const { data, error } = await client.rpc("advance_run", {
+        p_run_id: run.run_id,
+        p_revision: revision,
+        p_boarded: boarded,
+        p_alighted: alighted,
+        p_complete: complete,
+      });
       raise(error);
-      if (!updatedRun) {
-        throw new ApiError(conflict, 409);
-      }
-      const { error: eventError } = await client
-        .from("driver_run_events")
-        .insert({
-          run_id: run.run_id,
-          stop: complete
-            ? str(stops[lastIndex]?.name) || "Final stop"
-            : str(stops[index]?.name) || "Stop",
-          boarded,
-          alighted,
-          onboard,
-          type: complete ? "complete" : "stop",
-        });
-      raise(eventError);
-
-      const { data: fresh } = await client
-        .from("driver_runs")
-        .select("*, driver_run_events(*)")
-        .eq("run_id", run.run_id)
-        .maybeSingle();
       const profile = await client
         .from("users")
         .select("name")
         .eq("user_id", userId)
         .maybeSingle();
-      result = mapRun(fresh ?? run, new Map([[userId, profile.data ?? {}]]));
+      result = mapRun(data, new Map([[userId, profile.data ?? {}]]));
     }
   }
 

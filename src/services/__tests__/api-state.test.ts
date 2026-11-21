@@ -34,6 +34,12 @@ const driver = {
   association: "Co-op",
   location_updated_at: timestamp,
 };
+const fleet = [
+  { vehicle_id: "active", plate_number: "BUS 1", active: true, status: "In transit" },
+  { vehicle_id: "inactive", plate_number: "BUS 2", active: false, status: "In Terminal" },
+  { vehicle_id: "retired", plate_number: "TRI 1", active: true, status: "Decommissioned" },
+  { vehicle_id: "broken", plate_number: "BUS 3", active: true, status: "Broken / Inactive" },
+];
 
 function snapshotTables(
   data: Record<string, unknown> = {},
@@ -70,7 +76,7 @@ function snapshotTables(
   table(
     "bookings",
     [
-      ["select", "*"],
+      ["select", "*, trip_records(payment_status)"],
       ["order", "created_at", descending],
       ["limit", 80],
     ],
@@ -183,8 +189,11 @@ describe("the state snapshot", () => {
           active: true,
         },
       ],
-      vehicles: [{ vehicle_id: "v1", name: "Blue bus", plate_number: "BUS 1" }],
-      bookings: [booking],
+      vehicles: [{ vehicle_id: "v1", name: "Blue bus", plate_number: "BUS 1", active: true }],
+      bookings: [
+        { ...booking, trip_records: { payment_status: "pending" } },
+        { ...booking, booking_id: "expired", request_status: "Expired", driver_id: null },
+      ],
       runs: [
         {
           run_id: "run-1",
@@ -223,8 +232,10 @@ describe("the state snapshot", () => {
       ],
       landmarks: [{ name: "Market", latitude: "12.07", longitude: "124.59" }],
       fares: [
-        { routes_id: "r1", base_fare: 5, per_kilometer_rate: 2 },
-        { routes_id: null, base_fare: "27", per_kilometer_rate: "9.5" },
+        { routes_id: "r1", vehicle_classification: "Tricycle", base_fare: 5, per_kilometer_rate: 2 },
+        { routes_id: null, vehicle_classification: "PUJ", base_fare: 10, per_kilometer_rate: 1 },
+        { routes_id: null, vehicle_classification: "Tricycle", tariff_tier: "DISCOUNTED", base_fare: 20, per_kilometer_rate: 7 },
+        { routes_id: null, vehicle_classification: "Tricycle", tariff_tier: "REGULAR", base_fare: "27", per_kilometer_rate: "9.5" },
       ],
       logs: [
         {
@@ -280,7 +291,9 @@ describe("the state snapshot", () => {
           passenger: "Jo",
           driver: "Ana",
           driverAssociation: "Co-op",
+          paymentStatus: "pending",
         },
+        { id: "expired", status: "Expired" },
       ],
       runs: [{ id: "run-1", driver: "Ana", events: [] }],
       stopRequests: [
@@ -344,7 +357,7 @@ describe("the state snapshot", () => {
       ],
     );
     snapshotTables({
-      vehicles: [{ vehicle_id: "existing", plate_number: "TRI 1" }],
+      vehicles: [{ vehicle_id: "existing", plate_number: "TRI 1", active: true }],
     });
     const { vehicles } = await api<Snapshot>("/state");
     expect(
@@ -354,6 +367,13 @@ describe("the state snapshot", () => {
       { id: "driver-present", plate: "NO TIME", stale: true },
     ]);
     expect(vehicles[1].location.updatedAt).toBe(0);
+  });
+
+  it("omits inactive, retired and broken vehicles from the passenger fleet", async () => {
+    passengerProfile([ana], [driver]);
+    snapshotTables({ vehicles: fleet });
+    const { vehicles } = await api<Snapshot>("/state");
+    expect(vehicles.map(({ id }) => id)).toEqual(["active"]);
   });
 
   it("fills defaults for empty collections and nullable snapshot rows", async () => {
@@ -372,8 +392,9 @@ describe("the state snapshot", () => {
       trips: [],
       runs: [],
       landmarks: [fallback],
-      baseFare: 25,
-      perKm: 8,
+      baseFare: 0,
+      perKm: 0,
+      fareApproved: false,
       stopRequests: [{ id: "stop-1", passenger: "", createdAt: now }],
       reports: [
         {
@@ -389,6 +410,18 @@ describe("the state snapshot", () => {
         { id: "n1", message: "", read: false, createdAt: timestamp },
       ],
       logs: [{ id: 0, action: "", at: timestamp }],
+    });
+  });
+
+  it("leaves fares unapproved when only another vehicle class has an active fare", async () => {
+    passengerProfile();
+    snapshotTables({
+      fares: [{ routes_id: null, vehicle_classification: "PUJ", base_fare: 13, per_kilometer_rate: 8 }],
+    });
+    await expect(api<Snapshot>("/state")).resolves.toMatchObject({
+      baseFare: 0,
+      perKm: 0,
+      fareApproved: false,
     });
   });
 
@@ -424,8 +457,9 @@ describe("the state snapshot", () => {
       });
       harness.fake.rpc("admin_users", [], [ana]);
       harness.fake.rpc("admin_drivers", [], [driver]);
-      snapshotTables();
-      await expect(api<Snapshot>("/state")).resolves.toMatchObject({
+      snapshotTables({ vehicles: fleet });
+      const snapshot = await api<Snapshot>("/state");
+      expect(snapshot).toMatchObject({
         user: {
           id: "rider",
           role,
@@ -437,8 +471,8 @@ describe("the state snapshot", () => {
           { id: "driver-1", association: "Co-op" },
           { id: "rider", role },
         ],
-        vehicles: [],
       });
+      expect(snapshot.vehicles.map(({ id }) => id)).toEqual(fleet.map((row) => row.vehicle_id));
       expect(harness.fake.client.rpc.mock.calls).toEqual([
         ["my_profile"],
         ["admin_users"],
@@ -520,8 +554,9 @@ describe("the state snapshot", () => {
       reports: [],
       notifications: [],
       landmarks: [fallback],
-      baseFare: 25,
-      perKm: 8,
+      baseFare: 0,
+      perKm: 0,
+      fareApproved: false,
       logs: [],
     });
   });
