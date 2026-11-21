@@ -21,6 +21,7 @@ import Animated, {
 } from "react-native-reanimated";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import { registerAccount, requestPasswordReset, signInAccount } from "./session";
+import { pickLicensePhoto, savePendingLicense, type LicensePhoto } from "../services/documents";
 import type { Role } from "../types/types";
 import { Icon } from "../common/ui";
 import { ps, passengerColors as c } from "../passenger/passengerStyles";
@@ -171,7 +172,8 @@ export default function MobileAuth({
     [driverType, setDriverType] = useState<Role>("Tricycle driver");
   const [assocOpen, setAssocOpen] = useState(false);
   const [franchiseOpen, setFranchiseOpen] = useState(false);
-  const [licenseDoc, setLicenseDoc] = useState(false);
+  const [licensePhoto, setLicensePhoto] = useState<LicensePhoto | null>(null);
+  const licenseDoc = !!licensePhoto;
   const [name, setName] = useState(""),
     [birthday, setBirthday] = useState(""),
     [phone, setPhone] = useState(""),
@@ -255,7 +257,7 @@ export default function MobileAuth({
     setPermitNo("");
     setCapacity("3");
     setConsent(false);
-    setLicenseDoc(false);
+    setLicensePhoto(null);
     // eslint-disable-next-line react-hooks/immutability -- Reanimated SharedValue is mutated via .value by design
     translateY.value = withSpring(0);
   }, [translateY]);
@@ -348,9 +350,13 @@ export default function MobileAuth({
                   plate: plate.trim(),
                   permitNo: permitNo.trim(),
                   capacity: Number(capacity) || 3,
+                  licenseDocAttached: licenseDoc,
                 }
               : { ...base, role: "Passenger" },
         );
+        if (licensePhoto) {
+          await savePendingLicense(email, licensePhoto).catch(() => undefined);
+        }
         if (needsConfirmation) {
           const sentTo = email.trim();
           changeMode(false);
@@ -826,20 +832,60 @@ export default function MobileAuth({
                 )}
                 {role === "Driver" && (
                   <View style={{ gap: 8 }}>
-                    <Text style={[ps.small, { fontWeight: "700", color: "#18382C" }]}>Documents</Text>
-                    <Pressable
-                      accessibilityRole="button"
-                      accessibilityLabel={licenseDoc ? "License ID attached" : "Attach License ID"}
-                      accessibilityHint="Marks your license document as attached."
-                      onPress={() => { const next = !licenseDoc; setLicenseDoc(next); setFieldErr((e) => ({ ...e, doc: next ? "License ID attached." : "" })); }}
-                      style={[ps.buttonLight, ps.row, { minHeight: 48, justifyContent: "center", borderRadius: 14 }]}
-                    >
-                      <Icon name={licenseDoc ? "checkmark-circle" : "card-outline"} size={20} color={c.green} />
-                      <Text style={[ps.buttonText, { color: c.green, fontSize: 10 }]}>{licenseDoc ? "License ID attached" : "Submit file / take photo (License ID)"}</Text>
-                    </Pressable>
+                    <Text style={[ps.small, { fontWeight: "700", color: "#18382C" }]}>Driver’s license photo</Text>
+                    <Text style={[ps.small, { color: "#5B7468", flexWrap: "wrap" }]}>The front of your license, readable and uncropped. It is only used to review your application.</Text>
+                    {licensePhoto ? (
+                      <View style={[ps.row, { borderWidth: 1, borderColor: c.line, borderRadius: 14, padding: 10, gap: 12 }]}>
+                        <Image
+                          source={{ uri: licensePhoto.uri }}
+                          style={{ width: 72, height: 48, borderRadius: 8, backgroundColor: "#E5F0E9" }}
+                          accessibilityLabel="Photo of your driver's license"
+                        />
+                        <View style={{ flex: 1, gap: 2 }}>
+                          <Text style={[ps.small, { fontWeight: "700", color: c.ink }]}>License photo added</Text>
+                          <Text style={[ps.small, { color: c.muted }]}>Sent for review after you confirm your email</Text>
+                        </View>
+                        <Pressable
+                          accessibilityRole="button"
+                          accessibilityLabel="Remove license photo"
+                          hitSlop={8}
+                          onPress={() => { setLicensePhoto(null); setFieldErr((e) => ({ ...e, doc: "" })); }}
+                          style={{ padding: 6 }}
+                        >
+                          <Icon name="trash-outline" size={20} color={c.muted} />
+                        </Pressable>
+                      </View>
+                    ) : (
+                      <View style={[ps.row, { gap: 10 }]}>
+                        {([
+                          { source: "camera", label: "Take photo", icon: "camera-outline" },
+                          { source: "library", label: "Choose photo", icon: "image-outline" },
+                        ] as const).map((option) => (
+                          <Pressable
+                            key={option.source}
+                            accessibilityRole="button"
+                            accessibilityLabel={`${option.label} of your driver's license`}
+                            onPress={() => {
+                              void pickLicensePhoto(option.source)
+                                .then((photo) => {
+                                  if (photo) {
+                                    setLicensePhoto(photo);
+                                    setFieldErr((e) => ({ ...e, doc: "" }));
+                                  }
+                                })
+                                .catch((error: Error) => setFieldErr((e) => ({ ...e, doc: error.message })));
+                            }}
+                            style={({ pressed }) => [ps.buttonLight, ps.row, { flex: 1, minHeight: 48, justifyContent: "center", borderRadius: 14, gap: 8 }, pressed && ps.pressed]}
+                          >
+                            <Icon name={option.icon} size={19} color={c.green} />
+                            <Text style={[ps.buttonText, { color: c.green, fontSize: 12 }]}>{option.label}</Text>
+                          </Pressable>
+                        ))}
+                      </View>
+                    )}
                     {fieldErr.doc ? (
-                      <View accessibilityRole={String(fieldErr.doc).toLowerCase().includes("attached") ? undefined : "alert"} accessibilityLiveRegion="polite">
-                        <Text style={[ps.small, { color: String(fieldErr.doc).toLowerCase().includes("attached") ? c.green : "#C53B1D", flexWrap: "wrap", paddingHorizontal: 4 }]}>{fieldErr.doc}</Text>
+                      <View accessibilityRole="alert" accessibilityLiveRegion="polite">
+                        <Text style={[ps.small, { color: "#C53B1D", flexWrap: "wrap", paddingHorizontal: 4 }]}>{fieldErr.doc}</Text>
                       </View>
                     ) : null}
                   </View>
