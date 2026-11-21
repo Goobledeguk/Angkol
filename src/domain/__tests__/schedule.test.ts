@@ -6,6 +6,7 @@ import {
   minutesUntil,
   nextDeparture,
   toMinutes,
+  waitLabel,
 } from "../schedule";
 
 const at = (clock: string) => Date.parse(`2026-11-21T${clock}:00+08:00`);
@@ -118,5 +119,24 @@ describe("minutesUntil", () => {
   it("is null when the next trip is tomorrow or unscheduled", () => {
     expect(minutesUntil(route, at("21:00"))).toBeNull();
     expect(minutesUntil({ ...route, scheduled: false }, at("08:00"))).toBeNull();
+  });
+});
+
+describe("waitLabel", () => {
+  it("counts minutes until the next departure", () => {
+    expect(waitLabel(route, at("07:31"))).toBe("In 14 min");
+  });
+
+  it("says boarding now at departure time", () => {
+    expect(waitLabel(route, at("07:45"))).toBe("Boarding now");
+  });
+
+  it("uses hours for long waits before service", () => {
+    expect(waitLabel(route, at("04:00"))).toBe("In 2 h");
+    expect(waitLabel(route, at("04:20"))).toBe("In 1 h 40 min");
+  });
+
+  it("falls back to an estimate when the next trip is tomorrow", () => {
+    expect(waitLabel(route, at("21:00"))).toBe("Estimated");
   });
 });

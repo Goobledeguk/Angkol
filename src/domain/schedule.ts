@@ -70,3 +70,19 @@ export function minutesUntil(route: Schedule, now: number): number | null {
   }
   return toMinutes(label) - toMinutes(cityClock(now));
 }
+
+export function waitLabel(route: Schedule, now: number) {
+  const minutes = minutesUntil(route, now);
+  if (minutes === null) {
+    return "Estimated";
+  }
+  if (minutes <= 0) {
+    return "Boarding now";
+  }
+  if (minutes < 60) {
+    return `In ${minutes} min`;
+  }
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  return rest ? `In ${hours} h ${rest} min` : `In ${hours} h`;
+}

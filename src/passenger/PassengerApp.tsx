@@ -24,7 +24,7 @@ import { currentPoint } from "../services/location";
 import { distanceKm } from "../services/mapbox";
 import { isStale, lastSeen, tripRef, vehicleForDriver } from "../domain/vehicles";
 import { statusLabel, isPhMobile, normalizePhMobile } from "../domain/format";
-import { greeting as greetingFor, nextDeparture } from "../domain/schedule";
+import { greeting as greetingFor, minutesUntil, nextDeparture, waitLabel } from "../domain/schedule";
 import type { Point, Quote, Route, Snapshot, Trip } from "../types/types";
 import CalbayogMap from "../map/CalbayogMap";
 import { Icon, money } from "../common/ui";
@@ -816,7 +816,7 @@ export default function PassengerApp({
             />
             <SummaryRow
               label="Next departure"
-              value={nextDeparture(pujRoute, data.serverTime)}
+              value={`${nextDeparture(pujRoute, data.serverTime)}${minutesUntil(pujRoute, data.serverTime) !== null ? ` · ${waitLabel(pujRoute, data.serverTime).toLowerCase()}` : ""}`}
             />
           </View>
           <View style={ps.card}>
@@ -1644,7 +1644,7 @@ export default function PassengerApp({
                 <Text style={ps.departTime}>
                   {nextDeparture(route, data.serverTime)}
                 </Text>
-                <Text style={ps.tiny}>ESTIMATED</Text>
+                <Text style={ps.tiny}>{waitLabel(route, data.serverTime)}</Text>
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={ps.label}>{route.name}</Text>
