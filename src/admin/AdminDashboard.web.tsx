@@ -242,21 +242,12 @@ export default function AdminDashboard({
     [selectedId, setSelectedId] = useState<string | null>(null);
   const [tripStatus, setTripStatus] = useState("All statuses"),
     [tripDate, setTripDate] = useState("");
-  const [ownerAddedVehicles, setOwnerAddedVehicles] = useState<any[]>([]);
   const [vehicleForm, setVehicleForm] = useState({ plate: "", vehicleType: "Jeepney", currentDriver: "", routeId: "", capacity: "" });
   const [vehicleFormError, setVehicleFormError] = useState("");
-  type DemoPendingDriver = { id: string; name: string; email: string; phone: string; license: string; franchiseName: string; plate: string; status: string };
-  const initialDemoPending: DemoPendingDriver[] = [
-    { id: "demo-pending-1", name: "Rico Dela Cruz", email: "rico.delacruz@example.invalid", phone: "0917 555 0142", license: "N01-26-884210", franchiseName: "Calbayog Metro Express", plate: "PUV 1024", status: "Pending approval" },
-    { id: "demo-pending-2", name: "Marco Villanueva", email: "marco.villanueva@example.invalid", phone: "0918 555 0199", license: "N01-25-110044", franchiseName: "Calbayog Metro Express", plate: "PUV 2048", status: "Pending approval" },
-  ];
-  const [ownerPendingDrivers, setOwnerPendingDrivers] = useState<DemoPendingDriver[]>(initialDemoPending);
-  const [ownerAcceptedDrivers, setOwnerAcceptedDrivers] = useState<DemoPendingDriver[]>([]);
-  const [declineTarget, setDeclineTarget] = useState<DemoPendingDriver | null>(null);
-  const [ownerRevokedDriverIds, setOwnerRevokedDriverIds] = useState<string[]>([]);
-  const [ownerDecommissionedVehicleIds, setOwnerDecommissionedVehicleIds] = useState<string[]>([]);
+  type PendingDriver = { id: string; name: string; email: string; phone: string; license: string; franchiseName: string; plate: string; status: string };
+  const [declineTarget, setDeclineTarget] = useState<PendingDriver | null>(null);
   const shortId = (id?: string) => (id ? `${String(id).slice(0,8)}…` : "—");
-  const latency = data.sampleMetrics?.responseMs ?? 48;
+  const latency = data.sampleMetrics?.responseMs;
   const dialog = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -349,7 +340,7 @@ export default function AdminDashboard({
     commuters = users.filter((u: any) => u.role === "Passenger");
 
   // Owner specific filtered fleet data
-  const ownerVehicleIds = data.user.ownerVehicleIds || ["sample-driver-1", "sample-driver-3"];
+  const ownerVehicleIds = data.user.ownerVehicleIds || [];
   const myVehicles = vehicles.filter((v: any) =>
       ownerVehicleIds.includes(v.id) ||
       v.ownerId === data.user.id ||
@@ -357,8 +348,32 @@ export default function AdminDashboard({
       v.kind === "PUJ / PUV driver",
   );
   const myVehicleIds = myVehicles.map((v: any) => v.id);
-  const myDrivers = drivers.filter((d: any) => myVehicleIds.includes(d.id) || myVehicles.some((v: any) => v.name === d.name),
+  const myDrivers = drivers.filter(
+    (d: any) =>
+      myVehicleIds.includes(d.id) ||
+      myVehicles.some((v: any) => v.name === d.name) ||
+      (isOwner &&
+        !!data.user.franchiseName &&
+        d.franchiseName === data.user.franchiseName),
   );
+  const ownerPendingDrivers: PendingDriver[] = isOwner
+    ? drivers
+        .filter(
+          (u: any) =>
+            u.pendingFranchiseApproval &&
+            (!data.user.franchiseName || u.franchiseName === data.user.franchiseName),
+        )
+        .map((u: any) => ({
+          id: u.id,
+          name: u.name,
+          email: u.email,
+          phone: u.phone,
+          license: u.license,
+          franchiseName: u.franchiseName || data.user.franchiseName || "",
+          plate: u.plate,
+          status: "Pending approval",
+        }))
+    : [];
   const myTrips = trips.filter((t: any) =>
       myDrivers.some((d: any) => d.id === t.driverId || d.name === t.driver) ||
       (t.plate && myVehicles.some((v: any) => v.plate === t.plate)),
@@ -487,8 +502,8 @@ export default function AdminDashboard({
         ],
         // 5: System monitor
         [
-          { label: "Platform uptime", value: `${data.sampleMetrics?.uptimePercent ?? 99.9}%`, note: "Core API availability", icon: "shield" },
-          { label: "API latency", value: `${latency}ms`, note: latency < 100 ? "Healthy response speed" : "Degraded latency", icon: "activity", tone: latency < 100 ? "blue" : "red" },
+          { label: "Platform uptime", value: data.sampleMetrics ? `${data.sampleMetrics.uptimePercent}%` : "—", note: data.sampleMetrics ? "Core API availability" : "No telemetry collected", icon: "shield" },
+          { label: "API latency", value: latency != null ? `${latency}ms` : "—", note: latency != null ? (latency < 100 ? "Healthy response speed" : "Degraded latency") : "No telemetry collected", icon: "activity", tone: latency != null && latency >= 100 ? "red" : "blue" },
           { label: "Audit events", value: logs.length, note: "Immutable audit ledger", icon: "report", tone: "amber" },
           { label: "Security alerts", value: "0 active", note: "No breaches detected", icon: "shield" },
         ],
@@ -632,8 +647,16 @@ export default function AdminDashboard({
   }
   let content: React.ReactNode;
   if (page === "Overview") {
-        const ownerFictional = [0,0,0,0,0,0,2,5,8,11,9,7,6,8,10,12,9,6,4,3,2,1,0,0];
-        const fullCounts = ownerFictional;
+        const todayTrips = trips.filter(
+          (t: any) => isToday(t.createdAt) && t.status === "Completed",
+        );
+        const fullCounts = Array.from(
+          { length: 24 },
+          (_, h) =>
+            todayTrips.filter(
+              (t: any) => new Date(t.createdAt).getHours() === h,
+            ).length,
+        );
         const activeHours = fullCounts.map((count, h) => ({ h, count })).filter((x) => x.count > 0).map((x) => x.h);
         const hours = activeHours.length ? activeHours : [6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21];
         const counts = hours.map((h) => fullCounts[h] ?? 0);
@@ -720,16 +743,10 @@ export default function AdminDashboard({
       </>
     );
   } else if (page === "Fleet tracking") {
-    const demoFleet = vehicles.length ? vehicles : [
-      { id:"FTV-1", plate:"ABC 1231", vehicleType:"Modern Jeepney", name:"Limuel Rosino", currentDriver:"Limuel Rosino", routeId:"CB01", status:"In transit", location:{ name:"Capitolyo", updatedAt: now - 15000 }, stale:false },
-      { id:"FTV-2", plate:"PUV 1024", vehicleType:"Bus", name:"Rico Dela Cruz", currentDriver:"Rico Dela Cruz", routeId:"CB02", status:"Arrived", location:{ name:"Calbayog Grand Terminal", updatedAt: now - 40000 }, stale:false },
-      { id:"FTV-3", plate:"PUV 2048", vehicleType:"Mini Van", name:"Marco Villanueva", currentDriver:"Marco Villanueva", routeId:"CB01", status:"In Terminal", location:{ name:"Public Market", updatedAt: now - 25000 }, stale:false },
-      { id:"FTV-4", plate:"ABC 1233", vehicleType:"Coaster", name:"Paolo Ramos", currentDriver:"Paolo Ramos", routeId:"CB03", status:"Broken / Inactive", location:{ name:"Depot", updatedAt: now - 420000 }, stale:true },
-      { id:"FTV-5", plate:"AB 12345", vehicleType:"Tricycle", name:"Meynard Salem", currentDriver:"Meynard Salem", routeId:"TRI", status:"In transit", location:{ name:"Nijaga Park", updatedAt: now - 20000 }, stale:false },
-    ];
+    const demoFleet = vehicles;
     content = (
       <>
-        <Panel title="City-wide fleet tracking" sub={`${demoFleet.length} monitored units · Calbayog City`} tag={<Pill tone="blue">Live demo data</Pill>}>
+        <Panel title="City-wide fleet tracking" sub={`${demoFleet.length} monitored units · Calbayog City`} tag={<Pill tone="blue">Live positions</Pill>}>
           <div className="aa-tablewrap">
             <table className="aa-table">
               <thead><tr>{["Plate / unit","Vehicle","Driver","Route","Status","Last location","Freshness"].map((h)=><th key={h}>{h}</th>)}</tr></thead>
@@ -1301,8 +1318,7 @@ export default function AdminDashboard({
     const vehicleLabel = (v: any) => v.vehicleType || "Franchise vehicle";
     const statusTone = (s?: string) => s === "Broken / Inactive" || s === "Decommissioned" ? "red" : s === "In Terminal" ? "amber" : s === "Arrived" ? "" : "blue";
     const statusTag = (s?: string) => s === "Decommissioned" ? "Decommissioned" : s === "Broken / Inactive" ? "Maintenance / Inactive" : s === "In transit" ? "Active (In transit)" : (s || "Active");
-    const fleetVehicles = (isOwner ? [...ownerAddedVehicles, ...myVehicles] : vehicles)
-      .map((v: any) => ownerDecommissionedVehicleIds.includes(v.id) ? { ...v, status: "Decommissioned" } : v)
+    const fleetVehicles = (isOwner ? myVehicles : vehicles)
       .filter((v: any) => !search || `${v.plate} ${vehicleLabel(v)} ${v.currentDriver || v.name || ""} ${v.status || ""}`.toLowerCase().includes(search.toLowerCase()));
     content = (
       <>
@@ -1342,8 +1358,14 @@ export default function AdminDashboard({
       </>
     );
   } else if (page === "Drivers") {
-    const demoPendingDrivers = isOwner ? ownerPendingDrivers : [];
-    const ownerFranchiseDrivers = (isOwner ? [...ownerAcceptedDrivers, ...myDrivers] : myDrivers).filter((d: any) => !ownerRevokedDriverIds.includes(d.id));
+    const demoPendingDrivers = ownerPendingDrivers;
+    const ownerFranchiseDrivers = isOwner
+      ? drivers.filter(
+          (d: any) =>
+            !d.pendingFranchiseApproval &&
+            (!data.user.franchiseName || d.franchiseName === data.user.franchiseName),
+        )
+      : myDrivers;
     content = (
       <>
         <div className="aa-toolbar">
@@ -1355,7 +1377,7 @@ export default function AdminDashboard({
           <Search value={search} onChange={setSearch} placeholder="Search name, license, plate..." />
         </div>
         {isOwner ? (
-          <Panel title="Pending driver approvals" sub="Demo applications awaiting franchise review" tag={<Pill tone="amber">{demoPendingDrivers.length}</Pill>}>
+          <Panel title="Pending driver approvals" sub="Applications awaiting franchise review" tag={<Pill tone="amber">{demoPendingDrivers.length}</Pill>}>
             <div className="aa-tablewrap">
               <table className="aa-table">
                 <thead><tr>{["Applicant","Contact","License No.","Plate / unit","Franchise","Status","Actions"].map((h)=><th key={h}>{h}</th>)}</tr></thead>
@@ -1371,8 +1393,9 @@ export default function AdminDashboard({
                       <td>
                         <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
                           <button type="button" className="aa-button" onClick={() => {
-                            setOwnerPendingDrivers((prev) => prev.filter((p) => p.id !== u.id));
-                            setOwnerAcceptedDrivers((prev) => prev.some((d) => d.id === u.id) ? prev : [{ ...u, status: "Approved" }, ...prev]);
+                            void action(`/drivers/${u.id}`, { verified: true }, "PATCH").then((ok) => {
+                              if (ok) { setModal(null); }
+                            });
                           }}>Accept</button>
                           <button type="button" className="aa-button plain" onClick={() => { setDeclineTarget(u); setModal("Decline driver application"); }}>Decline</button>
                         </div>
@@ -1685,21 +1708,22 @@ export default function AdminDashboard({
                   <button type="button" className="aa-button" onClick={() => {
                     if (!vehicleForm.plate.trim()) { setVehicleFormError("Plate No. / unit is required."); return; }
                     if (!vehicleForm.vehicleType.trim()) { setVehicleFormError("Vehicle type is required."); return; }
-                    setOwnerAddedVehicles((prev) => [{
-                      id: `owner-vehicle-${Date.now()}`,
+                    const payload = {
                       plate: vehicleForm.plate.trim(),
+                      name: vehicleForm.currentDriver.trim() || vehicleForm.plate.trim(),
                       vehicleType: vehicleForm.vehicleType.trim(),
                       currentDriver: vehicleForm.currentDriver.trim() || "Unassigned",
-                      name: vehicleForm.currentDriver.trim() || "Unassigned",
-                      routeId: vehicleForm.routeId.trim() || "—",
+                      routeId: vehicleForm.routeId.trim() || null,
                       capacity: Number(vehicleForm.capacity) || 0,
                       status: "In Terminal",
-                      kind: "PUJ / PUV driver",
-                      ownerName: "Calbayog Metro Express",
-                    }, ...prev]);
-                    setVehicleForm({ plate: "", vehicleType: "Jeepney", currentDriver: "", routeId: "", capacity: "" });
-                    setVehicleFormError("");
-                    setModal(null);
+                      location: { name: "Calbayog City Hall", latitude: 12.0676, longitude: 124.5942 },
+                    };
+                    void action("/vehicles", payload, "POST").then((ok) => {
+                      if (!ok) { return; }
+                      setVehicleForm({ plate: "", vehicleType: "Jeepney", currentDriver: "", routeId: "", capacity: "" });
+                      setVehicleFormError("");
+                      setModal(null);
+                    });
                   }}>Add vehicle</button>
                 </div>
               </>
@@ -1714,9 +1738,14 @@ export default function AdminDashboard({
                 </dl>
                 <div style={{ display:"flex", gap:8, marginTop:12, flexWrap:"wrap" }}>
                   <button type="button" className="aa-button" style={{ backgroundColor: "#C53B1D", borderColor: "#C53B1D" }} onClick={() => {
-                    setOwnerPendingDrivers((prev) => prev.filter((p) => p.id !== declineTarget.id));
-                    setDeclineTarget(null);
-                    setModal(null);
+                    void action(
+                      `/drivers/${declineTarget.id}`,
+                      { verified: false, applicationStatus: "declined" },
+                      "PATCH",
+                    ).then(() => {
+                      setDeclineTarget(null);
+                      setModal(null);
+                    });
                   }}>Confirm decline</button>
                   <button type="button" className="aa-button plain" onClick={() => { setDeclineTarget(null); setModal(null); }}>Cancel</button>
                 </div>
@@ -1745,9 +1774,9 @@ export default function AdminDashboard({
               </>
             )}
             {modal === "Vehicle details" && (() => {
-              const v = ([...ownerAddedVehicles, ...myVehicles, ...vehicles] as any[]).find((x)=>x.id===selectedId);
+              const v = ([...myVehicles, ...vehicles] as any[]).find((x)=>x.id===selectedId);
               if (!v) { return <Empty>Vehicle details not available.</Empty>; }
-              const decommissioned = ownerDecommissionedVehicleIds.includes(v.id) || v.status === "Decommissioned";
+              const decommissioned = v.status === "Decommissioned";
               return (
                 <>
                   <dl>
@@ -1758,9 +1787,9 @@ export default function AdminDashboard({
                   <div style={{ display:"flex", gap:8, marginTop:12, flexWrap:"wrap" }}>
                     {!decommissioned ? (
                       <button type="button" className="aa-button" style={{ backgroundColor:"#C53B1D", borderColor:"#C53B1D" }} onClick={() => {
-                        if (ownerAddedVehicles.some((x:any)=>x.id===v.id)) { setOwnerAddedVehicles((prev)=>prev.map((x:any)=>x.id===v.id?{...x,status:"Decommissioned"}:x)); }
-                        else { setOwnerDecommissionedVehicleIds((prev)=> prev.includes(v.id)?prev:[...prev,v.id]); }
-                        setModal(null);
+                        void action(`/vehicles/${v.id}`, { status: "Decommissioned" }, "PATCH").then((ok) => {
+                          if (ok) { setModal(null); }
+                        });
                       }}>Decommission vehicle</button>
                     ) : <Pill tone="red">Decommissioned</Pill>}
                   </div>
@@ -1768,22 +1797,22 @@ export default function AdminDashboard({
               );
             })()}
             {modal === "Franchise driver details" && (() => {
-              const d = [...ownerAcceptedDrivers, ...myDrivers, ...ownerPendingDrivers].find((x: any) => x.id === selectedId);
+              const d = [...drivers, ...ownerPendingDrivers].find((x: any) => x.id === selectedId);
               if (!d) { return <Empty>Driver details not available.</Empty>; }
-              const revoked = ownerRevokedDriverIds.includes(d.id);
+              const revoked = (d as any).verified === false && (d as any).status !== "Pending approval";
               return (
                 <>
                   <dl>
-                    {[["Full name", d.name],["Email", d.email || "—"],["Contact", d.phone || "—"],["Account type", "Franchise driver"],["License No.", d.license || "—"],["Plate / unit", d.plate || "—"],["Franchise", d.franchiseName || "Calbayog Metro Express"],["Status", revoked ? "Access revoked" : (d.status || (d.verified ? "Verified" : "Pending"))]].map(([label,value]) => (
+                    {[["Full name", d.name],["Email", d.email || "—"],["Contact", d.phone || "—"],["Account type", "Franchise driver"],["License No.", d.license || "—"],["Plate / unit", d.plate || "—"],["Franchise", d.franchiseName || "Calbayog Metro Express"],["Status", revoked ? "Access revoked" : (d.status || ((d as any).verified ? "Verified" : "Pending"))]].map(([label,value]) => (
                       <React.Fragment key={String(label)}><dt>{label}</dt><dd>{String(value)}</dd></React.Fragment>
                     ))}
                   </dl>
                   <div style={{ display:"flex", gap:8, marginTop:12, flexWrap:"wrap" }}>
                     {!revoked ? (
                       <button type="button" className="aa-button" style={{ backgroundColor:"#C53B1D", borderColor:"#C53B1D" }} onClick={() => {
-                        if (ownerAcceptedDrivers.some((x)=>x.id===d.id)) { setOwnerAcceptedDrivers((prev)=>prev.filter((x)=>x.id!==d.id)); }
-                        else { setOwnerRevokedDriverIds((prev)=> prev.includes(d.id)?prev:[...prev,d.id]); }
-                        setModal(null);
+                        void action(`/drivers/${d.id}`, { verified: false }, "PATCH").then((ok) => {
+                          if (ok) { setModal(null); }
+                        });
                       }}>Revoke access</button>
                     ) : <Pill tone="red">Access revoked</Pill>}
                     <button type="button" className="aa-button plain" onClick={() => setModal(null)}>Close</button>

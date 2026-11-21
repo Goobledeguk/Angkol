@@ -494,7 +494,7 @@ export function PassengerRoutesScreen({
                 <Text style={v.caption}>
                   {route.approved
                     ? route.reference
-                    : "Sample route · Pending approval"}
+                    : "Route pending approval"}
                 </Text>
               </>
             )}

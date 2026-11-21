@@ -20,8 +20,7 @@ import Animated, {
   Extrapolation,
 } from "react-native-reanimated";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
-import { registerSampleAccount, signInSampleAccount } from "./sampleAccounts";
-import { api } from "../services/api";
+import { registerAccount, signInAccount } from "./session";
 import type { Role } from "../types/types";
 import { Icon } from "../common/ui";
 import { ps, passengerColors as c } from "../passenger/passengerStyles";
@@ -315,17 +314,19 @@ export default function MobileAuth({
     try {
       if (signup) {
         if (role === "Driver" && driverType === "PUJ / PUV driver") {
-          // Prototype-only approval simulation: show "Waiting for approval" for 5 seconds,
+          // Show the approval screen while the account is created.
           // then create the local session and proceed to the PUJ/PUV driver dashboard.
           setPendingInfo({ name: name.trim(), franchiseName: franchiseName.trim() || KENT_OWNER_FRANCHISE });
           setVerifyPhase("puj-pending");
           await new Promise<void>((resolve) => setTimeout(resolve, 5000));
-          await api("/register", {
+          await registerAccount({
             email,
             password,
             name: name.trim(),
             role: "PUJ / PUV driver",
             phone: phone.trim(),
+            birthday,
+            consent,
             license: license.trim(),
             franchiseName: franchiseName.trim() || KENT_OWNER_FRANCHISE,
             licenseDocAttached: licenseDoc,
@@ -336,12 +337,14 @@ export default function MobileAuth({
         }
         if (role === "Driver" && driverType === "Tricycle driver") {
           setVerifyPhase("tricycle-loading");
-          await registerSampleAccount({
+          await registerAccount({
             email,
             password,
             name: name.trim(),
             role: "Tricycle driver",
             phone: phone.trim(),
+            birthday,
+            consent,
             license: license.trim(),
             association: association.trim(),
             plate: plate.trim(),
@@ -353,15 +356,17 @@ export default function MobileAuth({
           setPassword("");
           return;
         }
-        await registerSampleAccount({
+        await registerAccount({
           email,
           password,
           name: name.trim(),
           role: "Passenger",
           phone: phone.trim(),
+          birthday,
+          consent,
         });
       } else {
-        await signInSampleAccount(email, password);
+        await signInAccount(email, password);
       }
       await onSignedIn();
       setPassword("");
@@ -847,7 +852,7 @@ export default function MobileAuth({
                     <Pressable
                       accessibilityRole="button"
                       accessibilityLabel={licenseDoc ? "License ID attached" : "Attach License ID"}
-                      accessibilityHint="Prototype action. Toggles a demo attachment state."
+                      accessibilityHint="Marks your license document as attached."
                       onPress={() => { const next = !licenseDoc; setLicenseDoc(next); setFieldErr((e) => ({ ...e, doc: next ? "License ID attached." : "" })); }}
                       style={[ps.buttonLight, ps.row, { minHeight: 48, justifyContent: "center", borderRadius: 14 }]}
                     >

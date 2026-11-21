@@ -35,6 +35,8 @@ export default function AdminPanel({
     );
   const [routeError, setRouteError] = useState("");
   const [feedback, setFeedback] = useState("");
+  const [fareBase, setFareBase] = useState(String(data.baseFare ?? 0));
+  const [fareKm, setFareKm] = useState(String(data.perKm ?? 0));
   const [transportType, setTransportType] = useState<"PUJ / PUV">("PUJ / PUV");
   const saving = useRef(false);
 
@@ -329,25 +331,49 @@ export default function AdminPanel({
         </Card>
       )}
 
-      {/* Fares — route fares only, no base fare */}
+      {/* Fares — tricycle matrix + per-route PUJ fares */}
       {(section === "all" || section === "fares") && (
         <Card>
-          <Text style={s.cardTitle}>Route fare configuration</Text>
+          <Text style={s.cardTitle}>Fare configuration</Text>
           <Text style={s.small}>
-            Route fares are set per route in the Routes section. Create routes
-            first to configure fares.
+            Tricycle fares use the base fare plus the per-kilometre rate.
+            PUJ/PUV fares are set per route in the Routes section.
           </Text>
-          {data.routes.length === 0 && (
-            <Text style={s.body}>
-              No routes configured yet. Add a route to set its fare.
-            </Text>
-          )}
+          <Field
+            label="Tricycle base fare (PHP)"
+            value={fareBase}
+            onChange={setFareBase}
+            numeric
+          />
+          <Field
+            label="Per-kilometre rate (PHP)"
+            value={fareKm}
+            onChange={setFareKm}
+            numeric
+          />
+          <Button
+            title="Save fare rules"
+            disabled={busy}
+            onPress={() => {
+              const baseFare = Number(fareBase);
+              const perKm = Number(fareKm);
+              if (!(baseFare > 0) || !(perKm > 0)) {
+                setFeedback("Enter a base fare and rate greater than zero.");
+                return;
+              }
+              void save(
+                { type: "fare", baseFare, perKm },
+                "Fare rules saved.",
+              );
+            }}
+          />
           {data.routes.map((r) => (
             <View key={r.id} style={s.rowBetween}>
               <Text style={[s.label, { flex: 1 }]}>{r.name}</Text>
               <Text style={s.label}>₱{r.fare}</Text>
             </View>
           ))}
+          {feedback ? <Text style={s.small}>{feedback}</Text> : null}
         </Card>
       )}
     </>

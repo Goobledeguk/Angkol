@@ -1,17 +1,24 @@
-import { populateAdministratorSamples } from "../admin/sampleAdministratorData";
-import { createDriverRuns, createDriverTrips } from "../driver/sampleDriverData";
-import { createSampleTrips } from "./sampleTrips";
+import { db } from "./supabase";
+import { directions } from "./mapbox";
 import type {
-  AdminLevel,
-  ApplicationStatus,
+  DriverRun,
   Point,
   Quote,
   Role,
+  Route,
   Snapshot,
-  User,
   Trip,
-  DriverRun,
+  User,
+  Vehicle,
 } from "../types/types";
+
+/**
+ * Live data adapter.
+ *
+ * Every screen still calls `api(endpoint, body)` exactly as before; this file
+ * maps those calls onto Supabase tables/RPCs. UI code never talks to Supabase
+ * directly, so the screens stay unchanged.
+ */
 
 export class ApiError extends Error {
   constructor(
@@ -21,239 +28,439 @@ export class ApiError extends Error {
     super(message);
   }
 }
-const landmarks: Point[] = [
-  { name: "Calbayog City Hall", latitude: 12.0676, longitude: 124.5942 },
-  { name: "Calbayog Public Market", latitude: 12.06145, longitude: 124.61079 },
-  { name: "Calbayog Airport", latitude: 12.072574, longitude: 124.54508 },
-];
-const makeUser = (role: Role, id: string, name: string): User => ({
-  id,
-  name,
-  role,
-  email: `${id}@example.invalid`,
-  phone: "",
-  available: true,
-  verified: true,
-  license: role.includes("driver") ? "N01-23-456789" : "",
-  association: role === "PUJ / PUV driver" ? "" : "Sample association",
-  franchiseName: role === "PUJ / PUV driver" ? "Calbayog Metro Express" : "",
-  plate: role === "PUJ / PUV driver" ? "ABC 1234" : "AB 12345",
-  permitNo: role === "Tricycle driver" ? "FP-CAL-2026-001" : "",
-  capacity: 8,
-  routeId: "CB01",
-  location: { ...landmarks[0], updatedAt: Date.now() },
-});
-let state: Snapshot;
-let signedIn = false;
-let sequence = 0;
-let quote: Quote | undefined;
-const normalizeEmail = (email: string) => String(email || "").trim().toLowerCase();
 
-type PendingApplication = User & { applicationStatus: ApplicationStatus; registeredAt: string };
+const FALLBACK: Point = {
+  name: "Calbayog City Hall",
+  latitude: 12.0676,
+  longitude: 124.5942,
+};
 
-const g = globalThis as any;
-function pendingStore(): Map<string, PendingApplication> {
-  if (!g.__angkolPendingApplications) {g.__angkolPendingApplications = new Map<string, PendingApplication>();}
-  return g.__angkolPendingApplications;
-}
-const pendingApplications = pendingStore();
+const num = (value: unknown, fallback = 0) => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+};
+const str = (value: unknown) => (value == null ? "" : String(value));
+const shortTime = (value: unknown, fallback: string) => {
+  const text = str(value);
+  return /^\d{2}:\d{2}/.test(text) ? text.slice(0, 5) : fallback;
+};
 
-function injectPendingApplications() {
-  if (!state || !pendingApplications.size) {
-    return;
+let lastQuote: { quote: Quote; userId: string } | null = null;
+
+async function currentUserId(): Promise<string> {
+  const { data } = await db().auth.getUser();
+  if (!data.user) {
+    throw new ApiError("Your session expired. Please sign in again.", 401);
   }
-  const existing = new Set(state.users.map((u) => u.id));
-  for (const app of pendingApplications.values()) {
-    if (existing.has(app.id)) {
-      const idx = state.users.findIndex((u) => u.id === app.id);
-      if (idx >= 0) {state.users[idx] = { ...state.users[idx], ...app };}
-    } else {
-      state.users.push(structuredClone(app));
-    }
-  }
+  return data.user.id;
 }
 
-function syncPendingUserFromRegistry() {
-  if (!state?.user?.id) {
-    return;
-  }
-  const app = pendingApplications.get(state.user.id);
-  if (app) {
-    state.user = { ...state.user, ...app };
-    const idx = state.users.findIndex((u) => u.id === state.user.id);
-    if (idx >= 0) {state.users[idx] = { ...state.users[idx], ...state.user };}
-  }
+function raise(error: { message: string } | null) {
+  if (error) {throw new ApiError(error.message, 400);}
 }
 
-export async function selectDemo(role: Role, adminLevel?: AdminLevel) {
-  const names: Record<string, string> = {
-    Passenger: "April Lentejas",
-    "Tricycle driver": "Meynard Salem",
-    "PUJ / PUV driver": "Limuel Rosino",
-    Administrator: adminLevel === "Franchise Owner" ? "Kent Ferrer" : "Shaina Moriles",
-    "Vehicle Owner / Operator": "Kent Ferrer",
+/* ------------------------------------------------------------------ mappers */
+
+function mapUser(row: any, driver?: any): User {
+  const role = (row.assigned_roles?.[0] ?? "Passenger") as Role;
+  const hasLocation =
+    driver?.current_lat != null && driver?.current_lng != null;
+  return {
+    id: row.user_id,
+    email: str(row.email),
+    name: str(row.name) || str(row.email),
+    phone: str(row.phone || row.contact_numbers),
+    role,
+    photo: row.photo || undefined,
+    adminLevel: row.admin_level ?? undefined,
+    ownerVehicleIds: undefined,
+    available: driver?.availability_status === "available",
+    verified: !!row.verified,
+    pendingFranchiseApproval: row.application_status === "pending",
+    applicationStatus: row.application_status ?? "accepted",
+    licenseDocAttached: driver?.license_doc_attached ?? false,
+    license: str(driver?.license_number),
+    association: str(driver?.association),
+    plate: str(driver?.plate_number),
+    permitNo: str(driver?.permit_number) || undefined,
+    franchiseName: driver?.franchise_name || row.franchise_name || undefined,
+    capacity: num(driver?.capacity),
+    routeId: driver?.routes_id ?? null,
+    location: hasLocation
+      ? {
+          name: "Current location",
+          latitude: num(driver.current_lat),
+          longitude: num(driver.current_lng),
+          updatedAt: driver.location_updated_at
+            ? Date.parse(driver.location_updated_at)
+            : Date.now(),
+        }
+      : null,
   };
-  const effectiveRole: Role = role === "Vehicle Owner / Operator" ? "Administrator" : role;
-  const user = makeUser(effectiveRole, "demo-user", names[role] || names[effectiveRole] || "Demo User");
-  if (role === "Administrator" || role === "Vehicle Owner / Operator") {
-    user.adminLevel = adminLevel || (role === "Vehicle Owner / Operator" ? "Franchise Owner" : "Technical Team");
-    if (user.adminLevel === "Franchise Owner") {
-      user.email = "kent@angkol.example";
-      user.name = "Kent Ferrer";
-      user.franchiseName = "Calbayog Metro Express";
-      user.ownerVehicleIds = ["sample-driver-1", "sample-driver-3"];
-    } else {
-      user.email = "shaina@angkol.example";
-      user.name = "Shaina Moriles";
+}
+
+function mapRoute(row: any): Route {
+  return {
+    id: row.routes_id,
+    name: str(row.route_name),
+    stops: Array.isArray(row.stops) ? row.stops : [],
+    fare: num(row.fare),
+    interval: num(row.interval_minutes, 15),
+    startsAt: shortTime(row.starts_at, "06:00"),
+    endsAt: shortTime(row.ends_at, "20:00"),
+    active: !!row.active,
+    approved: !!row.approved,
+    reference: str(row.reference) || "Fare matrix",
+    destination: str(row.destination),
+    transportType: row.transport_type === "Tricycle" ? "Tricycle" : "PUJ / PUV",
+    scheduled: !!row.scheduled,
+  };
+}
+
+function mapVehicle(row: any): Vehicle {
+  const lat = num(row.current_lat, FALLBACK.latitude);
+  const lng = num(row.current_lng, FALLBACK.longitude);
+  const updatedAt = row.location_updated_at
+    ? Date.parse(row.location_updated_at)
+    : 0;
+  return {
+    id: row.vehicle_id,
+    name: str(row.name) || str(row.plate_number),
+    kind: "PUJ / PUV driver",
+    vehicleType: row.vehicle_type || "Jeepney",
+    plate: str(row.plate_number),
+    routeId: row.routes_id ?? null,
+    capacity: num(row.capacity, 18),
+    location: {
+      name: str(row.name) || str(row.plate_number) || FALLBACK.name,
+      latitude: lat,
+      longitude: lng,
+      updatedAt,
+    },
+    stale: !updatedAt || Date.now() - updatedAt > 5 * 60 * 1000,
+    status: row.status ?? "In Terminal",
+    ownerId: row.owner_id ?? undefined,
+    currentDriver: str(row.current_driver) || undefined,
+  };
+}
+
+function mapTrip(booking: any, users: Map<string, any>, drivers: Map<string, any>): Trip {
+  const pickupPoint: Point = {
+    name: str(booking.pickup_name) || "Pickup",
+    latitude: num(booking.pickup_latitude),
+    longitude: num(booking.pickup_longitude),
+  };
+  const destinationPoint: Point = {
+    name: str(booking.dropoff_name) || "Destination",
+    latitude: num(booking.dropoff_latitude),
+    longitude: num(booking.dropoff_longitude),
+  };
+  const driverUser = booking.driver_id ? users.get(booking.driver_id) : undefined;
+  const driverRecord = booking.driver_id
+    ? drivers.get(booking.driver_id)
+    : undefined;
+  const coords = booking.route_polyline?.coordinates;
+  const created = booking.created_at
+    ? Date.parse(booking.created_at)
+    : Date.now();
+
+  return {
+    id: booking.booking_id,
+    pickup: pickupPoint.name,
+    destination: destinationPoint.name,
+    pickupPoint,
+    destinationPoint,
+    distance: num(booking.distance_km),
+    fare: num(booking.calculated_fixed_fare),
+    minutes: num(booking.duration_min),
+    geometry:
+      Array.isArray(coords) && coords.length >= 2
+        ? { type: "LineString", coordinates: coords }
+        : {
+            type: "LineString",
+            coordinates: [
+              [pickupPoint.longitude, pickupPoint.latitude],
+              [destinationPoint.longitude, destinationPoint.latitude],
+            ],
+          },
+    fareReference: "Fare matrix",
+    sampleFare: false,
+    expires: booking.expires_at
+      ? Date.parse(booking.expires_at)
+      : created + 10 * 60 * 1000,
+    passengerId: booking.user_id,
+    passenger: str(users.get(booking.user_id)?.name) || "Passenger",
+    driverId: booking.driver_id ?? null,
+    driver: str(driverUser?.name) || str(booking.driver_name) || undefined,
+    driverPhone: str(driverUser?.phone) || undefined,
+    driverAssociation: str(driverRecord?.association) || undefined,
+    plate: str(booking.driver_plate) || str(driverRecord?.plate_number) || undefined,
+    status: booking.request_status,
+    createdAt: booking.created_at || new Date().toISOString(),
+    timestamps: booking.timestamps || {},
+    rating: booking.rating ?? null,
+    pickupNote: booking.pickup_note || undefined,
+  };
+}
+
+function mapRun(row: any, users: Map<string, any>): DriverRun {
+  const events = (row.driver_run_events || [])
+    .map((event: any) => ({
+      at: event.at,
+      stop: str(event.stop),
+      boarded: num(event.boarded),
+      alighted: num(event.alighted),
+      onboard: num(event.onboard),
+      type: str(event.type) || "stop",
+    }))
+    .sort((a: any, b: any) => Date.parse(a.at) - Date.parse(b.at));
+
+  return {
+    id: row.run_id,
+    driverId: row.driver_id,
+    driver: str(users.get(row.driver_id)?.name),
+    plate: str(row.plate),
+    capacity: num(row.capacity, 18),
+    routeId: row.routes_id,
+    routeName: str(row.route_name),
+    stops: Array.isArray(row.stops) ? row.stops : [],
+    fare: num(row.fare),
+    sampleFare: false,
+    reference: str(row.reference) || "Fare matrix",
+    status: row.status === "Completed" ? "Completed" : "In progress",
+    startedAt: row.started_at,
+    endedAt: row.ended_at ?? null,
+    stopIndex: num(row.stop_index),
+    onboard: num(row.onboard),
+    totalBoarded: num(row.total_boarded),
+    cashFares: num(row.cash_fares),
+    revision: num(row.revision, 1),
+    events,
+  };
+}
+
+/* ------------------------------------------------------------------ snapshot */
+
+async function loadSnapshot(): Promise<Snapshot> {
+  const client = db();
+  const userId = await currentUserId();
+
+  const [
+    meResult,
+    usersResult,
+    driversResult,
+    routesResult,
+    terminalsResult,
+    vehiclesResult,
+    bookingsResult,
+    runsResult,
+    stopsResult,
+    reportsResult,
+    notificationsResult,
+    landmarksResult,
+    faresResult,
+    logsResult,
+  ] = await Promise.all([
+    client.from("users").select("*").eq("user_id", userId).maybeSingle(),
+    client.from("users").select("*"),
+    client.from("drivers").select("*"),
+    client.from("routes").select("*").order("route_name"),
+    client.from("terminals").select("*").order("station_name"),
+    client.from("vehicles").select("*").order("name"),
+    client
+      .from("bookings")
+      .select("*")
+      .order("created_at", { ascending: false })
+      .limit(80),
+    client
+      .from("driver_runs")
+      .select("*, driver_run_events(*)")
+      .order("started_at", { ascending: false })
+      .limit(40),
+    client.from("stop_requests").select("*").order("created_at"),
+    client.from("reports").select("*").order("created_at", { ascending: false }),
+    client
+      .from("notifications")
+      .select("*")
+      .eq("user_id", userId)
+      .order("created_at", { ascending: false })
+      .limit(30),
+    client.from("landmarks").select("*").order("name"),
+    client.from("fare_matrices").select("*").eq("active", true),
+    client
+      .from("audit_logs")
+      .select("*")
+      .order("created_at", { ascending: false })
+      .limit(20),
+  ]);
+
+  raise(meResult.error);
+  if (!meResult.data) {
+    throw new ApiError(
+      "No profile found for this account. Run supabase/schema.sql first.",
+      404,
+    );
+  }
+
+  const users = (usersResult.data ?? []) as any[];
+  const drivers = (driversResult.data ?? []) as any[];
+  const userMap = new Map(users.map((row) => [row.user_id, row]));
+  const driverMap = new Map(drivers.map((row) => [row.user_id, row]));
+
+  const me = meResult.data as any;
+  const user = mapUser(me, driverMap.get(userId));
+
+  const routes = ((routesResult.data ?? []) as any[]).map(mapRoute);
+  const terminals = ((terminalsResult.data ?? []) as any[]).map((row) => ({
+    id: row.terminal_id,
+    name: str(row.station_name),
+    point: {
+      name: str(row.station_name),
+      latitude: num(row.latitude),
+      longitude: num(row.longitude),
+    },
+    routeId: row.routes_id,
+    active: !!row.active,
+  }));
+
+  const vehicles = ((vehiclesResult.data ?? []) as any[]).map(mapVehicle);
+  if (user.role === "Passenger") {
+    for (const row of drivers) {
+      if (row.current_lat == null || row.current_lng == null) {continue;}
+      const driverUser = userMap.get(row.user_id);
+      if (!driverUser) {continue;}
+      if (vehicles.some((vehicle) => vehicle.plate === row.plate_number)) {continue;}
+      vehicles.push({
+        id: `driver-${row.user_id}`,
+        name: str(driverUser.name),
+        kind: "Tricycle driver",
+        vehicleType: "Tricycle",
+        plate: str(row.plate_number),
+        routeId: row.routes_id ?? null,
+        capacity: num(row.capacity, 3),
+        location: {
+          name: str(driverUser.name),
+          latitude: num(row.current_lat),
+          longitude: num(row.current_lng),
+          updatedAt: row.location_updated_at
+            ? Date.parse(row.location_updated_at)
+            : Date.now(),
+        },
+        stale: !row.location_updated_at,
+        status: "In transit",
+      });
     }
   }
-  const driver = makeUser("Tricycle driver", "demo-driver", "Gabriel Torres");
-  state = {
+
+  const trips = ((bookingsResult.data ?? []) as any[]).map((row) =>
+    mapTrip(row, userMap, driverMap),
+  );
+  const runs = ((runsResult.data ?? []) as any[]).map((row) =>
+    mapRun(row, userMap),
+  );
+
+  const stopRequests = ((stopsResult.data ?? []) as any[]).map((row) => ({
+    id: row.request_id,
+    routeId: row.routes_id,
+    point: row.point as Point,
+    passenger: str(row.passenger),
+    userId: row.user_id,
+    createdAt: row.created_at ? Date.parse(row.created_at) : Date.now(),
+  }));
+
+  const reports = ((reportsResult.data ?? []) as any[]).map((row) => ({
+    id: row.report_id,
+    details: str(row.details),
+    tripId: row.booking_id ?? null,
+    status: str(row.status) || "open",
+    reporter: str(row.reporter),
+    createdAt: row.created_at || new Date().toISOString(),
+  }));
+
+  const notifications = ((notificationsResult.data ?? []) as any[]).map(
+    (row) => ({
+      id: row.notification_id,
+      message: str(row.message),
+      createdAt: row.created_at || new Date().toISOString(),
+      read: !!row.read,
+    }),
+  );
+
+  const landmarks = ((landmarksResult.data ?? []) as any[]).map((row) => ({
+    name: str(row.name),
+    latitude: num(row.latitude),
+    longitude: num(row.longitude),
+  }));
+
+  const fare = ((faresResult.data ?? []) as any[]).find(
+    (row) => row.routes_id == null,
+  );
+
+  return {
     user,
-    users: [user, driver],
-    landmarks,
-    trips:
-      role === "Passenger" ? createSampleTrips(user, driver, landmarks) : [],
-    runs: [],
-    routes: [
-      {
-        id: "CB01",
-        name: "City Hall – Public Market",
-        stops: landmarks.slice(0, 2),
-        fare: 13,
-        interval: 15,
-        startsAt: "06:00",
-        endsAt: "20:00",
-        active: true,
-        approved: true,
-        reference: "Static sample",
-        destination: "Public Market",
-        transportType: "PUJ / PUV",
-      },
-      {
-        id: "CB02",
-        name: "City Hall – Airport",
-        stops: [landmarks[0], landmarks[2]],
-        fare: 20,
-        interval: 30,
-        startsAt: "06:00",
-        endsAt: "18:00",
-        active: true,
-        approved: true,
-        reference: "Static sample",
-        destination: "Airport",
-        transportType: "PUJ / PUV",
-      },
-      {
-        id: "CB03",
-        name: "Public Market – Airport",
-        stops: [landmarks[1], landmarks[2]],
-        fare: 18,
-        interval: 20,
-        startsAt: "06:30",
-        endsAt: "19:00",
-        active: true,
-        approved: false,
-        reference: "Static sample",
-        destination: "Airport",
-        transportType: "PUJ / PUV",
-      },
-    ],
-    terminals: [
-      {
-        id: "CT01",
-        name: "Public Market terminal",
-        point: landmarks[1],
-        routeId: "CB01",
-        active: true,
-      },
-      {
-        id: "CT02",
-        name: "Airport terminal",
-        point: landmarks[2],
-        routeId: "CB02",
-        active: true,
-      },
-      {
-        id: "CT03",
-        name: "City Hall terminal",
-        point: landmarks[0],
-        routeId: "CB01",
-        active: true,
-      },
-    ],
-    vehicles: [
-      {
-        id: driver.id,
-        name: driver.name,
-        kind: driver.role,
-        plate: driver.plate,
-        routeId: "CB01",
-        capacity: 8,
-        location: driver.location!,
-        stale: false,
-      },
-    ],
-    stopRequests: [],
-    baseFare: 25,
-    perKm: 8,
-    fareApproved: false,
-    sampleMode: true,
-    fareReference: "Static sample",
-    reports: [],
-    notifications: [
-      {
-        id: "welcome",
-        message:
-          "Welcome to the standalone UI prototype. All data is fictional.",
-        createdAt: new Date().toISOString(),
-        read: false,
-      },
-    ],
-    logs: [],
+    users: users.map((row) => mapUser(row, driverMap.get(row.user_id))),
+    routes,
+    terminals,
+    vehicles,
+    trips,
+    runs,
+    landmarks: landmarks.length ? landmarks : [FALLBACK],
+    stopRequests,
+    reports,
+    notifications,
+    logs: ((logsResult.data ?? []) as any[]).map((row) => ({
+      id: num(row.log_id),
+      action: str(row.event_type),
+      at: row.created_at || new Date().toISOString(),
+    })),
+    baseFare: num(fare?.base_fare, 25),
+    perKm: num(fare?.per_kilometer_rate, 8),
+    fareApproved: true,
+    sampleMode: false,
+    fareReference: "Fare matrix",
     serverTime: Date.now(),
   };
-  if (role === "Tricycle driver") {
-    const passenger = makeUser(
-      "Passenger",
-      "sample-passenger",
-      "Camille Navarro",
-    );
-    state.trips = createDriverTrips(
-      user,
-      passenger,
-      landmarks,
-      state.serverTime,
-    );
-    const request = createSampleTrips(passenger, user, landmarks)[0];
-    state.trips.unshift({
-      ...request,
-      id: "SAMPLE-INCOMING-001",
-      driverId: null,
-      status: "Requested",
-      rating: null,
-      createdAt: new Date(state.serverTime).toISOString(),
-      timestamps: { Requested: state.serverTime },
-    });
-  } else if (role === "PUJ / PUV driver") {
-    state.runs = createDriverRuns(user, state.routes[0], state.serverTime);
-  }
-
-  if (role === "Administrator") {
-    populateAdministratorSamples(state);
-  }
-  injectPendingApplications();
-  syncPendingUserFromRegistry();
-
-  signedIn = true;
 }
+
+/* ------------------------------------------------------------------ helpers */
+
+async function namesFor(ids: (string | null | undefined)[]) {
+  const wanted = [...new Set(ids.filter(Boolean) as string[])];
+  if (!wanted.length) {
+    return {
+      users: new Map<string, any>(),
+      drivers: new Map<string, any>(),
+    };
+  }
+  const [users, drivers] = await Promise.all([
+    db().from("users").select("*").in("user_id", wanted),
+    db().from("drivers").select("*").in("user_id", wanted),
+  ]);
+  return {
+    users: new Map((users.data ?? []).map((row: any) => [row.user_id, row])),
+    drivers: new Map((drivers.data ?? []).map((row: any) => [row.user_id, row])),
+  };
+}
+
+async function mapBookingRow(
+  row: any,
+  currentUserIdValue: string,
+): Promise<Trip> {
+  const maps = await namesFor([currentUserIdValue, row.driver_id]);
+  return mapTrip(row, maps.users, maps.drivers);
+}
+
+/* ------------------------------------------------------------------ adapter */
 
 export async function clearSession() {
-  signedIn = false;
-  quote = undefined;
+  lastQuote = null;
+  try {
+    await db().auth.signOut();
+  } catch {
+    // Nothing to clear when Supabase is not configured yet.
+  }
 }
 
-/** Local UI adapter. Never reads credentials, environment URLs, storage, or a network. */
 export async function api<T = { ok: boolean }>(
   endpoint: string,
   input?: unknown,
@@ -261,347 +468,523 @@ export async function api<T = { ok: boolean }>(
 ): Promise<T> {
   const body = (input || {}) as Record<string, any>;
   const parts = endpoint.split("/");
-  const id = () => `demo-${++sequence}`;
-  const now = new Date().toISOString();
+  const client = db();
   let result: unknown = { ok: true };
-  if (endpoint === "/login") {
-    await selectDemo(body.role || "Passenger");
-    result = { token: "static-demo", user: state.user };
-  } else if (endpoint === "/register") {
-    if (body.role === "PUJ / PUV driver") {
-      // Prototype: PUJ/PUV registration proceeds locally after the UI's approval wait.
-      // Do not pass registrations to the franchise owner admin-web drivers tab.
-      const appId = `puj-${normalizeEmail(body.email || String(++sequence))}-${Date.now()}`;
-      const user: User = {
-        ...makeUser("PUJ / PUV driver", appId, body.name?.trim() || "PUJ / PUV Driver"),
-        email: body.email || `${appId}@example.invalid`,
-        phone: body.phone?.trim() || "",
-        license: body.license?.trim() || "",
-        franchiseName: body.franchiseName?.trim() || "Calbayog Metro Express",
-        licenseDocAttached: !!body.licenseDocAttached,
-        association: "",
-        plate: body.plate?.trim() || "ABC 1234",
-        verified: true,
-        available: false,
-        pendingFranchiseApproval: false,
-        applicationStatus: "accepted",
-        location: { ...landmarks[0], updatedAt: Date.now() },
-      };
-      await selectDemo("PUJ / PUV driver");
-      state.user = { ...state.user, ...user, id: appId };
-      // Keep a non-admin local user record only; do not expose to franchise owner drivers tab.
-      state.runs = createDriverRuns(state.user, state.routes[0], state.serverTime);
-      signedIn = true;
-      result = { token: "static-demo", user: state.user };
-    } else {
-      await selectDemo(body.role || "Passenger");
-      result = { token: "static-demo", user: state.user };
-    }
-  } else if (endpoint === "/logout") {
-    signedIn = false;
+
+  if (endpoint === "/logout") {
+    await clearSession();
   } else {
-    if (!signedIn) {
-      throw new ApiError("Down Server", 401);
-    }
+    const userId = await currentUserId();
+
     if (endpoint === "/state") {
-      injectPendingApplications();
-      syncPendingUserFromRegistry();
-      result = state;
+      result = await loadSnapshot();
     } else if (endpoint === "/debug/pending-applications") {
-      result = { count: pendingApplications.size, items: [...pendingApplications.values()] };
+      const { data } = await client
+        .from("users")
+        .select("*")
+        .eq("application_status", "pending");
+      result = { count: data?.length ?? 0, items: data ?? [] };
     } else if (endpoint.startsWith("/search")) {
-      result = landmarks.filter((p) =>
-        p.name
-          .toLowerCase()
-          .includes(
-            decodeURIComponent(endpoint.split("q=")[1] || "").toLowerCase(),
-          ),
-      );
+      const query = decodeURIComponent(endpoint.split("q=")[1] || "").trim();
+      const { data, error } = await client
+        .from("landmarks")
+        .select("*")
+        .ilike("name", `%${query}%`)
+        .limit(8);
+      raise(error);
+      result = (data ?? []).map((row: any) => ({
+        name: row.name,
+        latitude: num(row.latitude),
+        longitude: num(row.longitude),
+      }));
     } else if (endpoint === "/quote") {
       const pickup = body.pickup as Point;
       const destination = body.destination as Point;
-      quote = {
-        id: id(),
+      if (!pickup || !destination) {
+        throw new ApiError("Choose both your pickup and destination.", 400);
+      }
+      const route = await directions(pickup, destination);
+      const { data: fare, error } = await client.rpc("quote_fare", {
+        p_distance_km: route.distanceKm,
+        p_class: "Tricycle",
+      });
+      raise(error);
+      const quote: Quote = {
+        id: `quote-${Date.now()}`,
         pickup: pickup.name,
         destination: destination.name,
         pickupPoint: pickup,
         destinationPoint: destination,
-        distance: 3.2,
-        fare: 43,
-        minutes: 12,
-        geometry: {
-          type: "LineString",
-          coordinates: [
-            [pickup.longitude, pickup.latitude],
-            [destination.longitude, destination.latitude],
-          ],
-        },
-        fareReference: "Static sample",
-        sampleFare: true,
-        expires: Date.now() + 3600000,
+        distance: Math.round(route.distanceKm * 10) / 10,
+        fare: num(fare, Math.round(10 + route.distanceKm * 5)),
+        minutes: route.minutes,
+        geometry: route.geometry,
+        fareReference: "Fare matrix",
+        sampleFare: false,
+        expires: Date.now() + 10 * 60 * 1000,
       };
+      lastQuote = { quote, userId };
       result = quote;
     } else if (endpoint === "/book") {
-      if (!quote) {
+      if (!lastQuote || lastQuote.userId !== userId || lastQuote.quote.id !== body.quoteId) {
         throw new ApiError("Preview a route first.", 400);
       }
-      const trip: Trip = {
-        ...quote,
-        id: id(),
-        passengerId: state.user.id,
-        passenger: state.user.name,
-        driverId: "demo-driver",
-        driver: "Gabriel Torres",
-        plate: "AB 12345",
-        status: "Accepted",
-        createdAt: now,
-        timestamps: { Requested: Date.now(), Accepted: Date.now() },
-        rating: null,
-        pickupNote: body.pickupNote,
-        ...(body.demoMethod &&
-        ["GCash", "Maya", "Bank transfer"].includes(body.demoMethod)
-          ? {
-              demoPayment: {
-                method: body.demoMethod as "GCash" | "Maya" | "Bank transfer",
-                status: "Test succeeded" as const,
-                reference: `LOCAL-${sequence}`,
-                realMoneyCharged: false as const,
-              },
-            }
-          : {}),
-      };
-      state.trips.unshift(trip);
-      result = trip;
-    } else if (endpoint === "/book-puj") {
-      const trip = body.trip as Trip;
-      if (!trip) {
-        throw new ApiError("No trip provided.", 400);
-      }
-      state.trips.unshift(trip);
-      result = trip;
-    } else if (parts[1] === "trips") {
-      const trip = state.trips.find((t) => t.id === parts[2]);
-      if (trip) {
-        Object.assign(
-          trip,
-          parts[3] === "decline" ? { status: "Cancelled" } : body,
+      if (lastQuote.quote.expires <= Date.now()) {
+        throw new ApiError(
+          "This fare quote expired. Request a fresh quote.",
+          400,
         );
       }
-      if (
-        trip &&
-        body.status === "Accepted" &&
-        state.user.role.includes("driver")
-      ) {
-        trip.driverId = state.user.id;
-        trip.driver = state.user.name;
-        trip.plate = state.user.plate;
-        trip.timestamps.Accepted = Date.now();
-      }
-      result = trip || { ok: true };
+      const quote = lastQuote.quote;
+      const { data, error } = await client
+        .from("bookings")
+        .insert({
+          user_id: userId,
+          pickup_latitude: quote.pickupPoint.latitude,
+          pickup_longitude: quote.pickupPoint.longitude,
+          dropoff_latitude: quote.destinationPoint.latitude,
+          dropoff_longitude: quote.destinationPoint.longitude,
+          pickup_name: quote.pickup,
+          dropoff_name: quote.destination,
+          calculated_fixed_fare: quote.fare,
+          request_status: "Requested",
+          service_type: "Tricycle",
+          payment_method: body.demoMethod || "Cash",
+          distance_km: quote.distance,
+          duration_min: quote.minutes,
+          route_polyline: quote.geometry,
+          pickup_note: body.pickupNote || null,
+          timestamps: { Requested: Date.now() },
+          expires_at: new Date(quote.expires).toISOString(),
+        })
+        .select()
+        .single();
+      raise(error);
+      lastQuote = null;
+      result = await mapBookingRow(data, userId);
+    } else if (endpoint === "/book-puj") {
+      const trip = body.trip as Trip;
+      if (!trip) {throw new ApiError("No trip provided.", 400);}
+      const { data, error } = await client
+        .from("bookings")
+        .insert({
+          user_id: userId,
+          pickup_latitude: trip.pickupPoint.latitude,
+          pickup_longitude: trip.pickupPoint.longitude,
+          dropoff_latitude: trip.destinationPoint.latitude,
+          dropoff_longitude: trip.destinationPoint.longitude,
+          pickup_name: trip.pickup,
+          dropoff_name: trip.destination,
+          calculated_fixed_fare: trip.fare,
+          request_status: trip.status || "Requested",
+          service_type: "PUJ/PUV",
+          payment_method: "Cash",
+          distance_km: trip.distance,
+          duration_min: trip.minutes,
+          route_polyline: trip.geometry,
+          driver_name: trip.driver || "",
+          driver_plate: trip.plate || "",
+          timestamps: trip.timestamps || { Requested: Date.now() },
+          expires_at: new Date(trip.expires || Date.now() + 10 * 60 * 1000).toISOString(),
+        })
+        .select()
+        .single();
+      raise(error);
+      result = await mapBookingRow(data, userId);
+    } else if (parts[1] === "trips" && parts[3] === "rating") {
+      const { error } = await client.rpc("rate_booking", {
+        p_booking_id: parts[2],
+        p_rating: num(body.rating, 5),
+      });
+      raise(error);
+    } else if (parts[1] === "trips" && parts[3] === "decline") {
+      const { error } = await client.rpc("release_booking", {
+        p_booking_id: parts[2],
+      });
+      raise(error);
+    } else if (parts[1] === "trips") {
+      const status = str(body.status) || "Cancelled";
+      const { error } = await client.rpc("transition_booking", {
+        p_booking_id: parts[2],
+        p_status: status,
+      });
+      raise(error);
     } else if (endpoint === "/profile/photo") {
-      state.user.photo =
+      const photo =
         typeof body.photo === "string" && body.photo.startsWith("data:image/")
           ? body.photo
-          : undefined;
+          : null;
+      const { error } = await client
+        .from("users")
+        .update({ photo })
+        .eq("user_id", userId);
+      raise(error);
     } else if (endpoint === "/profile") {
-      Object.assign(state.user, body);
+      const { error } = await client
+        .from("users")
+        .update({
+          name: str(body.name),
+          phone: str(body.phone),
+          contact_numbers: str(body.phone),
+        })
+        .eq("user_id", userId);
+      raise(error);
     } else if (endpoint === "/availability") {
-      state.user.available = !!body.available;
+      const { error } = await client
+        .from("drivers")
+        .update({ availability_status: body.available ? "available" : "offline" })
+        .eq("user_id", userId);
+      raise(error);
     } else if (endpoint === "/notifications/read") {
-      state.notifications.forEach((n) => (n.read = true));
+      const { error } = await client
+        .from("notifications")
+        .update({ read: true })
+        .eq("user_id", userId);
+      raise(error);
     } else if (endpoint === "/report") {
-      state.reports.unshift({
-        id: id(),
-        details: body.details,
-        tripId: body.tripId || null,
+      const me = await client
+        .from("users")
+        .select("name")
+        .eq("user_id", userId)
+        .maybeSingle();
+      const { error } = await client.from("reports").insert({
+        details: str(body.details),
+        booking_id: body.tripId || null,
         status: "open",
-        reporter: state.user.name,
-        createdAt: now,
+        reporter: str(me.data?.name) || "Passenger",
+        reporter_id: userId,
       });
+      raise(error);
     } else if (parts[1] === "reports") {
-      Object.assign(state.reports.find((r) => r.id === parts[2]) || {}, body);
+      const { error } = await client
+        .from("reports")
+        .update({ status: str(body.status) })
+        .eq("report_id", parts[2]);
+      raise(error);
     } else if (endpoint === "/vehicles" && (method === "POST" || !method)) {
-      const vId = (body.id as string) || `vehicle-${++sequence}`;
-      const vehicle = {
-        id: vId,
-        name: String(body.name || body.plate || "Franchise vehicle"),
-        kind: "PUJ / PUV driver" as Role,
-        vehicleType: (body.vehicleType as any) || "Jeepney",
-        plate: String(body.plate || "").trim(),
-        routeId: String(body.routeId || state.routes?.[0]?.id || "CB01"),
-        capacity: Number(body.capacity) || 18,
-        location: (body.location as any) || (state.landmarks?.[0] ? { ...state.landmarks[0], updatedAt: Date.now() } : null),
-        stale: false,
-        status: (body.status as any) || "In Terminal",
-        ownerId: state.user?.id,
-        ownerName: state.user?.name,
-        currentDriver: String(body.currentDriver || ""),
-      };
-      const idx = state.vehicles.findIndex((v) => v.id === vId || (vehicle.plate && v.plate === vehicle.plate));
-      if (idx >= 0) {state.vehicles[idx] = { ...state.vehicles[idx], ...vehicle };} else {state.vehicles.unshift(vehicle as any);}
-      if (state.user?.adminLevel === "Franchise Owner") {
-        const ids = new Set(state.user.ownerVehicleIds || []);
-        ids.add(vehicle.id);
-        state.user.ownerVehicleIds = [...ids];
-      }
-      result = vehicle;
-    } else if (endpoint === "/vehicles/status" || (parts[1] === "vehicles" && parts[3] === "status")) {
-      const vId = (body as any)?.id || parts[2];
-      const vehicle = state.vehicles.find((v) => v.id === vId);
-      if (vehicle) {vehicle.status = (body as any)?.status;}
-      result = vehicle || { ok: true };
+      const vehicleId =
+        str(body.id) || `vehicle-${Date.now().toString(36)}`;
+      const point = body.location || FALLBACK;
+      const { data, error } = await client
+        .from("vehicles")
+        .upsert(
+          {
+            vehicle_id: vehicleId,
+            name: str(body.name) || str(body.plate) || "Franchise vehicle",
+            vehicle_type: body.vehicleType || "Jeepney",
+            plate_number: str(body.plate),
+            routes_id: body.routeId || null,
+            capacity: num(body.capacity, 18),
+            current_lat: point.latitude,
+            current_lng: point.longitude,
+            location_updated_at: new Date().toISOString(),
+            status: body.status || "In Terminal",
+            owner_id: userId,
+            current_driver: str(body.currentDriver),
+          },
+          { onConflict: "vehicle_id" },
+        )
+        .select()
+        .single();
+      raise(error);
+      result = mapVehicle(data);
+    } else if (
+      endpoint === "/vehicles/status" ||
+      (parts[1] === "vehicles" && parts[3] === "status")
+    ) {
+      const vehicleId = str(body.id) || parts[2];
+      const { error } = await client
+        .from("vehicles")
+        .update({ status: body.status })
+        .eq("vehicle_id", vehicleId);
+      raise(error);
+      result = { ok: true };
     } else if (parts[1] === "vehicles") {
-      const vehicle = state.vehicles.find((v) => v.id === parts[2]);
-      if (vehicle) {Object.assign(vehicle, body);}
-      result = vehicle || { ok: true };
+      const patch: Record<string, unknown> = {};
+      if (body.name !== undefined) {patch.name = str(body.name);}
+      if (body.plate !== undefined) {patch.plate_number = str(body.plate);}
+      if (body.routeId !== undefined) {patch.routes_id = body.routeId || null;}
+      if (body.capacity !== undefined) {patch.capacity = num(body.capacity, 18);}
+      if (body.status !== undefined) {patch.status = body.status;}
+      if (body.currentDriver !== undefined)
+        {patch.current_driver = str(body.currentDriver);}
+      if (body.vehicleType !== undefined) {patch.vehicle_type = body.vehicleType;}
+      const { error } = await client
+        .from("vehicles")
+        .update(patch)
+        .eq("vehicle_id", parts[2]);
+      raise(error);
+      result = { ok: true };
     } else if (parts[1] === "drivers") {
-      const target = state.users.find((u) => u.id === parts[2]);
-      if (target) {Object.assign(target, body);}
-      result = target || { ok: true };
+      const target = parts[2];
+      const verified = body.verified;
+      const applicationStatus = body.applicationStatus as
+        | "pending"
+        | "accepted"
+        | "declined"
+        | undefined;
+
+      if (verified !== undefined || applicationStatus) {
+        const userPatch: Record<string, unknown> = {};
+        if (verified !== undefined) {
+          userPatch.verified = !!verified;
+          if (!applicationStatus) {
+            userPatch.application_status = verified ? "accepted" : "pending";
+          }
+        }
+        if (applicationStatus) {
+          userPatch.application_status = applicationStatus;
+          if (applicationStatus === "accepted") {userPatch.verified = true;}
+          if (applicationStatus === "declined") {userPatch.verified = false;}
+        }
+        const { error } = await client
+          .from("users")
+          .update(userPatch)
+          .eq("user_id", target);
+        raise(error);
+      }
+      const patch: Record<string, unknown> = {};
+      if (verified !== undefined) {patch.verified = !!verified;}
+      if (body.routeId !== undefined) {patch.routes_id = body.routeId || null;}
+      if (body.association !== undefined) {patch.association = str(body.association);}
+      if (Object.keys(patch).length) {
+        const { error } = await client
+          .from("drivers")
+          .update(patch)
+          .eq("user_id", target);
+        raise(error);
+      }
     } else if (endpoint === "/configure") {
       if (body.type === "route") {
-        const newRoute = {
-          id: body.id || `route-${++sequence}`,
-          name: body.name,
-          transportType: body.transportType || "PUJ / PUV",
-          destination: body.destination || "",
+        const routeRow = {
+          routes_id: str(body.id) || `route-${Date.now().toString(36)}`,
+          route_name: str(body.name),
+          transport_type: body.transportType || "PUJ / PUV",
+          destination: str(body.destination),
           stops: body.stops || [],
-          fare: body.fare,
+          fare: num(body.fare),
           scheduled: body.scheduled ?? false,
           approved: !!body.approved,
           active: body.active ?? true,
-          reference: body.reference || "Admin configured",
-          interval: body.interval || 15,
-          startsAt: body.startsAt || "06:00",
-          endsAt: body.endsAt || "20:00",
+          reference: str(body.reference) || "Admin configured",
+          interval_minutes: num(body.interval, 15),
+          starts_at: body.startsAt || "06:00",
+          ends_at: body.endsAt || "20:00",
         };
-        const idx = state.routes.findIndex((r) => r.id === newRoute.id);
-        if (idx >= 0) {
-          state.routes[idx] = { ...state.routes[idx], ...newRoute };
-        } else {
-          state.routes.push(newRoute as any);
-        }
-        result = { ok: true, route: newRoute };
+        const { data, error } = await client
+          .from("routes")
+          .upsert(routeRow, { onConflict: "routes_id" })
+          .select()
+          .single();
+        raise(error);
+        result = { ok: true, route: mapRoute(data) };
       } else if (body.type === "terminal") {
-        const newTerminal = {
-          id: body.id || `terminal-${++sequence}`,
-          name: body.name,
-          point: body.point,
-          routeId: body.routeId,
-          active: body.active ?? true,
+        const point = body.point || FALLBACK;
+        const { data, error } = await client
+          .from("terminals")
+          .upsert(
+            {
+              terminal_id: str(body.id) || `terminal-${Date.now().toString(36)}`,
+              station_name: str(body.name),
+              routes_id: body.routeId || null,
+              latitude: point.latitude,
+              longitude: point.longitude,
+              active: body.active ?? true,
+            },
+            { onConflict: "terminal_id" },
+          )
+          .select()
+          .single();
+        raise(error);
+        result = {
+          ok: true,
+          terminal: {
+            id: data.terminal_id,
+            name: data.station_name,
+            point,
+            routeId: data.routes_id,
+            active: !!data.active,
+          },
         };
-        const idx = state.terminals.findIndex((t) => t.id === newTerminal.id);
-        if (idx >= 0) {
-          state.terminals[idx] = { ...state.terminals[idx], ...newTerminal };
-        } else {
-          state.terminals.push(newTerminal);
+      } else if (body.type === "fare") {
+        const baseFare = num(body.baseFare);
+        const perKm = num(body.perKm);
+        if (baseFare <= 0 || perKm <= 0) {
+          throw new ApiError("Base fare and per-kilometre rate must be greater than zero.", 400);
         }
-        result = { ok: true, terminal: newTerminal };
-      } else if (body.type === "toggle") {
-        const collection = (state as any)[body.collection as "routes" | "terminals"];
-        const item = collection?.find((x: any) => x.id === body.id);
-        if (item) {
-          item.active = body.active;
-        }
+        const { error } = await client
+          .from("fare_matrices")
+          .update({ base_fare: baseFare, per_kilometer_rate: perKm })
+          .eq("vehicle_classification", "Tricycle")
+          .is("routes_id", null);
+        raise(error);
         result = { ok: true };
-      } else {
-        // Legacy fare config (baseFare/perKm) — still supported but AdminPanel no longer uses it
-        Object.assign(state, body);
+      } else if (body.type === "toggle") {
+        const table = body.collection === "terminals" ? "terminals" : "routes";
+        const key = table === "terminals" ? "terminal_id" : "routes_id";
+        const { error } = await client
+          .from(table)
+          .update({ active: !!body.active })
+          .eq(key, body.id);
+        raise(error);
       }
+      // Legacy fare config (baseFare/perKm) is ignored: fares live in fare_matrices.
     } else if (endpoint === "/stop") {
-      state.stopRequests.push({
-        id: id(),
-        routeId: body.routeId,
+      const { error } = await client.from("stop_requests").insert({
+        routes_id: body.routeId,
         point: body.point,
-        passenger: state.user.name,
-        userId: state.user.id,
-        createdAt: Date.now(),
+        passenger: str(body.passenger) || "Passenger",
+        user_id: userId,
       });
+      raise(error);
     } else if (parts[1] === "stops" && method === "DELETE") {
-      state.stopRequests = state.stopRequests.filter((s) => s.id !== parts[2]);
+      const { error } = await client
+        .from("stop_requests")
+        .delete()
+        .eq("request_id", parts[2]);
+      raise(error);
     } else if (endpoint === "/runs") {
-      const route =
-        state.routes.find((r) => r.id === state.user.routeId) ||
-        state.routes[0];
-      const boarded = Number(body.boarded || 0);
-      const run: DriverRun = {
-        id: id(),
-        driverId: state.user.id,
-        driver: state.user.name,
-        plate: state.user.plate,
-        capacity: state.user.capacity,
-        routeId: route.id,
-        routeName: route.name,
-        stops: route.stops,
-        fare: route.fare,
-        sampleFare: true,
-        reference: "Prototype trip record",
-        status: "In progress",
-        startedAt: now,
-        endedAt: null,
-        stopIndex: 0,
-        onboard: boarded,
-        totalBoarded: boarded,
-        cashFares: boarded * route.fare,
-        revision: 1,
-        events: [
-          {
-            at: new Date(now).toISOString(),
-            stop: route.stops[0]?.name || "Terminal",
+      const me = await client
+        .from("drivers")
+        .select("*")
+        .eq("user_id", userId)
+        .maybeSingle();
+      const routeId = me.data?.routes_id;
+      const routeResult = routeId
+        ? await client.from("routes").select("*").eq("routes_id", routeId).maybeSingle()
+        : await client.from("routes").select("*").limit(1).maybeSingle();
+      raise(routeResult.error);
+      const route = routeResult.data;
+      if (!route) {throw new ApiError("No route is configured yet.", 400);}
+      const profile = await client
+        .from("users")
+        .select("name")
+        .eq("user_id", userId)
+        .maybeSingle();
+      const boarded = num(body.boarded);
+      const fare = num(route.fare);
+      const stops = Array.isArray(route.stops) ? route.stops : [];
+      const { data, error } = await client
+        .from("driver_runs")
+        .insert({
+          driver_id: userId,
+          routes_id: route.routes_id,
+          route_name: route.route_name,
+          plate: str(me.data?.plate_number),
+          capacity: num(me.data?.capacity, 18),
+          fare,
+          reference: str(route.reference) || "Fare matrix",
+          status: "In progress",
+          stop_index: 0,
+          onboard: boarded,
+          total_boarded: boarded,
+          cash_fares: boarded * fare,
+          revision: 1,
+          stops,
+        })
+        .select()
+        .single();
+      raise(error);
+
+      let events: any[] = [];
+      if (boarded > 0) {
+        const { data: eventRow } = await client
+          .from("driver_run_events")
+          .insert({
+            run_id: data.run_id,
+            stop: str(stops[0]?.name) || "Terminal",
             boarded,
             alighted: 0,
             onboard: boarded,
             type: "departure",
-          },
-        ],
-      };
-      state.runs!.unshift(run);
-      result = run;
+          })
+          .select()
+          .single();
+        events = eventRow ? [eventRow] : [];
+      }
+      result = mapRun(
+        { ...data, driver_run_events: events },
+        new Map([[userId, profile.data ?? {}]]),
+      );
     } else if (parts[1] === "runs") {
-      const run = state.runs!.find((r) => r.id === parts[2]);
-      if (run) {
-        if (body.action === "complete" || body.status === "Completed") {
-          run.status = "Completed";
-          run.endedAt = now;
-          run.stopIndex = run.stops.length - 1;
-          run.onboard = 0;
-          run.cashFares = run.totalBoarded * run.fare;
-          run.events = run.events || [];
-          if (!run.events.some((e: any) => e.type === "complete")) {
-            run.events.push({
-              at: new Date(now).toISOString(),
-              stop: run.stops[run.stops.length - 1]?.name || "Final stop",
-              boarded: 0,
-              alighted: run.totalBoarded,
-              onboard: 0,
-              type: "complete",
-            });
-          }
-          run.revision++;
-        } else {
-          // Log the event at the CURRENT stop before advancing the index.
-          const currentStop = run.stops[run.stopIndex];
-          run.onboard = Math.max(
-            0,
-            run.onboard + Number(body.boarded || 0) - Number(body.alighted || 0),
-          );
-          run.totalBoarded += Number(body.boarded || 0);
-          run.cashFares = run.totalBoarded * run.fare;
-          run.events = run.events || [];
-          run.events.push({
-            at: new Date(now).toISOString(),
-            stop: currentStop?.name || "Stop",
-            boarded: Number(body.boarded || 0),
-            alighted: Number(body.alighted || 0),
-            onboard: run.onboard,
+      const { data: run, error: runError } = await client
+        .from("driver_runs")
+        .select("*")
+        .eq("run_id", parts[2])
+        .maybeSingle();
+      raise(runError);
+      if (!run) {throw new ApiError("Trip record not found.", 404);}
+
+      const stops = Array.isArray(run.stops) ? run.stops : [];
+      const fare = num(run.fare);
+      if (body.action === "complete" || body.status === "Completed") {
+        const { error } = await client
+          .from("driver_runs")
+          .update({
+            status: "Completed",
+            ended_at: new Date().toISOString(),
+            stop_index: Math.max(0, stops.length - 1),
+            onboard: 0,
+            cash_fares: num(run.total_boarded) * fare,
+            revision: num(run.revision, 1) + 1,
+          })
+          .eq("run_id", run.run_id);
+        raise(error);
+        const { error: eventError } = await client
+          .from("driver_run_events")
+          .insert({
+            run_id: run.run_id,
+            stop: str(stops[stops.length - 1]?.name) || "Final stop",
+            boarded: 0,
+            alighted: num(run.total_boarded),
+            onboard: 0,
+            type: "complete",
+          });
+        raise(eventError);
+      } else {
+        const index = num(run.stop_index);
+        const onboard = Math.max(
+          0,
+          num(run.onboard) + num(body.boarded) - num(body.alighted),
+        );
+        const totalBoarded = num(run.total_boarded) + num(body.boarded);
+        const { error } = await client
+          .from("driver_runs")
+          .update({
+            onboard,
+            total_boarded: totalBoarded,
+            cash_fares: totalBoarded * fare,
+            stop_index: Math.min(index + 1, Math.max(0, stops.length - 1)),
+            revision: num(run.revision, 1) + 1,
+          })
+          .eq("run_id", run.run_id);
+        raise(error);
+        const { error: eventError } = await client
+          .from("driver_run_events")
+          .insert({
+            run_id: run.run_id,
+            stop: str(stops[index]?.name) || "Stop",
+            boarded: num(body.boarded),
+            alighted: num(body.alighted),
+            onboard,
             type: "stop",
           });
-          run.stopIndex = Math.min(run.stopIndex + 1, run.stops.length - 1);
-          run.revision++;
-        }
+        raise(eventError);
       }
-      result = run;
+
+      const { data: fresh } = await client
+        .from("driver_runs")
+        .select("*, driver_run_events(*)")
+        .eq("run_id", run.run_id)
+        .maybeSingle();
+      const profile = await client
+        .from("users")
+        .select("name")
+        .eq("user_id", userId)
+        .maybeSingle();
+      result = mapRun(fresh ?? run, new Map([[userId, profile.data ?? {}]]));
     }
   }
+
   return structuredClone(result) as T;
 }

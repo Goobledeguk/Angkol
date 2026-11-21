@@ -863,7 +863,7 @@ export default function PassengerApp({
           <Hint
             info
             icon="information-circle-outline"
-            text="Prototype: booking a PUJ/PUV instantly confirms your seat and the vehicle arrives at your pickup point."
+            text="Booking a PUJ/PUV confirms your seat and the vehicle arrives at your pickup point."
           />
         </>
       );
@@ -897,7 +897,7 @@ export default function PassengerApp({
                 driverId: `puj-driver-${pujRoute.id}`,
                 driver: "Limuel Rosino",
                 plate: "ABC 1234",
-                status: "Arrived", // prototype: instant arrival
+                status: "Arrived", // walk-up PUJ trips are recorded as arrived
                 createdAt: new Date().toISOString(),
                 timestamps: {
                   Requested: Date.now(),
@@ -905,7 +905,8 @@ export default function PassengerApp({
                   Arrived: Date.now(),
                 },
                 rating: null,
-                sampleFare: true,
+                sampleFare: false,
+                expires: Date.now() + 10 * 60 * 1000,
                 fareReference: pujRoute.reference,
                 geometry: {
                   type: "LineString",
@@ -915,9 +916,9 @@ export default function PassengerApp({
                   ],
                 },
               };
-              await api("/book-puj", { trip: pujTrip });
+              const created = await api<Trip>("/book-puj", { trip: pujTrip });
               await refresh();
-              go("PUJ arrived", pujTrip.id);
+              go("PUJ arrived", created.id);
             })
           }
         />

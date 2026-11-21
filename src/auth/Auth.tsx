@@ -7,7 +7,7 @@ import {
   Text,
   View,
 } from "react-native";
-import { signInSampleAccount } from "./sampleAccounts";
+import { signInAccount } from "./session";
 import { Button, Field } from "../common/ui";
 import BrandLogo from "../common/BrandLogo";
 import { s } from "../common/styles";
@@ -33,7 +33,7 @@ export default function Auth({
     setBusy(true);
     setError("");
     try {
-      await signInSampleAccount(email, password, true);
+      await signInAccount(email, password, true);
       await onSignedIn();
       setPassword("");
     } catch (error) {

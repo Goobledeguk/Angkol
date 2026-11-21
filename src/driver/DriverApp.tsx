@@ -36,6 +36,20 @@ type Props = {
   logout: () => Promise<void>;
 };
 type IconName = React.ComponentProps<typeof Icon>["name"];
+
+/** Straight-line distance in km; good enough to rank nearby ride offers. */
+function awayKm(
+  a: { latitude: number; longitude: number },
+  b: { latitude: number; longitude: number },
+) {
+  const rad = (v: number) => (v * Math.PI) / 180;
+  const dLat = rad(b.latitude - a.latitude);
+  const dLng = rad(b.longitude - a.longitude);
+  const h =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(rad(a.latitude)) * Math.cos(rad(b.latitude)) * Math.sin(dLng / 2) ** 2;
+  return 6371 * 2 * Math.asin(Math.sqrt(h));
+}
 function Button({
   title,
   onPress,
@@ -237,7 +251,14 @@ export default function DriverApp({
     activeRun = runs.find((r) => r.status === "In progress"),
     run = runs.find((r) => r.id === params.run) || activeRun || runs[0];
   const trips = data.trips.filter((t) => t.driverId === data.user.id),
-    requests = data.trips.filter((t) => t.status === "Requested"),
+    requests = data.trips
+      .filter((t) => t.status === "Requested" && data.user.available)
+      .sort((a, b) =>
+        data.user.location
+          ? awayKm(data.user.location, a.pickupPoint) -
+            awayKm(data.user.location, b.pickupPoint)
+          : 0,
+      ),
     activeTrip = trips.find(
       (t) => !["Completed", "Cancelled"].includes(t.status),
     ),
@@ -630,7 +651,7 @@ export default function DriverApp({
                     ? "Run active"
                     : assigned.approved
                       ? "Scheduled"
-                      : "Sample schedule"
+                      : "Pending approval schedule"
                 }
                 amber
               />
@@ -695,7 +716,7 @@ export default function DriverApp({
                 {data.terminals.find((t) => t.routeId === assigned.id)?.name ||
                   assigned.stops[0]?.name}{" "}
                 ·{" "}
-                {assigned.approved ? "Configured schedule" : "Sample schedule"}
+                {assigned.approved ? "Configured schedule" : "Pending approval schedule"}
               </Text>
             </View>
             <View style={ps.card}>

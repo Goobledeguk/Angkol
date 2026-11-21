@@ -3,6 +3,8 @@ import { Animated, View } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { router } from "expo-router";
 import { api, clearSession } from "./services/api";
+import { startSharing, stopSharing } from "./services/location";
+import { supabase } from "./services/supabase";
 import type { Snapshot } from "./types/types";
 import Auth from "./auth/Auth";
 import PassengerApp from "./passenger/PassengerApp";
@@ -21,6 +23,32 @@ export default function AngkolApp() {
     fade.setValue(0);
     Animated.timing(fade, { toValue: 1, duration: 220, useNativeDriver: true }).start();
   }, [hasData, userId, fade]);
+
+  // Realtime: refresh the snapshot when shared tables change.
+  useEffect(() => {
+    if (!supabase || !userId) {return;}
+    const client = supabase;
+    const channel = client
+      .channel(`angkol:${userId}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "bookings" },
+        () => {
+          void api<Snapshot>("/state").then(setData).catch(() => undefined);
+        },
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "notifications" },
+        () => {
+          void api<Snapshot>("/state").then(setData).catch(() => undefined);
+        },
+      )
+      .subscribe();
+    return () => {
+      void client.removeChannel(channel);
+    };
+  }, [userId]);
 
   async function refresh() {
     setData(await api<Snapshot>("/state"));
@@ -58,7 +86,7 @@ export default function AngkolApp() {
     data,
     notice,
     busy: false,
-    connected: true,
+    connected: !!supabase,
     dismissNotice: () => setNotice(""),
     refresh,
     action,
@@ -78,7 +106,17 @@ export default function AngkolApp() {
               {...props}
               sharing={sharing}
               toggleSharing={async () => {
-                setSharing((value) => !value);
+                if (sharing) {
+                  await stopSharing();
+                  setSharing(false);
+                  return;
+                }
+                try {
+                  await startSharing(data.user.id);
+                  setSharing(true);
+                } catch (error) {
+                  setNotice((error as Error).message);
+                }
               }}
             />
           )}

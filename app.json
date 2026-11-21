@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "Angkol",
-    "slug": "angkol-static-prototype",
+    "slug": "angkol",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/angkol-icon.png",
@@ -12,9 +12,12 @@
       "backgroundColor": "#0B5D45"
     },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.angkol.app"
     },
     "android": {
+      "package": "com.angkol.app",
+      "blockedPermissions": ["android.permission.RECORD_AUDIO"],
       "adaptiveIcon": {
         "backgroundColor": "#0B5D45",
         "foregroundImage": "./assets/angkol-icon.png"
@@ -34,10 +37,22 @@
     "web": {
       "favicon": "./assets/angkol-icon.png"
     },
-    "scheme": "angkol-prototype",
+    "scheme": "angkol",
     "plugins": [
       "expo-router",
-      "expo-font"
+      "expo-font",
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Angkol uses your location to show nearby vehicles and share your trip position with your driver."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Angkol uses your photo library so you can set a profile picture."
+        }
+      ]
     ]
   }
 }
