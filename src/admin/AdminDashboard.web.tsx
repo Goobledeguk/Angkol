@@ -1,5 +1,6 @@
 import { tripRef } from "../domain/vehicles";
 import { statusLabel } from "../domain/format";
+import { api } from "../services/api";
 import React, { useEffect, useRef, useState } from "react";
 import { router, useLocalSearchParams } from "expo-router";
 import type { AdminDashboardProps } from "./AdminDashboard";
@@ -191,6 +192,40 @@ function departureTime(
     ? `${String(Math.floor(next / 60)).padStart(2, "0")}:${String(next % 60).padStart(2, "0")}`
     : "Tomorrow";
 }
+function LicensePhoto({ userId, attached }: { userId: string; attached: boolean }) {
+  const [state, setState] = useState<{ loading: boolean; url: string | null }>({ loading: attached, url: null });
+  useEffect(() => {
+    if (!attached) {
+      return;
+    }
+    let live = true;
+    void api<{ url: string | null }>(`/documents/license/${userId}`, undefined, "GET")
+      .then((result) => live && setState({ loading: false, url: result.url }))
+      .catch(() => live && setState({ loading: false, url: null }));
+    return () => {
+      live = false;
+    };
+  }, [userId, attached]);
+  if (!attached) {
+    return <p className="aa-muted">No license photo was uploaded with this application.</p>;
+  }
+  if (state.loading) {
+    return <p className="aa-muted">Loading license photo…</p>;
+  }
+  if (!state.url) {
+    return <p className="aa-muted">The license photo is marked as attached but could not be loaded.</p>;
+  }
+  return (
+    <a href={state.url} target="_blank" rel="noreferrer" style={{ display: "block", margin: "14px 0" }}>
+      <img
+        src={state.url}
+        alt="Driver's license"
+        style={{ width: "100%", maxWidth: 420, borderRadius: 12, border: "1px solid var(--line)", display: "block" }}
+      />
+    </a>
+  );
+}
+
 export default function AdminDashboard({
   data,
   busy,
@@ -1842,6 +1877,9 @@ export default function AdminDashboard({
                     </React.Fragment>
                   ))}
                 </dl>
+                {selectedUser.role.includes("driver") && (
+                  <LicensePhoto userId={selectedUser.id} attached={!!selectedUser.licenseDocAttached} />
+                )}
                 {selectedUser.role.includes("driver") && (
                   <div className="aa-formstack">
                     <button
