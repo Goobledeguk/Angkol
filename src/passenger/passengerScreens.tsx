@@ -139,7 +139,7 @@ export function PassengerHomeScreen({
 }) {
   const places = [
     ...new Map(
-      data.trips.map((trip) => [trip.destination, trip.destinationPoint]),
+      data.trips.map((trip) => [trip.destinationPoint.name, trip.destinationPoint]),
     ).values(),
   ].slice(0, 3);
   return (
