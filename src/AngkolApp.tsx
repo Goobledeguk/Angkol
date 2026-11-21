@@ -5,6 +5,7 @@ import { router } from "expo-router";
 import { api, clearSession } from "./services/api";
 import { resumeSharing, startSharing, stopSharing } from "./services/location";
 import { supabase } from "./services/supabase";
+import { uploadPendingLicense } from "./services/documents";
 import type { Snapshot } from "./types/types";
 import { useNow } from "./common/useNow";
 import { useAppActive } from "./common/useAppActive";
@@ -105,6 +106,24 @@ export default function AngkolApp() {
     }, pollEvery);
     return () => clearInterval(timer);
   }, [pollEvery, refresh]);
+
+  const needsLicenseUpload =
+    !!data && isDriverRole(data.user.role) && !data.user.licenseDocAttached;
+  const userEmail = data?.user.email ?? "";
+  useEffect(() => {
+    if (!needsLicenseUpload || !userId || !userEmail) {
+      return;
+    }
+    let active = true;
+    void uploadPendingLicense(userId, userEmail).then((uploaded) => {
+      if (uploaded && active) {
+        void refresh().catch(() => undefined);
+      }
+    });
+    return () => {
+      active = false;
+    };
+  }, [needsLicenseUpload, userId, userEmail, refresh]);
 
   const driverShouldShare =
     !!data &&
