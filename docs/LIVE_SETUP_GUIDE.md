@@ -74,7 +74,7 @@ data.
 
 ### 4.2 Run the schema
 
-Open **SQL Editor**, paste the whole of [`supabase/schema.sql`](./supabase/schema.sql),
+Open **SQL Editor**, paste the whole of [`supabase/schema.sql`](../supabase/schema.sql),
 and run it once on a fresh project.
 
 It creates:

@@ -24,7 +24,7 @@ EXPO_PUBLIC_MAPBOX_ACCESS_TOKEN=pk.<token>
 
 Then run `supabase/schema.sql` once in the Supabase SQL editor. The full setup,
 schema checklist, table list, and troubleshooting steps are in
-[`LIVE_SETUP_GUIDE.md`](./LIVE_SETUP_GUIDE.md).
+[`LIVE_SETUP_GUIDE.md`](./docs/LIVE_SETUP_GUIDE.md).
 
 ## Commands
 
