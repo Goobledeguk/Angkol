@@ -248,7 +248,16 @@ export function makeSnapshot(overrides: Partial<Snapshot> = {}): Snapshot {
       { name: "Northwest Samar State University", latitude: 12.0671, longitude: 124.6052 },
       { name: "Calbayog City Sports Center", latitude: 12.0691, longitude: 124.5991 },
     ],
-    stopRequests: [],
+    stopRequests: [
+      {
+        id: "stop-1",
+        routeId: "CB01",
+        point: { name: "Public Market", latitude: 12.0701, longitude: 124.5961 },
+        passenger: passenger.name,
+        userId: passenger.id,
+        createdAt: FIXED_NOW - 4 * 60_000,
+      },
+    ],
     baseFare: 10,
     perKm: 5,
     fareApproved: true,

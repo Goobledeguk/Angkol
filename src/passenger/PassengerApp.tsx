@@ -1572,13 +1572,16 @@ export default function PassengerApp({
         {terminals.map((item) => {
           const route = routes.find((r) => r.id === item.routeId);
           return (
-            <Pressable
+            <View
               key={item.id}
-              accessibilityRole="button"
-              onPress={() => setTerminalId(item.id)}
               style={[ps.card, terminal?.id === item.id && ps.selected]}
             >
-              <View style={ps.row}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityState={{ expanded: terminal?.id === item.id }}
+                onPress={() => setTerminalId(item.id)}
+                style={({ pressed }) => [ps.row, pressed && { opacity: 0.7 }]}
+              >
                 <Icon name="business-outline" size={24} />
                 <View style={{ flex: 1 }}>
                   <Text style={ps.label}>{item.name}</Text>
@@ -1586,8 +1589,11 @@ export default function PassengerApp({
                     {route?.name || "Route not active"}
                   </Text>
                 </View>
-                <Icon name="chevron-forward" size={18} />
-              </View>
+                <Icon
+                  name={terminal?.id === item.id ? "chevron-up" : "chevron-down"}
+                  size={18}
+                />
+              </Pressable>
               {terminal?.id === item.id && (
                 <View style={ps.row}>
                   <View style={{ flex: 1 }}>
@@ -1604,7 +1610,8 @@ export default function PassengerApp({
                   </View>
                   <View style={{ flex: 1 }}>
                     <Action
-                      title="Directions ↗"
+                      title="Directions"
+                      icon="navigate-outline"
                       light
                       onPress={() => {
                         void perform(async () => {
@@ -1617,7 +1624,7 @@ export default function PassengerApp({
                   </View>
                 </View>
               )}
-            </Pressable>
+            </View>
           );
         })}
         {!terminals.length && (
@@ -1747,8 +1754,8 @@ export default function PassengerApp({
         {trip?.status === "Completed" && (
           <View style={{ flex: 1 }}>
             <Action
-              title="Done"
-              icon="download-outline"
+              title="Share receipt"
+              icon="share-outline"
               light
               disabled={locked}
               onPress={() => share(true)}
