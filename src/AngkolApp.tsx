@@ -7,6 +7,7 @@ import { resumeSharing, startSharing, stopSharing } from "./services/location";
 import { supabase } from "./services/supabase";
 import type { Snapshot } from "./types/types";
 import { useNow } from "./common/useNow";
+import { useAppActive } from "./common/useAppActive";
 import { hasLiveTrip, isDriverRole } from "./domain/roles";
 import Auth from "./auth/Auth";
 import PassengerApp from "./passenger/PassengerApp";
@@ -88,7 +89,13 @@ export default function AngkolApp() {
   }, [userId, refresh]);
 
   const live = !!data && hasLiveTrip(data);
-  const pollEvery = live ? LIVE_POLL_MS : sharing ? ONLINE_POLL_MS : 0;
+  const resume = useCallback(() => {
+    if (userId) {
+      void refresh().catch(() => undefined);
+    }
+  }, [userId, refresh]);
+  const foreground = useAppActive(resume);
+  const pollEvery = !foreground ? 0 : live ? LIVE_POLL_MS : sharing ? ONLINE_POLL_MS : 0;
   useEffect(() => {
     if (!pollEvery) {
       return;
