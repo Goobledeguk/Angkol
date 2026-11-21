@@ -22,6 +22,7 @@ import Animated, {
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import { registerAccount, requestPasswordReset, signInAccount } from "./session";
 import { pickLicensePhoto, savePendingLicense, type LicensePhoto } from "../services/documents";
+import { isPhMobile, normalizePhMobile } from "../domain/format";
 import type { Role } from "../types/types";
 import { Icon } from "../common/ui";
 import { ps, passengerColors as c } from "../passenger/passengerStyles";
@@ -276,6 +277,8 @@ export default function MobileAuth({
     }
     if (!phone.trim()) {
       e.phone = "Phone number is required.";
+    } else if (!isPhMobile(phone)) {
+      e.phone = "Use a Philippine mobile number, like 0917 123 4567.";
     }
     if (!email.trim()) {
       e.email = "Email address is required.";
@@ -329,7 +332,7 @@ export default function MobileAuth({
     setInfo("");
     try {
       if (signup) {
-        const base = { email, password, name: name.trim(), phone: phone.trim(), birthday, consent };
+        const base = { email, password, name: name.trim(), phone: normalizePhMobile(phone), birthday, consent };
         const pujDriver = role === "Driver" && driverType === "PUJ / PUV driver";
         const tricycleDriver = role === "Driver" && driverType === "Tricycle driver";
         const { needsConfirmation } = await registerAccount(
