@@ -107,11 +107,10 @@ export default function AngkolApp() {
     return () => clearInterval(timer);
   }, [pollEvery, refresh]);
 
-  const needsLicenseUpload =
-    !!data && isDriverRole(data.user.role) && !data.user.licenseDocAttached;
+  const isDriver = !!data && isDriverRole(data.user.role);
   const userEmail = data?.user.email ?? "";
   useEffect(() => {
-    if (!needsLicenseUpload || !userId || !userEmail) {
+    if (!isDriver || !userId || !userEmail) {
       return;
     }
     let active = true;
@@ -123,7 +122,7 @@ export default function AngkolApp() {
     return () => {
       active = false;
     };
-  }, [needsLicenseUpload, userId, userEmail, refresh]);
+  }, [isDriver, userId, userEmail, refresh]);
 
   const driverShouldShare =
     !!data &&
