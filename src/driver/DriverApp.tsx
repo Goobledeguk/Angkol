@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { greeting, nextDeparture } from "../domain/schedule";
+import { greeting, nextDeparture, waitLabel } from "../domain/schedule";
 import { tripRef } from "../domain/vehicles";
 import { statusLabel, isPhMobile, normalizePhMobile } from "../domain/format";
 import {
@@ -652,6 +652,7 @@ export default function DriverApp({
               {activeRun ? "In progress" : nextDeparture(assigned, data.serverTime)}
             </Text>
             <Text style={ps.bannerSub}>
+              {activeRun ? "" : `${waitLabel(assigned, data.serverTime)} · `}
               {data.terminals.find((t) => t.routeId === assigned.id)?.name ||
                 assigned.stops[0]?.name}
             </Text>
