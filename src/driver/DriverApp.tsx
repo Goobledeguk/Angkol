@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { greeting, nextDeparture } from "../domain/schedule";
 import { tripRef } from "../domain/vehicles";
-import { statusLabel } from "../domain/format";
+import { statusLabel, isPhMobile, normalizePhMobile } from "../domain/format";
 import {
   View,
   Text,
@@ -1559,12 +1559,17 @@ export default function DriverApp({
           onChangeText={setPhone}
           keyboardType="phone-pad"
         />
+        {!!phone.trim() && !isPhMobile(phone) && (
+          <Text accessibilityRole="alert" style={[ps.small, { color: "#B3411F" }]}>
+            Use a Philippine mobile number, like 0917 123 4567.
+          </Text>
+        )}
         <Text style={ps.body}>{data.user.email}</Text>
         <Button
           title="Save account details"
-          disabled={locked || !name.trim()}
+          disabled={locked || !name.trim() || (!!phone.trim() && !isPhMobile(phone))}
           onPress={() => {
-            void action("/profile", { name, phone }, "PATCH");
+            void action("/profile", { name: name.trim(), phone: normalizePhMobile(phone) }, "PATCH");
           }}
         />
         {sharing && (

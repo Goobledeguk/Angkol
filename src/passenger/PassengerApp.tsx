@@ -23,7 +23,7 @@ import { api } from "../services/api";
 import { currentPoint } from "../services/location";
 import { distanceKm } from "../services/mapbox";
 import { isStale, lastSeen, tripRef, vehicleForDriver } from "../domain/vehicles";
-import { statusLabel } from "../domain/format";
+import { statusLabel, isPhMobile, normalizePhMobile } from "../domain/format";
 import { greeting as greetingFor, nextDeparture } from "../domain/schedule";
 import type { Point, Quote, Route, Snapshot, Trip } from "../types/types";
 import CalbayogMap from "../map/CalbayogMap";
@@ -1827,13 +1827,18 @@ export default function PassengerApp({
           onChangeText={setPhone}
           keyboardType="phone-pad"
         />
+        {!!phone.trim() && !isPhMobile(phone) && (
+          <Text accessibilityRole="alert" style={[ps.small, { color: "#B3411F" }]}>
+            Use a Philippine mobile number, like 0917 123 4567.
+          </Text>
+        )}
         <Text style={ps.small}>{data.user.email}</Text>
         <Action
           title="Save profile"
-          disabled={locked || !name.trim()}
+          disabled={locked || !name.trim() || (!!phone.trim() && !isPhMobile(phone))}
           onPress={() => {
             void perform(async () => {
-              if (await action("/profile", { name, phone }, "PATCH")) {
+              if (await action("/profile", { name: name.trim(), phone: normalizePhMobile(phone) }, "PATCH")) {
                 go("Profile");
               }
             });

@@ -29,3 +29,18 @@ export function initials(name: string) {
 export function firstName(name: string) {
   return name.trim().split(/\s+/)[0] || "there";
 }
+
+export function normalizePhMobile(value: string) {
+  const digits = value.replace(/[^\d+]/g, "");
+  if (/^\+639\d{9}$/.test(digits)) {
+    return `0${digits.slice(3)}`;
+  }
+  if (/^639\d{9}$/.test(digits)) {
+    return `0${digits.slice(2)}`;
+  }
+  return digits;
+}
+
+export function isPhMobile(value: string) {
+  return /^09\d{9}$/.test(normalizePhMobile(value));
+}
