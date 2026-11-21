@@ -145,18 +145,7 @@ export function PassengerHomeScreen({
   return (
     <View style={v.stack}>
       <View style={v.hero}>
-        <View style={v.orbit} />
-        <View style={ps.between}>
-          <Text style={v.eyebrow}>YOUR LOCAL JOURNEY</Text>
-          <Icon name="navigate-outline" size={25} color="#CBDDD1" />
-        </View>
-        <View style={{ gap: 8 }}>
-          <Text style={v.heroTitle}>Where would you{"\n"}like to go?</Text>
-          <Text style={v.heroDetail}>
-            Maupay nga adlaw, {data.user.name.split(" ")[0]}. Let’s get you
-            there.
-          </Text>
-        </View>
+        <Text style={v.heroTitle}>Where to?</Text>
         <Pressable
           accessibilityRole="button"
           onPress={onBook}
@@ -164,7 +153,7 @@ export function PassengerHomeScreen({
         >
           <Icon name="search-outline" size={23} />
           <Text
-            style={[v.label, { flex: 1, fontSize: 10, lineHeight: 20 }]}
+            style={[v.label, { flex: 1, color: c.muted }]}
             numberOfLines={1}
             ellipsizeMode="tail"
           >
@@ -189,15 +178,15 @@ export function PassengerHomeScreen({
                 : "Your ride is on the way"}
             </Text>
             <Text numberOfLines={1} style={v.small}>
-              {active.driver || "Your driver"} · View ride details
+              {active.driver || "Your driver"}
+              {active.plate ? `, ${active.plate}` : ""}
             </Text>
           </View>
           <Icon name="chevron-forward" size={19} />
         </Pressable>
       )}
       <Section
-        title="A ride for your day"
-        detail="Choose the way that works for you"
+        title="Ride options"
       />
       <View style={[ps.row, { alignItems: "stretch", gap: 12 }]}>
         {[
@@ -226,14 +215,7 @@ export function PassengerHomeScreen({
               pressed && ps.pressed,
             ]}
           >
-            <View style={ps.between}>
-              <Tile icon={item.icon} dark={item.dark} />
-              <Icon
-                name="arrow-up-outline"
-                size={16}
-                color={item.dark ? "#C7DCD0" : c.muted}
-              />
-            </View>
+            <Tile icon={item.icon} dark={item.dark} />
             <View style={{ gap: 5 }}>
               <Text style={[v.section, item.dark && { color: "white" }]}>
                 {item.title}
@@ -243,7 +225,7 @@ export function PassengerHomeScreen({
               </Text>
             </View>
             <Text style={[v.link, item.dark && { color: "#DDECE3" }]}>
-              {item.dark ? "Book a ride" : "Explore routes"}
+              {item.dark ? "Book a tricycle" : "See routes"}
             </Text>
           </Pressable>
         ))}
@@ -257,12 +239,11 @@ export function PassengerHomeScreen({
         <CalbayogMap height={180} vehicles={data.vehicles} />
         <View style={v.mapNote}>
           <View style={ps.dot} />
-          <Text style={v.caption}>Calbayog City · Philippines</Text>
+          <Text style={v.caption}>Calbayog City</Text>
         </View>
       </View>
       <Section
-        title="Go somewhere familiar"
-        detail="Pick up where your last journey left off"
+        title="Recent places"
       />
       <View style={[v.card, { gap: 0, paddingVertical: 0 }]}>
         {(places.length ? places : data.landmarks.slice(0, 2)).map(
@@ -322,17 +303,6 @@ export function PassengerRoutesScreen({
   const selected = routes.find((route) => route.id === selectedId) || routes[0];
   return (
     <View style={v.stack}>
-      <View style={v.routeHero}>
-        <View pointerEvents="none" style={v.routeHeroOrbit} />
-        <View style={{ flex: 1, gap: 8 }}>
-          <Text style={v.routeHeroEyebrow}>EXPLORE CALBAYOG</Text>
-          <Text style={v.routeHeroTitle}>Find your way around.</Text>
-          <Text style={v.routeHeroDetail}>Discover local routes and the stops along the way.</Text>
-        </View>
-        <View style={v.routeHeroIcon}>
-          <Icon name="bus-outline" size={28} color="#0B5942" />
-        </View>
-      </View>
       <View style={v.search}>
         <Icon name="search-outline" size={22} />
         <TextInput
@@ -542,22 +512,8 @@ export function PassengerTripsScreen({
       : trips
           .filter((trip) => (tab === "Active" ? !isPast(trip) : isPast(trip)))
           .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
-  const completed = trips.filter((trip) => trip.status === "Completed").length;
   return (
     <View style={v.stack}>
-      <View style={v.tripSummary}>
-        <View pointerEvents="none" style={v.routeHeroOrbit} />
-        <View style={{ gap: 6, flex: 1 }}>
-          <Text style={v.eyebrow}>YOUR JOURNEYS, TOGETHER</Text>
-          <Text style={[v.heroTitle, { fontSize: 27, lineHeight: 35 }]}>
-            {completed} rides completed.
-          </Text>
-          <Text style={v.heroDetail}>
-            Every trip has a story. Find yours here.
-          </Text>
-        </View>
-        <View style={v.routeHeroIcon}><Icon name="trail-sign-outline" size={27} color={c.green} /></View>
-      </View>
       <View style={v.segments}>
         {["Active", "Past"].map((label) => (
           <Pressable
@@ -619,7 +575,7 @@ export function PassengerTripsScreen({
           >
             <View style={{ gap: 4 }}>
               <Text style={v.link}>
-                {isPast(trip) ? "View receipt" : "Track your ride"} →
+                {isPast(trip) ? "View receipt" : "Track your ride"}
               </Text>
               <Text style={v.caption}>
                 {trip.distance} km · {trip.minutes} min
@@ -660,6 +616,7 @@ export function PassengerProfileScreen({
   onNotifications,
   onSupport,
   onSignOut,
+  onDeleteAccount,
   busy,
 }: {
   data: Snapshot;
@@ -668,6 +625,7 @@ export function PassengerProfileScreen({
   onNotifications: () => void;
   onSupport: () => void;
   onSignOut: () => void;
+  onDeleteAccount: () => void;
   busy: boolean;
 }) {
   const [alerts, setAlerts] = useState(true);
@@ -685,11 +643,6 @@ export function PassengerProfileScreen({
         onPress={onEdit}
         style={({ pressed }) => [v.identity, pressed && ps.pressed]}
       >
-        <View pointerEvents="none" style={v.profileOrbit} />
-        <View style={v.profileTopline}>
-          <Text style={v.profileEyebrow}>ANGKOL · YOUR ACCOUNT</Text>
-          <Icon name="sparkles-outline" size={18} color="#C3DFCA" />
-        </View>
         <View style={v.avatarRing}>
           <View style={v.avatar}>
             <Text style={v.initials}>{initials}</Text>
@@ -700,7 +653,7 @@ export function PassengerProfileScreen({
         </View>
         <View style={{ alignItems: "center", gap: 7 }}>
           <Text style={v.profileName}>{data.user.name}</Text>
-          <Pill label="PASSENGER ACCOUNT" />
+          <Pill label="Passenger" />
           <Text style={[v.small, { color: "#D0E4D7" }]}>{data.user.email}</Text>
         </View>
       </Pressable>
@@ -715,14 +668,17 @@ export function PassengerProfileScreen({
         <View style={{ width: 1, backgroundColor: c.line }} />
         <View style={{ flex: 1, gap: 5 }}>
           <Icon name="wallet-outline" size={21} color={c.green} />
-          <Text style={v.statValue}>₱101</Text>
-          <Text style={v.small}>Your total spent</Text>
+          <Text style={v.statValue}>
+            {money(
+              data.trips
+                .filter((trip) => trip.status === "Completed")
+                .reduce((sum, trip) => sum + trip.fare, 0),
+            )}
+          </Text>
+          <Text style={v.small}>Spent on rides</Text>
         </View>
       </View>
-      <Section
-        title="Your account"
-        detail="The little details that make your ride yours"
-      />
+      <Section title="Settings" />
       <View style={[v.card, { gap: 0, paddingVertical: 0 }]}>
         {[
           {
@@ -797,9 +753,15 @@ export function PassengerProfileScreen({
         </Pressable>
       </View>
       <Button title="Sign out" secondary onPress={onSignOut} disabled={busy} />
-      <Text style={[v.caption, { textAlign: "center" }]}>
-        Angkol · Your city. Your next ride.
-      </Text>
+      <Pressable
+        accessibilityRole="button"
+        disabled={busy}
+        onPress={onDeleteAccount}
+        hitSlop={8}
+        style={({ pressed }) => [{ alignSelf: "center", paddingVertical: 8 }, pressed && ps.pressed]}
+      >
+        <Text style={[v.small, { color: "#C53B1D", fontWeight: "700" }]}>Delete account</Text>
+      </Pressable>
     </View>
   );
 }
@@ -810,7 +772,7 @@ const v = StyleSheet.create({
     backgroundColor: "white",
     borderWidth: 1,
     borderColor: c.line,
-    borderRadius: 24,
+    borderRadius: 16,
     padding: 18,
     gap: 16,
     boxShadow: "0px 4px 18px rgba(7, 44, 31, .04)",
@@ -833,13 +795,13 @@ const v = StyleSheet.create({
   body: { fontFamily: "Manrope", fontSize: 14, lineHeight: 22, color: c.ink },
   small: {
     fontFamily: "Manrope",
-    fontSize: 11,
+    fontSize: 13,
     lineHeight: 18,
     color: c.muted,
   },
   caption: {
     fontFamily: "Manrope",
-    fontSize: 10,
+    fontSize: 12,
     lineHeight: 16,
     color: c.muted,
   },
@@ -867,43 +829,18 @@ const v = StyleSheet.create({
     alignSelf: "flex-start",
   },
   hero: {
-    padding: 22,
-    gap: 24,
+    padding: 20,
+    gap: 16,
     backgroundColor: "#0D654B",
-    borderRadius: 28,
-    overflow: "hidden",
-  },
-  orbit: {
-    position: "absolute",
-    top: -65,
-    right: -60,
-    width: 240,
-    height: 240,
-    borderRadius: 120,
-    borderWidth: 36,
-    borderColor: "#FFFFFF18",
-  },
-  eyebrow: {
-    fontFamily: "Manrope",
-    fontSize: 9,
-    lineHeight: 16,
-    color: "#BED4C6",
-    fontWeight: "700",
-    letterSpacing: 1.4,
+    borderRadius: 20,
   },
   heroTitle: {
     fontFamily: "Manrope",
-    fontSize: 32,
-    lineHeight: 39,
-    letterSpacing: -0.9,
+    fontSize: 28,
+    lineHeight: 34,
+    letterSpacing: -0.7,
     fontWeight: "800",
     color: "white",
-  },
-  heroDetail: {
-    fontFamily: "Manrope",
-    fontSize: 11,
-    lineHeight: 19,
-    color: "#C8DCD0",
   },
   destination: {
     flexDirection: "row",
@@ -913,7 +850,7 @@ const v = StyleSheet.create({
     paddingVertical: 8,
     paddingHorizontal: 12,
     backgroundColor: "white",
-    borderRadius: 17,
+    borderRadius: 14,
   },
   searchArrow: {
     width: 30,
@@ -929,7 +866,7 @@ const v = StyleSheet.create({
     alignItems: "center",
     gap: 12,
     backgroundColor: "#F0F6F2",
-    borderRadius: 22,
+    borderRadius: 16,
     padding: 16,
   },
   service: {
@@ -938,7 +875,7 @@ const v = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#D9E9DE",
     backgroundColor: "#E4F2E8",
-    borderRadius: 24,
+    borderRadius: 16,
     padding: 19,
     minHeight: 160,
     justifyContent: "space-between",
@@ -969,7 +906,7 @@ const v = StyleSheet.create({
     alignItems: "center",
     paddingHorizontal: 16,
     backgroundColor: "#F2F6F3",
-    borderRadius: 18,
+    borderRadius: 14,
   },
   filter: {
     paddingHorizontal: 15,
@@ -977,12 +914,6 @@ const v = StyleSheet.create({
     backgroundColor: "#F2F6F3",
     borderRadius: 20,
   },
-  routeHero: { flexDirection: "row", alignItems: "center", gap: 16, backgroundColor: "#0B5942", borderRadius: 26, padding: 22, overflow: "hidden" },
-  routeHeroOrbit: { position: "absolute", width: 170, height: 170, borderRadius: 85, borderWidth: 25, borderColor: "rgba(255,255,255,0.08)", right: -45, top: -60 },
-  routeHeroEyebrow: { color: "#B8DCC5", fontFamily: "Manrope", fontSize: 10, fontWeight: "800", letterSpacing: 1.3 },
-  routeHeroTitle: { color: "white", fontFamily: "Manrope", fontSize: 23, lineHeight: 29, fontWeight: "800", letterSpacing: -0.5 },
-  routeHeroDetail: { color: "#D3E7DA", fontFamily: "Manrope", fontSize: 12, lineHeight: 19 },
-  routeHeroIcon: { width: 54, height: 54, borderRadius: 18, backgroundColor: "#D6EEDC", alignItems: "center", justifyContent: "center" },
   routeCard: { borderColor: "#DCEAE0", padding: 20 },
   routeCardOpen: { backgroundColor: "#F3F9F4", borderColor: "#8DC7A2", boxShadow: "0px 8px 24px rgba(7, 68, 44, 0.09)" },
   routeCode: {
@@ -1040,17 +971,6 @@ const v = StyleSheet.create({
   journeyCard: { borderColor: "#DCEAE0", boxShadow: "0px 6px 20px rgba(7, 68, 44, 0.07)" },
   journeyPath: { flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: "#F0F7F1", borderRadius: 16, padding: 15 },
   journeyDot: { width: 9, height: 9, borderRadius: 5, backgroundColor: c.green },
-  tripSummary: {
-    overflow: "hidden",
-    backgroundColor: "#0B5942",
-    borderRadius: 26,
-    padding: 22,
-    gap: 16,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    flexWrap: "wrap",
-  },
   segments: {
     flexDirection: "row",
     gap: 4,
@@ -1072,16 +992,13 @@ const v = StyleSheet.create({
     fontWeight: "800",
     letterSpacing: -0.3,
   },
-  profileOrbit: { position: "absolute", width: 210, height: 210, borderRadius: 105, borderWidth: 30, borderColor: "rgba(255,255,255,0.07)", right: -70, top: -80 },
-  profileTopline: { alignSelf: "stretch", flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  profileEyebrow: { fontFamily: "Manrope", fontSize: 10, fontWeight: "700", letterSpacing: 1.3, color: "#C3DFCA" },
   identity: {
     overflow: "hidden",
     alignItems: "center",
     gap: 18,
     paddingVertical: 32,
     paddingHorizontal: 20,
-    borderRadius: 28,
+    borderRadius: 20,
     backgroundColor: "#0B5942",
     borderWidth: 1,
     borderColor: "#217558",
@@ -1138,7 +1055,7 @@ const v = StyleSheet.create({
     backgroundColor: "#E5F1E7",
     borderWidth: 1,
     borderColor: "#D1E7D7",
-    borderRadius: 22,
+    borderRadius: 16,
     alignItems: "center",
   },
   statValue: {

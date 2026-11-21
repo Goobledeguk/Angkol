@@ -34,6 +34,8 @@ yarn-error.*
 
 # local env files
 .env*.local
+.env.example
+.env
 
 # typescript
 *.tsbuildinfo
@@ -45,3 +47,5 @@ yarn-error.*
 
 # Local design recovery archive
 .recovery/
+
+supabase/.temp/

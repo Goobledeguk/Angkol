@@ -20,7 +20,7 @@ import Animated, {
   Extrapolation,
 } from "react-native-reanimated";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
-import { registerAccount, signInAccount } from "./session";
+import { registerAccount, requestPasswordReset, signInAccount } from "./session";
 import type { Role } from "../types/types";
 import { Icon } from "../common/ui";
 import { ps, passengerColors as c } from "../passenger/passengerStyles";
@@ -90,7 +90,7 @@ function AuthField({
   return (
     <View style={{ gap: 7 }}>
       <Text
-        style={[ps.small, { fontWeight: "700", textTransform: "uppercase" }]}
+        style={[ps.small, { fontWeight: "700", color: "#18382C" }]}
       >
         {label}
       </Text>
@@ -166,8 +166,7 @@ export default function MobileAuth({
     [step, setStep] = useState(1),
     [busy, setBusy] = useState(false),
     [fieldErr, setFieldErr] = useState<Record<string, string>>({});
-  const [verifyPhase, setVerifyPhase] = useState<"idle" | "tricycle-loading" | "puj-pending">("idle");
-  const [pendingInfo, setPendingInfo] = useState<{ name: string; franchiseName: string } | null>(null);
+  const [info, setInfo] = useState("");
   const [role, setRole] = useState<"Commuter" | "Driver">("Commuter"),
     [driverType, setDriverType] = useState<Role>("Tricycle driver");
   const [assocOpen, setAssocOpen] = useState(false);
@@ -243,6 +242,20 @@ export default function MobileAuth({
     setSignup(create);
     setStep(1);
     setFieldErr({});
+    setInfo("");
+    setName("");
+    setBirthday("");
+    setPhone("");
+    setEmail("");
+    setPassword("");
+    setLicense("");
+    setAssociation("");
+    setFranchiseName("");
+    setPlate("");
+    setPermitNo("");
+    setCapacity("3");
+    setConsent(false);
+    setLicenseDoc(false);
     // eslint-disable-next-line react-hooks/immutability -- Reanimated SharedValue is mutated via .value by design
     translateY.value = withSpring(0);
   }, [translateY]);
@@ -311,72 +324,70 @@ export default function MobileAuth({
     }
     setBusy(true);
     setFieldErr({});
+    setInfo("");
     try {
       if (signup) {
-        if (role === "Driver" && driverType === "PUJ / PUV driver") {
-          // Show the approval screen while the account is created.
-          // then create the local session and proceed to the PUJ/PUV driver dashboard.
-          setPendingInfo({ name: name.trim(), franchiseName: franchiseName.trim() || KENT_OWNER_FRANCHISE });
-          setVerifyPhase("puj-pending");
-          await new Promise<void>((resolve) => setTimeout(resolve, 5000));
-          await registerAccount({
-            email,
-            password,
-            name: name.trim(),
-            role: "PUJ / PUV driver",
-            phone: phone.trim(),
-            birthday,
-            consent,
-            license: license.trim(),
-            franchiseName: franchiseName.trim() || KENT_OWNER_FRANCHISE,
-            licenseDocAttached: licenseDoc,
-          });
-          setPassword("");
-          await onSignedIn();
+        const base = { email, password, name: name.trim(), phone: phone.trim(), birthday, consent };
+        const pujDriver = role === "Driver" && driverType === "PUJ / PUV driver";
+        const tricycleDriver = role === "Driver" && driverType === "Tricycle driver";
+        const { needsConfirmation } = await registerAccount(
+          pujDriver
+            ? {
+                ...base,
+                role: "PUJ / PUV driver",
+                license: license.trim(),
+                franchiseName: franchiseName.trim() || KENT_OWNER_FRANCHISE,
+                licenseDocAttached: licenseDoc,
+              }
+            : tricycleDriver
+              ? {
+                  ...base,
+                  role: "Tricycle driver",
+                  license: license.trim(),
+                  association: association.trim(),
+                  plate: plate.trim(),
+                  permitNo: permitNo.trim(),
+                  capacity: Number(capacity) || 3,
+                }
+              : { ...base, role: "Passenger" },
+        );
+        if (needsConfirmation) {
+          const sentTo = email.trim();
+          changeMode(false);
+          setEmail(sentTo);
+          setInfo(`We sent a confirmation link to ${sentTo}. Open it, then sign in here.`);
           return;
         }
-        if (role === "Driver" && driverType === "Tricycle driver") {
-          setVerifyPhase("tricycle-loading");
-          await registerAccount({
-            email,
-            password,
-            name: name.trim(),
-            role: "Tricycle driver",
-            phone: phone.trim(),
-            birthday,
-            consent,
-            license: license.trim(),
-            association: association.trim(),
-            plate: plate.trim(),
-            permitNo: permitNo.trim(),
-            capacity: Number(capacity) || 3,
-          });
-          await new Promise<void>((resolve) => setTimeout(resolve, 3000));
-          await onSignedIn();
-          setPassword("");
-          return;
-        }
-        await registerAccount({
-          email,
-          password,
-          name: name.trim(),
-          role: "Passenger",
-          phone: phone.trim(),
-          birthday,
-          consent,
-        });
+        setPassword("");
       } else {
         await signInAccount(email, password);
+        setPassword("");
       }
       await onSignedIn();
-      setPassword("");
     } catch (error) {
-      if (verifyPhase !== "idle") {
-        setVerifyPhase("idle");
-      }
       const err = error as any;
       const msg = err?.message || "Something went wrong.";
-      setFieldErr({ password: msg });
+      setFieldErr(signup ? { form: msg } : { password: msg });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function sendPasswordReset() {
+    if (busy) {
+      return;
+    }
+    if (!email.trim()) {
+      setFieldErr({ email: "Enter your email address first." });
+      return;
+    }
+    setBusy(true);
+    setFieldErr({});
+    try {
+      await requestPasswordReset(email);
+      setInfo(`We sent a password reset link to ${email.trim()}.`);
+    } catch (error) {
+      setFieldErr({ email: (error as Error).message });
     } finally {
       setBusy(false);
     }
@@ -408,39 +419,6 @@ export default function MobileAuth({
       style={{ flex: 1, backgroundColor: c.background }}
       behavior={Platform.OS === "ios" ? "padding" : "height"}
     >
-      {verifyPhase === "tricycle-loading" ? (
-        <View style={{ flex: 1, alignItems: "center", justifyContent: "center", padding: 28, gap: 16 }}>
-          <View style={{ width: 84, height: 84, borderRadius: 42, backgroundColor: "#EAF6EF", alignItems: "center", justifyContent: "center" }}>
-            <Icon name="shield-checkmark-outline" size={38} color={c.green} />
-          </View>
-          <Text style={[ps.heading, { fontSize: 26, textAlign: "center" }]}>Verifying your account</Text>
-          <Text style={[ps.body, { textAlign: "center", flexWrap: "wrap" }]}>
-            Please wait while we verify your Tricycle driver registration. You’ll be taken to your dashboard shortly.
-          </Text>
-          <View style={{ height: 6, width: "78%", borderRadius: 4, backgroundColor: "#D8EEE3", marginTop: 6, overflow: "hidden" }}>
-            <View style={{ height: 6, width: "66%", borderRadius: 4, backgroundColor: c.green }} />
-          </View>
-          <Text style={[ps.small, { color: c.green }]}>Verifying details…</Text>
-        </View>
-      ) : verifyPhase === "puj-pending" ? (
-        <ScrollView contentContainerStyle={{ flexGrow: 1, padding: 24, justifyContent: "center" }}>
-          <View style={[ps.card, { gap: 14, padding: 22 }]}>
-            <View style={{ width: 64, height: 64, borderRadius: 32, backgroundColor: "#FFF2D9", alignItems: "center", justifyContent: "center", alignSelf: "center" }}>
-              <Icon name="time-outline" size={30} color="#B37A2A" />
-            </View>
-            <Text style={[ps.heading, { fontSize: 24, textAlign: "center" }]}>Waiting for approval</Text>
-            <Text style={[ps.body, { textAlign: "center", flexWrap: "wrap" }]}>
-              {(pendingInfo?.name || name || "Driver")}, your PUJ/PUV driver application for{" "}
-              <Text style={{ fontWeight: "700", color: c.ink }}>{pendingInfo?.franchiseName || franchiseName || "your franchise"}</Text>{" "}
-              has been submitted. Please wait while the application is reviewed.
-            </Text>
-            <View style={{ height: 6, width: "78%", alignSelf: "center", borderRadius: 4, backgroundColor: "#F3E3BF", marginTop: 6, overflow: "hidden" }}>
-              <View style={{ height: 6, width: "66%", borderRadius: 4, backgroundColor: "#B37A2A" }} />
-            </View>
-            <Text style={[ps.small, { color: "#B37A2A", textAlign: "center" }]}>Checking approval status…</Text>
-          </View>
-        </ScrollView>
-      ) : (
       <ScrollView
         ref={scroll}
         keyboardShouldPersistTaps="handled"
@@ -529,7 +507,7 @@ export default function MobileAuth({
                   Create your account
                 </Text>
                 <Text style={[ps.body, { flexWrap: "wrap" }]}>
-                  {role} registration · Step {step} of 2
+                  {role} registration, step {step} of 2
                 </Text>
               </View>
             </View>
@@ -572,7 +550,7 @@ export default function MobileAuth({
                 <Text
                   style={[
                     ps.small,
-                    { fontWeight: "700", textTransform: "uppercase" },
+                    { fontWeight: "700", color: "#18382C" },
                   ]}
                 >
                   I am registering as a
@@ -747,7 +725,7 @@ export default function MobileAuth({
                 {role === "Driver" && (
                   <>
                     <View style={{ gap: 8 }}>
-                      <Text style={[ps.small, { fontWeight: "700", textTransform: "uppercase" }]}>Register as</Text>
+                      <Text style={[ps.small, { fontWeight: "700", color: "#18382C" }]}>Register as</Text>
                       <View style={{ flexDirection: "row", gap: 10 }}>
                         {[
                           { kind: "Tricycle driver" as Role, label: "Tricycle", sub: "TODA / Prangkisa", icon: "bicycle-outline" as IconName },
@@ -782,7 +760,7 @@ export default function MobileAuth({
                     </View>
                     {driverType === "PUJ / PUV driver" ? (
                       <View style={{ gap: 7 }}>
-                        <Text style={[ps.small, { fontWeight: "700", textTransform: "uppercase" }]}>Business / Franchise</Text>
+                        <Text style={[ps.small, { fontWeight: "700", color: "#18382C" }]}>Business / Franchise</Text>
                         <Pressable accessibilityRole="button" onPress={() => setFranchiseOpen((v) => !v)} style={[ps.input, ps.row, { paddingVertical: 0, minHeight: 54, justifyContent: "space-between", borderColor: fieldErr.franchise ? "#C53B1D" : undefined }]}>
                           <Text style={{ flex: 1, color: franchiseName ? c.ink : "#A2B0A7", fontSize: 14 }} numberOfLines={1}>{franchiseName || "Select business / franchise"}</Text>
                           <Icon name={franchiseOpen ? "chevron-up-outline" : "chevron-down-outline"} size={20} color="#6A7E73" />
@@ -813,7 +791,7 @@ export default function MobileAuth({
                           {fieldError("plate")}
                         </View>
                         <View style={{ gap: 7 }}>
-                          <Text style={[ps.small, { fontWeight: "700", textTransform: "uppercase" }]}>TODA (optional)</Text>
+                          <Text style={[ps.small, { fontWeight: "700", color: "#18382C" }]}>TODA (optional)</Text>
                           <Pressable accessibilityRole="button" onPress={() => setAssocOpen((v) => !v)} style={[ps.input, ps.row, { paddingVertical: 0, minHeight: 54, justifyContent: "space-between" }]}>
                             <Text style={{ flex: 1, color: association ? c.ink : "#A2B0A7", fontSize: 14 }} numberOfLines={1}>{association || "Select TODA / Not part of an association"}</Text>
                             <Icon name={assocOpen ? "chevron-up-outline" : "chevron-down-outline"} size={20} color="#6A7E73" />
@@ -848,7 +826,7 @@ export default function MobileAuth({
                 )}
                 {role === "Driver" && (
                   <View style={{ gap: 8 }}>
-                    <Text style={[ps.small, { fontWeight: "700", textTransform: "uppercase" }]}>Documents</Text>
+                    <Text style={[ps.small, { fontWeight: "700", color: "#18382C" }]}>Documents</Text>
                     <Pressable
                       accessibilityRole="button"
                       accessibilityLabel={licenseDoc ? "License ID attached" : "Attach License ID"}
@@ -866,7 +844,8 @@ export default function MobileAuth({
                     ) : null}
                   </View>
                 )}
-<SolidButton
+{fieldError("form")}
+                <SolidButton
                   title={
                     busy
                       ? role === "Driver"
@@ -933,6 +912,16 @@ export default function MobileAuth({
                 </Text>
               </View>
 
+              {info ? (
+                <View
+                  accessibilityRole="alert"
+                  accessibilityLiveRegion="polite"
+                  style={{ backgroundColor: "#EAF6EF", borderRadius: 12, padding: 14 }}
+                >
+                  <Text style={[ps.body, { color: c.green, flexWrap: "wrap" }]}>{info}</Text>
+                </View>
+              ) : null}
+
               <View style={{ gap: 4 }}>
                 <AuthField
                   label="Email address"
@@ -951,6 +940,15 @@ export default function MobileAuth({
                   secret
                 />
                 {fieldError("password")}
+                <Pressable
+                  accessibilityRole="button"
+                  disabled={busy}
+                  onPress={sendPasswordReset}
+                  hitSlop={8}
+                  style={{ alignSelf: "flex-end", paddingVertical: 6, paddingHorizontal: 4 }}
+                >
+                  <Text style={[ps.small, { color: c.green, fontWeight: "700" }]}>Forgot password?</Text>
+                </Pressable>
               </View>
 
               <SolidButton
@@ -976,7 +974,6 @@ export default function MobileAuth({
           </GestureDetector>
         )}
       </ScrollView>
-      )}
     </KeyboardAvoidingView>
   );
 }

@@ -16,6 +16,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { router, useLocalSearchParams } from "expo-router";
+import { confirmAccountDeletion } from "../common/confirmAccountDeletion";
 import { Share, Linking } from "../services/previewActions";
 import { api } from "../services/api";
 import type { Point, Quote, Route, Snapshot, Trip } from "../types/types";
@@ -513,12 +514,12 @@ export default function PassengerApp({
   );
   const greeting =
     cityHour >= 5 && cityHour < 12
-      ? "MAUPAY NGA AGA"
+      ? "Maupay nga aga"
       : cityHour >= 12 && cityHour < 18
-        ? "MAUPAY NGA KULOP"
-        : "MAUPAY NGA GAB-I";
+        ? "Maupay nga kulop"
+        : "Maupay nga gab-i";
   let title = "Where to today?",
-    subtitle = `${greeting}, ${data.user.name.split(" ")[0].toUpperCase()}`,
+    subtitle = `${greeting}, ${data.user.name.split(" ")[0]}`,
     back: string | null = null;
   let content: React.ReactNode,
     footer: React.ReactNode = null;
@@ -575,8 +576,8 @@ export default function PassengerApp({
     );
   }
   if (page === "Home") {
-    title = "Your next journey";
-    subtitle = "Calbayog City, Samar";
+    title = `${greeting}, ${data.user.name.split(" ")[0]}`;
+    subtitle = "Calbayog City";
     content = (
       <PassengerHomeScreen
         data={data}
@@ -779,7 +780,7 @@ export default function PassengerApp({
       );
       footer = (
         <Action
-          title={`Continue with Regular · ${money(quote.fare)}`}
+          title={`Continue for ${money(quote.fare)}`}
           onPress={() => go("Review ride")}
         />
       );
@@ -872,7 +873,7 @@ export default function PassengerApp({
           title={
             working
               ? "Booking…"
-              : `Book PUJ/PUV · ${money(pujRoute.fare)}`
+              : `Book for ${money(pujRoute.fare)}`
           }
           icon="checkmark-circle-outline"
           disabled={locked}
@@ -916,7 +917,10 @@ export default function PassengerApp({
                   ],
                 },
               };
-              const created = await api<Trip>("/book-puj", { trip: pujTrip });
+              const created = await api<Trip>("/book-puj", {
+                trip: pujTrip,
+                routeId: pujRoute.id,
+              });
               await refresh();
               go("PUJ arrived", created.id);
             })
@@ -1190,7 +1194,7 @@ export default function PassengerApp({
           )}
           {trip.status === "Arrived" && (
             <Action
-              title="Driver is here · view arrival"
+              title="See where your driver is"
               icon="checkmark-circle-outline"
               onPress={() => go("Arrived", trip.id)}
             />
@@ -1562,7 +1566,7 @@ export default function PassengerApp({
           title={
             working
               ? "Completing trip…"
-              : `I’ve paid ${money(trip.fare)} in cash · complete trip`
+              : `I paid ${money(trip.fare)} in cash`
           }
           icon="cash-outline"
           disabled={locked}
@@ -1578,8 +1582,8 @@ export default function PassengerApp({
       );
     }
   } else if (page === "Routes") {
-    title = "Routes near you";
-    subtitle = "Your connection to the city";
+    title = "Routes";
+    subtitle = `${data.routes.filter((route) => route.active).length} active in Calbayog`;
     content = (
       <PassengerRoutesScreen
         data={data}
@@ -1604,7 +1608,7 @@ export default function PassengerApp({
     );
   } else if (page === "Terminals") {
     title = "Nearby terminals";
-    subtitle = "Calbayog City · estimated departures";
+    subtitle = "Estimated departures";
     content = (
       <>
         {map(160, "terminal")}
@@ -1800,8 +1804,8 @@ export default function PassengerApp({
       </View>
     );
   } else if (page === "Profile") {
-    title = "Your account";
-    subtitle = "Make every journey feel like yours";
+    title = "Account";
+    subtitle = data.user.phone || data.user.email;
     content = (
       <PassengerProfileScreen
         data={data}
@@ -1813,11 +1817,20 @@ export default function PassengerApp({
         onSignOut={() => {
           void logout();
         }}
+        onDeleteAccount={() =>
+          confirmAccountDeletion(() => {
+            void perform(async () => {
+              if (await action("/account/delete", {})) {
+                await logout();
+              }
+            });
+          })
+        }
       />
     );
   } else if (page === "Trips") {
-    title = "Your trips";
-    subtitle = "Every local journey, in one place";
+    title = "Trips";
+    subtitle = `${data.trips.filter((trip) => trip.status === "Completed").length} completed`;
     content = (
       <PassengerTripsScreen
         trips={data.trips}
@@ -2035,10 +2048,10 @@ export default function PassengerApp({
       {tabPages.includes(page) && (
         <View style={[ps.nav, { marginBottom: navLift }]}>
           {[
-            { label: "Home", icon: "home-outline" as IconName },
-            { label: "Routes", icon: "navigate-circle-outline" as IconName },
-            { label: "Trips", icon: "time-outline" as IconName },
-            { label: "Profile", icon: "person-outline" as IconName },
+            { label: "Home", text: "Home", icon: "home-outline" as IconName },
+            { label: "Routes", text: "Routes", icon: "navigate-circle-outline" as IconName },
+            { label: "Trips", text: "Trips", icon: "time-outline" as IconName },
+            { label: "Profile", text: "Account", icon: "person-outline" as IconName },
           ].map((tab) => {
             const selected =
               page === tab.label ||
@@ -2047,7 +2060,7 @@ export default function PassengerApp({
               <Pressable
                 key={tab.label}
                 accessibilityRole="tab"
-                accessibilityLabel={tab.label}
+                accessibilityLabel={tab.text}
                 accessibilityState={{ selected }}
                 onPress={() => go(tab.label)}
                 style={({ pressed }) => [
@@ -2058,9 +2071,17 @@ export default function PassengerApp({
               >
                 <Icon
                   name={tab.icon}
-                  size={25}
+                  size={23}
                   color={selected ? c.green : "#71877A"}
                 />
+                <Text
+                  style={[
+                    ps.navLabel,
+                    selected && { color: c.green, fontWeight: "700" },
+                  ]}
+                >
+                  {tab.text}
+                </Text>
               </Pressable>
             );
           })}

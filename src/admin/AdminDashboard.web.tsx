@@ -6,6 +6,7 @@ import AdminPanel from "./AdminPanel";
 import CalbayogMap from "../map/CalbayogMap";
 import { adminDashboardStyles } from "./adminDashboardStyles";
 import BrandLogo from "../common/BrandLogo";
+import { Icon } from "../common/ui";
 
 
 const paths: Record<string, string> = {
@@ -306,7 +307,7 @@ export default function AdminDashboard({
       >
         <style>{adminDashboardStyles}</style>
         <div style={{ maxWidth: 460, width: "100%", backgroundColor: "white", borderRadius: 24, padding: 38, textAlign: "center", boxShadow: "0 24px 60px rgba(0,0,0,0.3)" }}>
-          <div style={{ width: 68, height: 68, borderRadius: 34, backgroundColor: "#FCEEEA", color: "#C53B1D", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 28, marginBottom: 18 }}>🔒</div>
+          <div style={{ width: 68, height: 68, borderRadius: 34, backgroundColor: "#FCEEEA", color: "#C53B1D", display: "inline-flex", alignItems: "center", justifyContent: "center", marginBottom: 18 }}><Icon name="lock-closed-outline" size={30} color="#C53B1D" /></div>
           <h2 style={{ fontSize: 22, fontWeight: "800", color: "#163428", margin: "0 0 10px" }}>Restricted Control Portal</h2>
           <p style={{ fontSize: 13, color: "#62766B", lineHeight: 1.6, margin: "0 0 24px" }}>
             This administrative control center requires authorized Angkol Technical Team (Level A) or Franchise Vehicle Owner (Level B) credentials.

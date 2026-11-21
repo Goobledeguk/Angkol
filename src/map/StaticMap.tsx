@@ -11,11 +11,16 @@ import {
 import type { MapProps } from "./mapTypes";
 import type { Point } from "../types/types";
 import {
+  DEFAULT_CENTER,
+  distanceKm,
   hasMapbox,
+  pointAt,
   reverseGeocode,
   staticMapUrl,
   viewportFor,
 } from "../services/mapbox";
+
+const NEARBY_KM = 15;
 
 /**
  * Mapbox Static Images map.
@@ -38,20 +43,36 @@ export default function StaticMap({
   const window = useWindowDimensions();
   const [width, setWidth] = useState(Math.max(280, window.width - 48));
 
-  const points: Point[] = [
-    ...(pickup ? [pickup] : []),
-    ...(destination ? [destination] : []),
-    ...(vehicles ?? []).map((vehicle) => vehicle.location),
+  const places: Point[] = [
     ...(terminals ?? []).map((terminal) => terminal.point),
     ...(stops ?? []).map((stop) => stop.point),
   ];
+  const focus: Point[] = [
+    ...(pickup ? [pickup] : []),
+    ...(destination ? [destination] : []),
+    ...places,
+    ...(geometry?.coordinates ?? []).map(([longitude, latitude]) => ({ name: "", latitude, longitude })),
+  ];
+  const anchor = focus[0] ?? { name: "", ...DEFAULT_CENTER };
+  const nearbyVehicles = (vehicles ?? [])
+    .map((vehicle) => vehicle.location)
+    .filter((location) => distanceKm(anchor, location) <= NEARBY_KM);
 
-  const view = viewportFor(points, width, height);
+  const imageWidth = Math.min(1280, Math.max(1, Math.round(width)));
+  const imageHeight = Math.min(1280, Math.max(1, Math.round(height)));
+  const view = viewportFor(
+    focus.length ? focus : [anchor, ...nearbyVehicles],
+    imageWidth,
+    imageHeight,
+  );
   const source = staticMapUrl({
-    points,
+    pickup,
+    destination,
+    markers: [...places, ...nearbyVehicles],
     path: geometry,
-    width,
-    height,
+    view,
+    width: imageWidth,
+    height: imageHeight,
   });
 
   async function select(event: GestureResponderEvent) {
@@ -64,10 +85,13 @@ export default function StaticMap({
     };
     const x = native.locationX ?? native.offsetX ?? width / 2;
     const y = native.locationY ?? native.offsetY ?? height / 2;
-    const latitude =
-      view.north - (Math.min(y, height) / height) * (view.north - view.south);
-    const longitude =
-      view.west + (Math.min(x, width) / width) * (view.east - view.west);
+    const { latitude, longitude } = pointAt(
+      view,
+      x * (imageWidth / Math.max(width, 1)),
+      y * (imageHeight / Math.max(height, 1)),
+      imageWidth,
+      imageHeight,
+    );
     let name = "";
     try {
       name = await reverseGeocode(latitude, longitude);
@@ -92,7 +116,7 @@ export default function StaticMap({
         <Image
           source={{ uri: source }}
           style={[StyleSheet.absoluteFill, { width: "100%", height: "100%" }]}
-          resizeMode="cover"
+          resizeMode="stretch"
           accessibilityLabel="Calbayog City map"
         />
       ) : (
