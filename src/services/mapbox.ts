@@ -2,6 +2,7 @@ import type { Geometry, Point } from "../types/types";
 
 const TOKEN = (process.env.EXPO_PUBLIC_MAPBOX_ACCESS_TOKEN ?? "").trim();
 const STYLE = "mapbox/streets-v12";
+const BASEMAP_STYLE = "mapbox/streets-v12";
 const ORIGIN = "https://api.mapbox.com";
 
 export const hasMapbox = TOKEN.startsWith("pk.") && TOKEN.length > 40;
@@ -126,6 +127,23 @@ function encodePolyline(coordinates: Geometry["coordinates"], step: number) {
     previousLat = lat;
     previousLng = lng;
   }
+}
+
+/**
+ * A plain street basemap (no overlays) for the app's own drawn markers.
+ * Same Web Mercator maths as RouteDiagram, so pixels line up exactly.
+ */
+export function basemapUrl(
+  center: { latitude: number; longitude: number },
+  zoom: number,
+  width: number,
+  height: number,
+): string | null {
+  if (!hasMapbox) {return null;}
+  const w = Math.min(1280, Math.max(1, Math.round(width)));
+  const h = Math.min(1280, Math.max(1, Math.round(height)));
+  const camera = `${center.longitude.toFixed(6)},${center.latitude.toFixed(6)},${zoom.toFixed(2)},0`;
+  return `${ORIGIN}/styles/v1/${BASEMAP_STYLE}/static/${camera}/${w}x${h}@2x?access_token=${encodeURIComponent(TOKEN)}&logo=false&attribution=false`;
 }
 
 export function staticMapUrl(scene: MapScene): string | null {

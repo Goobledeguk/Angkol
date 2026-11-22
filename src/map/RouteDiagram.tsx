@@ -1,10 +1,15 @@
 import React, { useState } from "react";
-import { Pressable, StyleSheet, View, useWindowDimensions, type GestureResponderEvent } from "react-native";
+import { Image, Pressable, StyleSheet, Text, View, useWindowDimensions, type GestureResponderEvent } from "react-native";
 import Svg, { Circle, G, Line, Polyline, Rect, Text as SvgText } from "react-native-svg";
 import type { MapProps } from "./mapTypes";
 import type { Point } from "../types/types";
-import { DEFAULT_CENTER, distanceKm } from "../services/mapbox";
+import { DEFAULT_CENTER, basemapUrl, distanceKm, hasMapbox } from "../services/mapbox";
 import { glyphShapes } from "../common/Glyph";
+import roads from "./roads.json";
+import { roadKey } from "./roadKey";
+
+/** Sample lines snapped to real roads ahead of time (scripts/capture/roads.mjs). */
+const onRoads = (coords: number[][]) => (roads as Record<string, number[][]>)[roadKey(coords)];
 
 const INK = "#14201A";
 const PAPER = "#EDF2EE";
@@ -32,7 +37,9 @@ function fit(points: Point[], width: number, height: number, pad: number): View2
   const spanX = Math.max(maxX - minX, 1e-7);
   const spanY = Math.max(maxY - minY, 1e-7);
   const fitScale = Math.min((width - pad * 2) / spanX, (height - pad * 2) / spanY);
-  const scale = Math.max(TILE * 2 ** 12.5, Math.min(TILE * 2 ** 16.4, fitScale));
+  // Zoom is kept to two decimals so a Mapbox basemap at the same zoom lines up pixel for pixel.
+  const zoom = Math.round(Math.log2(Math.max(TILE * 2 ** 12.5, Math.min(TILE * 2 ** 16.4, fitScale)) / TILE) * 100) / 100;
+  const scale = TILE * 2 ** zoom;
   return { cx: (minX + maxX) / 2, cy: (minY + maxY) / 2, scale };
 }
 
@@ -97,7 +104,7 @@ function Label({ x, y, text, color = INK, anchor = "middle", size = 11 }: { x: n
   const label = text;
   return (
     <G>
-      <SvgText {...common} stroke={PAPER} strokeWidth={4} strokeLinejoin="round" fill={PAPER}>
+      <SvgText {...common} stroke="#FFFFFF" strokeWidth={4} strokeLinejoin="round" fill="#FFFFFF">
         {label}
       </SvgText>
       <SvgText {...common} fill={color}>
@@ -108,7 +115,7 @@ function Label({ x, y, text, color = INK, anchor = "middle", size = 11 }: { x: n
 }
 
 /**
- * Angkol's map: a drawn route diagram instead of a borrowed basemap.
+ * Angkol's map: our own route, stops and vehicles, drawn over Mapbox streets when a token is set.
  * Each screen frames its own subject: the approaching driver, the ride,
  * the corridor, or the spot being picked.
  */
@@ -129,7 +136,17 @@ export default function RouteDiagram({
   const window = useWindowDimensions();
   const [width, setWidth] = useState(Math.max(280, window.width - 40));
 
-  const line: Point[] = (geometry?.coordinates ?? []).map(([longitude, latitude]) => ({ name: "", latitude, longitude }));
+  const given = geometry?.coordinates ?? [];
+  const snapped =
+    given.length >= 2
+      ? onRoads(given)
+      : pickup && destination
+        ? onRoads([[pickup.longitude, pickup.latitude], [destination.longitude, destination.latitude]])
+        : undefined;
+  // Roads end at the kerb; join them to the actual pickup and drop-off marks.
+  const ends = given.length >= 2 ? given : pickup && destination ? [[pickup.longitude, pickup.latitude], [destination.longitude, destination.latitude]] : [];
+  const path = snapped ? [ends[0], ...snapped, ends[ends.length - 1]] : given;
+  const line: Point[] = path.map(([longitude, latitude]) => ({ name: "", latitude, longitude }));
   const anchor = pickup ?? destination ?? line[0] ?? { name: "", ...DEFAULT_CENTER };
   const nearby = (vehicles ?? []).filter((v) => distanceKm(anchor, v.location) <= 3);
   const focus: Point[] = [
@@ -167,6 +184,12 @@ export default function RouteDiagram({
     onSelect({ name: "Pinned spot", latitude, longitude });
   }
 
+  const basemap = basemapUrl(
+    { longitude: view.cx * 360 - 180, latitude: latFromY(view.cy) },
+    Math.log2(view.scale / TILE),
+    width,
+    height,
+  );
   const grid: React.ReactNode[] = [];
   for (let x = 16; x < width; x += 32) {
     grid.push(<Line key={`gx${x}`} x1={x} y1={0} x2={x} y2={height} stroke={GRID} strokeWidth={1} />);
@@ -175,7 +198,8 @@ export default function RouteDiagram({
     grid.push(<Line key={`gy${y}`} x1={0} y1={y} x2={width} y2={y} stroke={GRID} strokeWidth={1} />);
   }
 
-  const context = [...(landmarks ?? [])].filter((p) => p.name !== pickup?.name && p.name !== destination?.name);
+  // The street basemap already names places, so landmark labels only appear on the plain map.
+  const context = hasMapbox ? [] : [...(landmarks ?? [])].filter((p) => p.name !== pickup?.name && p.name !== destination?.name);
 
   // Everything drawn as a mark claims its space before any label is placed.
   const taken: Box[] = [];
@@ -242,9 +266,16 @@ export default function RouteDiagram({
 
   return (
     <View style={[styles.frame, { height }]} onLayout={(e) => setWidth(Math.max(1, e.nativeEvent.layout.width))}>
-      <Svg width={width} height={height}>
-        <Rect x={0} y={0} width={width} height={height} fill={PAPER} />
-        {grid}
+      {basemap ? (
+        <Image
+          source={{ uri: basemap }}
+          style={[StyleSheet.absoluteFill, { width, height }]}
+          resizeMode="stretch"
+          accessibilityIgnoresInvertColors
+        />
+      ) : null}
+      <Svg width={width} height={height} style={StyleSheet.absoluteFill}>
+        {basemap ? null : grid}
 
         {context.map((p) => {
           const at = px(p);
@@ -337,10 +368,22 @@ export default function RouteDiagram({
         accessibilityLabel={mode ? `Tap to set ${mode} on the map` : "Route map"}
         onPress={mode ? select : undefined}
       />
+      {basemap ? <Text style={styles.credit}>© Mapbox © OpenStreetMap</Text> : null}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   frame: { borderRadius: 10, overflow: "hidden", backgroundColor: PAPER },
+  credit: {
+    position: "absolute",
+    right: 6,
+    bottom: 4,
+    fontFamily: "Archivo",
+    fontSize: 9,
+    color: "#56625B",
+    backgroundColor: "rgba(255,255,255,0.8)",
+    paddingHorizontal: 4,
+    borderRadius: 3,
+  },
 });

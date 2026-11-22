@@ -56,6 +56,7 @@ async function capture(browser, base, out, scene) {
       const url = new URL(request.url());
       if (
         url.origin === base.origin ||
+        url.origin === "https://api.mapbox.com" ||
         ["data:", "blob:"].includes(url.protocol)
       ) {
         return request.continue();
@@ -83,12 +84,12 @@ async function capture(browser, base, out, scene) {
         "* { scrollbar-width: none !important; } *::-webkit-scrollbar { display: none !important; }",
     });
 
-    await delay(600);
+    await delay(1500);
     await page.waitForFunction(
       () =>
         document.fonts.status === "loaded" &&
         Array.from(document.images).every((img) => img.complete),
-      { timeout: 15_000 },
+      { timeout: 30_000 },
     );
     const brokenImages = await page.evaluate(async () => {
       await document.fonts.ready;

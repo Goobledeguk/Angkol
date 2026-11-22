@@ -13,7 +13,7 @@ Sample password for all predefined accounts: `Angkol123!`.
 
 Unknown emails and incorrect sample passwords show an error. These fictional accounts simulate recognition locally; no real authentication or account storage is involved.
 
-All screen data is fictional and bundled locally. Buttons simulate changes in memory. Leaving a preview or reloading resets changes. The map is a bundled snapshot from the existing design; location, calling, directions, and sharing are previews. No login, backend, credentials, GPS, map service, or database is required.
+All screen data is fictional and bundled locally. Buttons simulate changes in memory. Leaving a preview or reloading resets changes. The map is drawn by the app. With `EXPO_PUBLIC_MAPBOX_ACCESS_TOKEN` in `.env` it sits on Mapbox street tiles, and sample routes follow real roads from `src/map/roads.json` (refresh with `node --env-file=.env scripts/capture/roads.mjs`); without a token it falls back to plain paper. Otherwise location, calling, directions, and sharing are previews. No login, backend, credentials, GPS, map service, or database is required.
 
 `src/api.ts` is an in-memory UI adapter and never makes network requests. Backend, Firebase configuration, credentials, and emulator tools have been removed.
 

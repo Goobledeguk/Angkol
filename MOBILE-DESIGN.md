@@ -26,6 +26,7 @@ These live in `src/passenger/passengerStyles.ts` (`passengerColors`, `ps`), and 
 ## Rules
 
 - Copy states what is on screen. No greeting headlines, no taglines, no exclamation marks except PARA!.
+- Maps: our own markers drawn over Mapbox `streets-v12` tiles (same Web Mercator maths, zoom rounded to 2 decimals). Sample routes come from `src/map/roads.json`, never from a live Directions call. No token means plain paper.
 - Map labels go through `placeLabels()`. Pickup and drop-off labels are always drawn, and context labels drop out rather than overlap.
 - Live trip screens let the map fill the space above the sheet, so there is no dead band.
 - Admin: KPI tiles only on Overview. Every other page leads with its queue or table. Minimum text is 12–13px.
