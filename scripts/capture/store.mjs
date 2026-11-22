@@ -59,14 +59,14 @@ const slides = [
     id: "04-para",
     tone: "yellow",
     title: "Tap PARA! where you want to get off",
-    sub: "Your driver gets the stop right away. Then pay the fare shown, in cash.",
+    sub: "The driver pulls over where you tap. Then pay the fare on screen, in cash.",
     screen: "p-track",
   },
   {
     id: "05-jeepney",
     tone: "white",
     title: "Hold a seat on the next jeepney",
-    sub: "Plate number, departure time and fare for your terminal.",
+    sub: "Check the plate, the next departure and the fare before you walk to the terminal.",
     screen: "p-seat",
   },
   {
