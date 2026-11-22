@@ -15,14 +15,14 @@ afterEach(() => {
 it("shows the minutes and seconds left in the search window", async () => {
   await render(<SearchCountdown expires={NOW + 8 * 60_000 + 42_000} />);
   expect(screen.getByText("8:42")).toBeOnTheScreen();
-  expect(screen.getByText("Asking nearby drivers")).toBeOnTheScreen();
+  expect(screen.getByText("Search closes in")).toBeOnTheScreen();
   expect(screen.getByRole("progressbar")).toHaveAccessibilityValue({ now: 522, text: "8:42" });
 });
 
 it("switches to a last-call message in the final minute", async () => {
   await render(<SearchCountdown expires={NOW + 45_000} />);
   expect(screen.getByText("0:45")).toBeOnTheScreen();
-  expect(screen.getByText("Last call for nearby drivers")).toBeOnTheScreen();
+  expect(screen.getByText("Last call")).toBeOnTheScreen();
 });
 
 it("never counts below zero once the window has passed", async () => {

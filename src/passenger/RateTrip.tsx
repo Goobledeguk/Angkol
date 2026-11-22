@@ -1,10 +1,16 @@
 import { useState } from "react";
 import { Pressable, Text, View } from "react-native";
-import { Icon } from "../common/ui";
 import { haptic } from "../common/haptics";
 import { passengerColors as c, ps } from "./passengerStyles";
 
-const WORDS = ["", "Poor", "Fair", "Good", "Great", "Excellent"];
+/** Three choices instead of five stars. Stored on the same 1–5 scale. */
+const CHOICES = [
+  { value: 1, word: "Diri maupay", english: "Not good" },
+  { value: 3, word: "Okay", english: "Fine" },
+  { value: 5, word: "Maupay", english: "Good" },
+];
+const nearest = (rating: number) =>
+  CHOICES.reduce((best, item) => (Math.abs(item.value - rating) < Math.abs(best.value - rating) ? item : best));
 
 export function RateTrip({
   rating,
@@ -18,68 +24,59 @@ export function RateTrip({
   onRate: (value: number) => Promise<boolean>;
 }) {
   const [picked, setPicked] = useState(0);
-  const shown = rating || picked;
   const first = driver?.split(" ")[0];
-
-  if (rating) {
-    return (
-      <View
-        accessible
-        accessibilityLabel={`You rated this ride ${rating} out of 5`}
-        style={{ alignItems: "center", gap: 6 }}
-      >
-        <View style={{ flexDirection: "row", gap: 4 }}>
-          {[1, 2, 3, 4, 5].map((value) => (
-            <Icon
-              key={value}
-              name={value <= rating ? "star" : "star-outline"}
-              size={20}
-              color={c.amber}
-            />
-          ))}
-        </View>
-        <Text style={ps.small}>
-          You rated this ride {WORDS[rating].toLowerCase()}. Thanks for helping
-          keep Angkol drivers accountable.
-        </Text>
-      </View>
-    );
-  }
+  const chosen = rating ? nearest(rating).value : picked;
 
   return (
-    <View style={{ gap: 8 }}>
-      <Text style={[ps.label, { textAlign: "center" }]}>
-        How was your ride{first ? ` with ${first}` : ""}?
+    <View style={{ gap: 10 }}>
+      <Text style={ps.section}>
+        {rating ? "Your rating" : `How was the ride${first ? ` with ${first}` : ""}?`}
       </Text>
-      <View style={[ps.row, { justifyContent: "space-around" }]}>
-        {[1, 2, 3, 4, 5].map((value) => (
-          <Pressable
-            key={value}
-            accessibilityRole="button"
-            accessibilityLabel={`Rate ${value} out of 5`}
-            accessibilityState={{ disabled: !!disabled, selected: picked === value }}
-            disabled={disabled || picked > 0}
-            onPress={() => {
-              haptic.select();
-              setPicked(value);
-              void onRate(value).then((saved) => {
-                if (!saved) {
-                  setPicked(0);
-                }
-              });
-            }}
-            style={({ pressed }) => [ps.star, pressed && { transform: [{ scale: 0.94 }] }]}
-          >
-            <Icon
-              name={value <= shown ? "star" : "star-outline"}
-              size={27}
-              color={c.amber}
-            />
-          </Pressable>
-        ))}
+      <View style={{ flexDirection: "row", gap: 8 }}>
+        {CHOICES.map((item) => {
+          const on = chosen === item.value;
+          return (
+            <Pressable
+              key={item.value}
+              accessibilityRole="button"
+              accessibilityLabel={`${item.english} (${item.word})`}
+              accessibilityState={{ disabled: !!disabled || !!rating, selected: on }}
+              disabled={disabled || !!rating || picked > 0}
+              onPress={() => {
+                haptic.select();
+                setPicked(item.value);
+                void onRate(item.value).then((saved) => {
+                  if (!saved) {
+                    setPicked(0);
+                  }
+                });
+              }}
+              style={({ pressed }) => [
+                {
+                  flex: 1,
+                  minHeight: 64,
+                  borderRadius: 8,
+                  borderWidth: 2,
+                  borderColor: on ? c.ink : "#C9CBC5",
+                  backgroundColor: on ? c.ink : "#FFFFFF",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  paddingHorizontal: 4,
+                  opacity: chosen && !on ? 0.5 : 1,
+                },
+                pressed && { transform: [{ scale: 0.97 }] },
+              ]}
+            >
+              <Text style={[ps.label, { textAlign: "center" }, on && { color: "#FFFFFF" }]} numberOfLines={1} adjustsFontSizeToFit>
+                {item.word}
+              </Text>
+              <Text style={[ps.tiny, { color: on ? "#FFFFFF" : c.ink }]}>{item.english}</Text>
+            </Pressable>
+          );
+        })}
       </View>
-      <Text style={[ps.small, { textAlign: "center", minHeight: 17 }]}>
-        {picked ? `${WORDS[picked]} — saving your rating` : "One tap. Ratings can't be changed later."}
+      <Text style={ps.tiny}>
+        {rating || picked ? "Thanks. It helps the city keep drivers accountable." : "One tap. You can’t change it later."}
       </Text>
     </View>
   );

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ScrollView, Text, View } from "react-native";
+import { Pressable, ScrollView, Text, View } from "react-native";
 import { Button, Icon } from "../common/ui";
 import { haptic } from "../common/haptics";
 import { pickLicensePhoto, uploadLicense } from "../services/documents";
@@ -65,8 +65,8 @@ export default function DriverPending({
     {
       title: hasLicense ? "License photo received" : "Add your driver license photo",
       detail: hasLicense
-        ? "Stored privately. Only reviewers can see it."
-        : "Reviewers need a clear photo of the front of your license.",
+        ? "Only reviewers can see it."
+        : "Front side, all four corners in frame.",
       state: hasLicense ? "done" : "now",
     },
     {
@@ -79,32 +79,15 @@ export default function DriverPending({
   ];
 
   return (
-    <ScrollView contentContainerStyle={{ flexGrow: 1, padding: 24, justifyContent: "center", gap: 24 }}>
+    <ScrollView contentContainerStyle={{ flexGrow: 1, padding: 24, paddingTop: 32, gap: 24 }}>
       <View style={{ gap: 12 }}>
-        <View
-          style={{
-            width: 56,
-            height: 56,
-            borderRadius: 16,
-            borderCurve: "continuous",
-            backgroundColor: declined ? "#FCEEEA" : "#FFF2D9",
-            alignItems: "center",
-            justifyContent: "center",
-          }}
-        >
-          <Icon
-            name={declined ? "close-circle-outline" : "id-card-outline"}
-            size={28}
-            color={declined ? "#C53B1D" : "#9A6A22"}
-          />
-        </View>
-        <Text style={[ps.heading, { flexWrap: "wrap" }]}>
-          {declined ? "Your application was declined" : "Almost ready to drive"}
+        <Text style={[ps.bannerTitle, { fontSize: 34, lineHeight: 38, flexWrap: "wrap" }]}>
+          {declined ? "Application declined" : "Your application is in review"}
         </Text>
         <Text style={[ps.body, { fontSize: 15, lineHeight: 23, flexWrap: "wrap" }]}>
           {declined
             ? `${reviewer} declined your application. Contact them directly if you think this is a mistake.`
-            : `${reviewer} approves every driver before they can take passengers. Your dashboard opens here as soon as that happens.`}
+            : `${reviewer} checks every driver first. This screen turns into your dashboard once you’re approved.`}
         </Text>
       </View>
 
@@ -121,13 +104,15 @@ export default function DriverPending({
                     alignItems: "center",
                     justifyContent: "center",
                     backgroundColor:
-                      step.state === "done" ? c.green : step.state === "now" ? "#FFF2D9" : "#EDF1EE",
+                      step.state === "done" ? c.ink : c.surface,
+                    borderWidth: step.state === "done" ? 0 : 2,
+                    borderColor: step.state === "now" ? c.amber : c.line,
                   }}
                 >
                   <Icon
                     name={step.state === "done" ? "checkmark" : step.state === "now" ? "ellipse" : "ellipse-outline"}
                     size={step.state === "done" ? 16 : 10}
-                    color={step.state === "done" ? "white" : step.state === "now" ? "#9A6A22" : "#9AA99F"}
+                    color={step.state === "done" ? "white" : step.state === "now" ? c.amber : c.line}
                   />
                 </View>
                 {index < steps.length - 1 && (
@@ -136,7 +121,7 @@ export default function DriverPending({
                       flex: 1,
                       width: 2,
                       minHeight: 20,
-                      backgroundColor: step.state === "done" ? c.green : c.line,
+                      backgroundColor: step.state === "done" ? c.ink : c.line,
                     }}
                   />
                 )}
@@ -173,12 +158,30 @@ export default function DriverPending({
 
       {!declined && hasLicense && (
         <View style={{ gap: 8 }}>
-          <Button
-            title={uploading ? "Uploading…" : "Replace license photo"}
-            secondary
-            onPress={() => void addLicense("camera")}
+          <View
+            accessible
+            accessibilityLabel={`License ${user.license || "on file"} received`}
+            style={{ borderRadius: 12, borderWidth: 2, borderColor: c.ink, overflow: "hidden", backgroundColor: "#FFFFFF" }}
+          >
+            <View style={{ backgroundColor: c.ink, paddingHorizontal: 14, paddingVertical: 8 }}>
+              <Text style={[ps.label, { fontSize: 14, color: "#FFFFFF" }]}>Driver’s license · photo received</Text>
+            </View>
+            <View style={{ padding: 14, gap: 4 }}>
+              <Text style={{ fontFamily: "ArchivoBoard", fontSize: 30, lineHeight: 32, color: c.ink, letterSpacing: 1, fontVariant: ["tabular-nums"] }}>
+                {user.license || "On file"}
+              </Text>
+              <Text style={ps.label}>{user.name}</Text>
+              <Text style={ps.small}>{tricycle ? "Tricycle" : "Jeepney"} · {user.plate || "no plate yet"}</Text>
+            </View>
+          </View>
+          <Pressable
+            accessibilityRole="button"
             disabled={uploading}
-          />
+            onPress={() => void addLicense("camera")}
+            style={({ pressed }) => [ps.secondaryButton, pressed && ps.pressed]}
+          >
+            <Text style={ps.secondaryText}>{uploading ? "Uploading…" : "Replace the photo"}</Text>
+          </Pressable>
           {problem ? (
             <Text style={[ps.body, { color: "#B33A1E" }]} accessibilityLiveRegion="assertive">
               {problem}
@@ -188,7 +191,7 @@ export default function DriverPending({
       )}
 
       {checked && !declined ? (
-        <Text style={[ps.body, { color: c.green }]} accessibilityLiveRegion="polite">
+        <Text style={[ps.body, { color: c.ink }]} accessibilityLiveRegion="polite">
           Not approved yet. We check again automatically while this screen is open.
         </Text>
       ) : null}
@@ -197,7 +200,13 @@ export default function DriverPending({
         {!declined && hasLicense ? (
           <Button title={checking ? "Checking…" : "Check status"} onPress={checkAgain} disabled={checking} />
         ) : null}
-        <Button title="Sign out" secondary onPress={() => void logout()} />
+        <Pressable
+          accessibilityRole="button"
+          onPress={() => void logout()}
+          style={({ pressed }) => [ps.secondaryButton, { backgroundColor: "transparent" }, pressed && ps.pressed]}
+        >
+          <Text style={[ps.secondaryText, { color: c.muted }]}>Sign out</Text>
+        </Pressable>
       </View>
     </ScrollView>
   );

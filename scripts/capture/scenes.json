@@ -1,0 +1,142 @@
+[
+  {
+    "id": "p-home",
+    "url": "/capture?scene=p-home&screen=Home",
+    "viewport": "phone"
+  },
+  {
+    "id": "p-journey",
+    "url": "/capture?scene=p-journey&screen=Journey",
+    "viewport": "phone"
+  },
+  {
+    "id": "p-searching",
+    "url": "/capture?scene=p-searching&screen=Ride%20accepted&trip=TRI1042",
+    "viewport": "phone"
+  },
+  {
+    "id": "p-accepted",
+    "url": "/capture?scene=p-accepted&screen=Ride%20accepted&trip=TRI1040",
+    "viewport": "phone"
+  },
+  {
+    "id": "p-track",
+    "url": "/capture?scene=p-track&screen=Track%20ride&trip=TRI1037",
+    "viewport": "phone"
+  },
+  {
+    "id": "p-arrived",
+    "url": "/capture?scene=p-arrived&screen=Arrived&trip=TRI1039",
+    "viewport": "phone"
+  },
+  {
+    "id": "p-pay",
+    "url": "/capture?scene=p-pay&screen=Pay%20cash&trip=TRI1037",
+    "viewport": "phone"
+  },
+  {
+    "id": "p-expired",
+    "url": "/capture?scene=p-expired&screen=Ride%20accepted&trip=TRI1041",
+    "viewport": "phone"
+  },
+  {
+    "id": "p-routes",
+    "url": "/capture?scene=p-routes&screen=Routes",
+    "viewport": "phone"
+  },
+  {
+    "id": "p-seat",
+    "url": "/capture?scene=p-seat&screen=PUJ%20arrived&trip=PUV1052",
+    "viewport": "phone"
+  },
+  {
+    "id": "p-receipt",
+    "url": "/capture?scene=p-receipt&screen=Receipt&trip=TRI1038",
+    "viewport": "phone"
+  },
+  {
+    "id": "p-trips",
+    "url": "/capture?scene=p-trips&screen=Trips",
+    "viewport": "phone"
+  },
+  {
+    "id": "p-notifications",
+    "url": "/capture?scene=p-notifications&screen=Notifications",
+    "viewport": "phone"
+  },
+  {
+    "id": "d-online",
+    "url": "/capture?scene=d-online&screen=Dashboard",
+    "viewport": "phone"
+  },
+  {
+    "id": "d-requests",
+    "url": "/capture?scene=d-requests&screen=Requests",
+    "viewport": "phone"
+  },
+  {
+    "id": "d-earnings",
+    "url": "/capture?scene=d-earnings&screen=Earnings",
+    "viewport": "phone"
+  },
+  {
+    "id": "d-pickup",
+    "url": "/capture?scene=d-pickup&screen=Trip&trip=TRI1040",
+    "viewport": "phone"
+  },
+  {
+    "id": "d-profile",
+    "url": "/capture?scene=d-profile&screen=Profile",
+    "viewport": "phone"
+  },
+  {
+    "id": "j-run",
+    "url": "/capture?scene=j-run&screen=Route",
+    "viewport": "phone"
+  },
+  {
+    "id": "j-dashboard",
+    "url": "/capture?scene=j-dashboard&screen=Dashboard",
+    "viewport": "phone"
+  },
+  {
+    "id": "d-pending",
+    "url": "/capture?scene=d-pending",
+    "viewport": "phone"
+  },
+  {
+    "id": "a-overview",
+    "url": "/capture?scene=a-overview&screen=Overview",
+    "viewport": "desktop"
+  },
+  {
+    "id": "a-drivers",
+    "url": "/capture?scene=a-drivers&screen=People",
+    "viewport": "desktop"
+  },
+  {
+    "id": "a-routes-fares",
+    "url": "/capture?scene=a-routes-fares&screen=Routes%20%26%20terminals",
+    "viewport": "desktop"
+  },
+  {
+    "id": "a-fleet",
+    "url": "/capture?scene=a-fleet&screen=Fleet%20tracking",
+    "viewport": "desktop"
+  },
+  {
+    "id": "a-trips",
+    "url": "/capture?scene=a-trips&screen=Trips%20%26%20reports",
+    "viewport": "desktop"
+  },
+  {
+    "id": "a-sign-in",
+    "url": "/capture?scene=a-sign-in",
+    "viewport": "phone"
+  },
+  {
+    "id": "welcome",
+    "url": "/capture?scene=welcome",
+    "viewport": "phone"
+  }
+]

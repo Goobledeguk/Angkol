@@ -57,8 +57,10 @@ describe("city time", () => {
 describe("greeting", () => {
   it.each([
     ["05:00", "Maupay nga aga"],
-    ["11:59", "Maupay nga aga"],
-    ["12:00", "Maupay nga kulop"],
+    ["10:59", "Maupay nga aga"],
+    ["11:00", "Maupay nga udto"],
+    ["13:59", "Maupay nga udto"],
+    ["14:00", "Maupay nga kulop"],
     ["17:59", "Maupay nga kulop"],
     ["18:00", "Maupay nga gab-i"],
     ["02:00", "Maupay nga gab-i"],

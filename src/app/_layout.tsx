@@ -8,9 +8,25 @@ import { GestureHandlerRootView } from "react-native-gesture-handler";
 import * as NavigationBar from "expo-navigation-bar";
 
 export default function Layout() {
-  const [loaded, error] = useFonts({
-    Manrope: require("../../assets/fonts/Manrope.ttf"),
-  });
+  const [loaded, error] = useFonts([
+    {
+      fontFamily: "Archivo",
+      fontDefinitions: [
+        { path: require("../../assets/fonts/Archivo-Regular.ttf"), weight: 400 },
+        { path: require("../../assets/fonts/Archivo-Medium.ttf"), weight: 500 },
+        { path: require("../../assets/fonts/Archivo-SemiBold.ttf"), weight: 600 },
+        { path: require("../../assets/fonts/Archivo-Bold.ttf"), weight: 700 },
+      ],
+    },
+    {
+      fontFamily: "ArchivoBoard",
+      fontDefinitions: [{ path: require("../../assets/fonts/Archivo-Display.ttf") }],
+    },
+    {
+      fontFamily: "ArchivoCond",
+      fontDefinitions: [{ path: require("../../assets/fonts/Archivo-CondBold.ttf") }],
+    },
+  ]);
 
   useEffect(() => {
     if (Platform.OS !== "android") {
@@ -55,7 +71,7 @@ export default function Layout() {
         <Stack
           screenOptions={{
             headerShown: false,
-            contentStyle: { backgroundColor: "#FFFFFF" },
+            contentStyle: { backgroundColor: "#F6F4EE" },
           }}
         />
       </SafeAreaProvider>

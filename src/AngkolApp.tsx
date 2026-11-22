@@ -242,7 +242,7 @@ export default function AngkolApp() {
   };
   const bottomPad = Math.max(insets.bottom, 8);
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: "#FFFFFF" }} edges={["top", "left", "right"]}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: "#F6F4EE" }} edges={["top", "left", "right"]}>
       <Animated.View style={{ flex: 1, opacity: fade }}>
         <View style={{ flex: 1, paddingBottom: bottomPad }}>
           {view.user.role === "Administrator" || view.user.role === "Vehicle Owner / Operator" ? (

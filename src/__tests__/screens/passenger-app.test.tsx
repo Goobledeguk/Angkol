@@ -67,7 +67,7 @@ describe("Passenger home and notifications", () => {
 
   it("opens the journey from the destination prompt", async () => {
     await openPassenger();
-    await press("Enter your destination");
+    await press("Where to? Book a tricycle");
     expect(setParams).toHaveBeenCalledWith({ screen: "Journey", trip: "" });
   });
 
@@ -108,7 +108,7 @@ describe("Passenger home and notifications", () => {
     const { action } = await openPassenger("Notifications", {
       notifications: [notification, { ...notification, id: "n-2" }],
     });
-    await press("Mark 2 as read");
+    await press("Mark all read");
     expect(action).toHaveBeenCalledTimes(1);
     expect(action).toHaveBeenCalledWith("/notifications/read", {});
   });
@@ -120,13 +120,14 @@ describe("Passenger home and notifications", () => {
       notifications: [{ ...notification, read: true }],
     },
   ])(
-    "disables marking notifications when the list is $description",
+    "hides the mark-as-read action when the list is $description",
     async ({ notifications }) => {
       const { action } = await openPassenger("Notifications", {
         notifications,
       });
-      expect(button("All caught up")).toBeDisabled();
-      await press("All caught up");
+      expect(
+        screen.queryByRole("button", { name: "Mark all read" }),
+      ).toBeNull();
       expect(action).not.toHaveBeenCalled();
     },
   );
@@ -146,14 +147,14 @@ describe("Passenger home and notifications", () => {
 
   it("locks the mark-as-read action while the app is busy", async () => {
     await openPassenger("Notifications", {}, { busy: true });
-    expect(button("Mark 1 as read")).toBeDisabled();
+    expect(button("Mark all read")).toBeDisabled();
   });
 });
 
 describe("Passenger tracking and receipt", () => {
   test.each([
-    ["unavailable", [], /^The driver’s live location is not available yet/],
-    ["fresh", [driverVehicle], /^Driver GPS updated just now/],
+    ["unavailable", [], /km trip · estimate$/],
+    ["fresh", [driverVehicle], /km trip · estimate$/],
     [
       "stale",
       [
@@ -166,13 +167,13 @@ describe("Passenger tracking and receipt", () => {
           stale: true,
         },
       ],
-      /^Driver location is old \(6 min ago\)/,
+      /GPS last seen 6 min ago$/,
     ],
   ] as const)(
     "shows the %s driver location hint",
     async (_state, vehicles, hint) => {
       await openPassenger("Track ride", {
-        trips: [trip],
+        trips: [{ ...trip, status: "In progress" }],
         vehicles: [...vehicles],
       });
       expect(screen.getByText(hint)).toBeOnTheScreen();
@@ -182,15 +183,15 @@ describe("Passenger tracking and receipt", () => {
 
   it("shows an empty tracking screen when the passenger has no trips", async () => {
     await openPassenger("Track ride", { trips: [] });
-    expect(screen.getByText(/^You have no active ride/)).toBeOnTheScreen();
+    expect(screen.getByText("No active ride")).toBeOnTheScreen();
     await press("Back to Home");
     expect(setParams).toHaveBeenCalledWith({ screen: "Home", trip: "" });
   });
 
   test.each([
-    ["Arrived", "View arrival details", "Arrived"],
-    ["Completed", "View receipt", "Receipt"],
-    ["In progress", "I’ve arrived at my destination", "Drop off"],
+    ["Arrived", "Wrong number", "Support"],
+    ["Completed", "See receipt", "Receipt"],
+    ["In progress", "Para. Ask the driver to stop here", "Drop off"],
   ] as const)(
     "uses the appropriate action for a trip with status %s",
     async (status, label, next) => {
@@ -220,7 +221,7 @@ describe("Passenger tracking and receipt", () => {
     await openPassenger("Receipt", {
       trips: [{ ...trip, status: "Completed" }],
     });
-    expect(screen.getByText("Trip #AB12CD34")).toBeOnTheScreen();
+    expect(screen.getByText("Ticket AB12CD34")).toBeOnTheScreen();
     expect(screen.queryByText(new RegExp(trip.id))).toBeNull();
   });
 
@@ -235,11 +236,11 @@ describe("Passenger tracking and receipt", () => {
       },
       { trip: trip.id },
     );
-    await press("Rate 5 out of 5");
+    await press("Good (Maupay)");
     expect(action).toHaveBeenCalledWith(`/trips/${trip.id}/rating`, {
       rating: 5,
     });
-    expect(button("Rate 4 out of 5")).toBeDisabled();
+    expect(button("Fine (Okay)")).toBeDisabled();
   });
 
   it("shows a stored rating without letting it change", async () => {
@@ -248,8 +249,9 @@ describe("Passenger tracking and receipt", () => {
       { trips: [{ ...trip, status: "Completed", rating: 3 }] },
       { trip: trip.id },
     );
-    expect(screen.getByLabelText("You rated this ride 3 out of 5")).toBeOnTheScreen();
-    expect(screen.queryByRole("button", { name: "Rate 5 out of 5" })).toBeNull();
+    expect(screen.getByText("Your rating")).toBeOnTheScreen();
+    expect(button("Fine (Okay)")).toBeSelected();
+    expect(button("Good (Maupay)")).toBeDisabled();
   });
 
   it("offers to send an expired request again", async () => {
@@ -268,9 +270,8 @@ describe("Passenger tracking and receipt", () => {
       },
       { trip: trip.id },
     );
-    expect(screen.getByText("No driver this time")).toBeOnTheScreen();
-    expect(screen.getByText("Every nearby driver was busy")).toBeOnTheScreen();
-    expect(button("Request this ride again")).toBeEnabled();
+    expect(screen.getByText("No driver accepted")).toBeOnTheScreen();
+    expect(button(`Ask again · ₱${trip.fare.toFixed(2)}`)).toBeEnabled();
   });
 });
 
@@ -280,9 +281,9 @@ describe("Passenger journey and support", () => {
       .mocked(currentPoint)
       .mockResolvedValueOnce({ ...landmark, name: "My current pickup" });
     await openPassenger("Journey");
-    await press("Use my current location");
+    await press("Use my location for pickup");
     expect(currentPoint).toHaveBeenCalledTimes(1);
-    expect(screen.getByText("Meet at My current pickup")).toBeOnTheScreen();
+    expect(button("Pickup My current pickup")).toBeOnTheScreen();
   });
 
   it("shows the location service's error and leaves the existing pickup", async () => {
@@ -290,12 +291,12 @@ describe("Passenger journey and support", () => {
       .mocked(currentPoint)
       .mockRejectedValueOnce(new Error("Location permission was denied."));
     await openPassenger("Journey");
-    await press("Use my current location");
+    await press("Use my location for pickup");
     expect(currentPoint).toHaveBeenCalledTimes(1);
     expect(
       screen.getByText("Location permission was denied."),
     ).toBeOnTheScreen();
-    expect(screen.getByText(`Meet at ${landmark.name}`)).toBeOnTheScreen();
+    expect(button(`Pickup ${landmark.name}`)).toBeOnTheScreen();
   });
 
   it("searches for a typed place with a trimmed and encoded query", async () => {
@@ -322,8 +323,8 @@ describe("Passenger journey and support", () => {
     async (details) => {
       const { action } = await openPassenger("Support");
       await fill("Support report details", details);
-      expect(button("Send report to administrator")).toBeDisabled();
-      await press("Send report to administrator");
+      expect(button("Send to the transport office")).toBeDisabled();
+      await press("Send to the transport office");
       expect(action).not.toHaveBeenCalled();
     },
   );
@@ -337,12 +338,12 @@ describe("Passenger journey and support", () => {
         { trip: tripId },
       );
       await fill("Support report details", "  Missed pickup  ");
-      await press("Send report to administrator");
+      await press("Send to the transport office");
       expect(action).toHaveBeenCalledWith("/report", {
         details: "Missed pickup",
         tripId: tripId ?? null,
       });
-      expect(button("Send report to administrator")).toBeDisabled();
+      expect(button("Send to the transport office")).toBeDisabled();
     },
   );
 
@@ -350,10 +351,10 @@ describe("Passenger journey and support", () => {
     const { action } = await openPassenger("Support");
     action.mockResolvedValueOnce(false);
     await fill("Support report details", "Missed pickup");
-    await press("Send report to administrator");
+    await press("Send to the transport office");
     expect(screen.getByLabelText("Support report details")).toHaveDisplayValue(
       "Missed pickup",
     );
-    expect(button("Send report to administrator")).toBeEnabled();
+    expect(button("Send to the transport office")).toBeEnabled();
   });
 });

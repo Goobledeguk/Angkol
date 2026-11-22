@@ -62,6 +62,13 @@ function Pill({
 }) {
   return <span className={`aa-pill ${tone}`}>{children}</span>;
 }
+function seenAgo(at: number | undefined, now: number) {
+  if (!at) {
+    return "No GPS yet";
+  }
+  const s = Math.max(0, Math.round((now - at) / 1000));
+  return s < 60 ? `${s} s ago` : s < 3600 ? `${Math.round(s / 60)} min ago` : `${Math.round(s / 3600)} h ago`;
+}
 function Panel({
   title,
   sub,
@@ -99,11 +106,8 @@ function Stats({ items }: { items?: Stat[] }) {
       {(items || []).map((item) => (
         <div key={item.label} className={`aa-stat ${item.tone || ""}`}>
           <div className="aa-statlabel">{item.label}</div>
-          <span className="aa-stat-icon">
-            <Glyph name={item.icon} />
-          </span>
           <div className="aa-statvalue">{item.value}</div>
-          <div className="aa-statnote">{item.note}</div>
+          {item.note ? <div className="aa-statnote">{item.note}</div> : null}
         </div>
       ))}
     </div>
@@ -266,11 +270,11 @@ export default function AdminDashboard({
     ? params.screen!
     : oldPages[params.screen || ""] || "Overview";
   const pageIndex = Math.max(0, pages.indexOf(page));
-  const techTitles = ["Operations overview","City-wide fleet tracking","People & verification","Routes, terminals & fares","Trips & reports","System & audit monitor"];
-  const ownerTitles = ["Franchise operations overview","Assigned vehicle status","Franchise drivers","Assigned routes & terminals","Fleet trip records"];
+  const techTitles = ["Today in Calbayog","Fleet","People","Routes & fares","Trips & reports","System"];
+  const ownerTitles = ["Your franchise today","Vehicles","Drivers","Routes & terminals","Trips"];
   const titles = isOwner ? ownerTitles : techTitles;
-  const techSubtitles = ["Live mobility status and 24-hour booking distribution across Calbayog City","Real-time vehicle telemetry with PUJ/PUV monitoring categories","Manage commuters, driver partners, identity and association records","Configure the local network, schedules, and transparent fare rules","Search operational records, investigate exceptions, and export civic mobility data","Platform health, location freshness, security events, and accountable change history"];
-  const ownerSubtitles = ["Overview of your franchise vehicles, active routes, and daily fleet performance","Track whether your vehicles have Arrived, are In Terminal, or are Broken / Inactive","Manage driver profiles, license verification, daily earnings, and trip history","Review franchised routes and terminal dispatch points for your vehicles","Audit trip records and passengers served strictly by your franchise vehicles"];
+  const techSubtitles = ["","","Riders, drivers and pending applications","Fares here are what riders see before they book","",""];
+  const ownerSubtitles = ["","","","",""];
   const subtitles = isOwner ? ownerSubtitles : techSubtitles;
 
   const [search, setSearch] = useState(""),
@@ -468,82 +472,82 @@ export default function AdminDashboard({
     ? [
         // 0: Overview
         [
-          { label: "Franchise fleet", value: myVehicles.length, note: "Assigned franchise vehicles", icon: "route" },
-          { label: "In service today", value: myVehicles.filter((v) => v.status !== "Broken / Inactive").length, note: "Operational & active", icon: "arrow", tone: "blue" },
-          { label: "Broken / Inactive", value: myVehicles.filter((v) => v.status === "Broken / Inactive").length, note: "Needs maintenance/repair", icon: "warning", tone: myVehicles.filter((v) => v.status === "Broken / Inactive").length ? "red" : "gray" },
-          { label: "Today's fleet revenue", value: `₱${myTrips.filter((t) => t.status === "Completed").reduce((s, t) => s + (t.fare || 0), 0).toFixed(2)}`, note: "Gross ticket collection", icon: "money", tone: "amber" },
+          { label: "Franchise fleet", value: myVehicles.length, note: "", icon: "route" },
+          { label: "In service today", value: myVehicles.filter((v) => v.status !== "Broken / Inactive").length, note: "", icon: "arrow", tone: "blue" },
+          { label: "Broken / Inactive", value: myVehicles.filter((v) => v.status === "Broken / Inactive").length, note: "", icon: "warning", tone: myVehicles.filter((v) => v.status === "Broken / Inactive").length ? "red" : "gray" },
+          { label: "Today's fleet revenue", value: `₱${myTrips.filter((t) => t.status === "Completed").reduce((s, t) => s + (t.fare || 0), 0).toFixed(2)}`, note: "", icon: "money", tone: "amber" },
         ],
         // 1: My vehicles
         [
-          { label: "Assigned vehicles", value: myVehicles.length, note: "Franchise inventory", icon: "arrow" },
-          { label: "Vehicles arrived", value: myVehicles.filter((v) => v.status === "Arrived").length, note: "Ready at destination/curb", icon: "pin", tone: "blue" },
-          { label: "In terminal", value: myVehicles.filter((v) => v.status === "In Terminal").length, note: "Queued at dispatch", icon: "route", tone: "amber" },
-          { label: "Broken / Inactive", value: myVehicles.filter((v) => v.status === "Broken / Inactive").length, note: "Status reported", icon: "warning", tone: "red" },
+          { label: "Assigned vehicles", value: myVehicles.length, note: "", icon: "arrow" },
+          { label: "Vehicles arrived", value: myVehicles.filter((v) => v.status === "Arrived").length, note: "", icon: "pin", tone: "blue" },
+          { label: "In terminal", value: myVehicles.filter((v) => v.status === "In Terminal").length, note: "", icon: "route", tone: "amber" },
+          { label: "Broken / Inactive", value: myVehicles.filter((v) => v.status === "Broken / Inactive").length, note: "", icon: "warning", tone: "red" },
         ],
         // 2: Drivers
         [
-          { label: "Fleet drivers", value: myDrivers.length, note: "Assigned operators", icon: "people" },
-          { label: "Active drivers", value: myDrivers.filter((d) => d.available).length, note: "Currently logged on", icon: "arrow", tone: "blue" },
-          { label: "Assigned routes", value: routes.length, note: "Authorized corridors", icon: "route", tone: "amber" },
-          { label: "Avg driver revenue", value: `₱${Math.round(myTrips.filter((t) => t.status === "Completed").reduce((sum, t) => sum + (t.fare || 0), 0) / Math.max(1, myDrivers.length))}`, note: "Completed fares per driver", icon: "money" },
+          { label: "Fleet drivers", value: myDrivers.length, note: "", icon: "people" },
+          { label: "Active drivers", value: myDrivers.filter((d) => d.available).length, note: "", icon: "arrow", tone: "blue" },
+          { label: "Assigned routes", value: routes.length, note: "", icon: "route", tone: "amber" },
+          { label: "Avg driver revenue", value: `₱${Math.round(myTrips.filter((t) => t.status === "Completed").reduce((sum, t) => sum + (t.fare || 0), 0) / Math.max(1, myDrivers.length))}`, note: "", icon: "money" },
         ],
         // 3: Routes & terminals
         [
-          { label: "Assigned routes", value: routes.length, note: "PUJ corridors", icon: "route" },
-          { label: "Terminal stops", value: terminals.length, note: "Active dispatch points", icon: "pin", tone: "blue" },
-          { label: "Departure interval", value: "15 min", note: "Scheduled cadence", icon: "clock", tone: "amber" },
-          { label: "Operating span", value: "06:00 - 20:00", note: "Daily transport window", icon: "calendar" },
+          { label: "Assigned routes", value: routes.length, note: "", icon: "route" },
+          { label: "Terminal stops", value: terminals.length, note: "", icon: "pin", tone: "blue" },
+          { label: "Departure interval", value: "15 min", note: "", icon: "clock", tone: "amber" },
+          { label: "Operating span", value: "06:00 - 20:00", note: "", icon: "calendar" },
         ],
         // 4: Fleet trips
         [
-          { label: "Fleet trips today", value: myTrips.length, note: "Passenger runs recorded", icon: "route" },
-          { label: "Completed runs", value: myTrips.filter((t) => t.status === "Completed").length, note: "Full route completions", icon: "arrow", tone: "blue" },
-          { label: "Passengers carried", value: myTrips.filter((t) => t.status === "Completed").length, note: "Completed bookings", icon: "people", tone: "amber" },
-          { label: "Gross collection", value: `₱${myTrips.filter((t) => t.status === "Completed").reduce((s, t) => s + (t.fare || 0), 0).toFixed(2)}`, note: "Today's ticket revenue", icon: "money" },
+          { label: "Fleet trips today", value: myTrips.length, note: "", icon: "route" },
+          { label: "Completed runs", value: myTrips.filter((t) => t.status === "Completed").length, note: "", icon: "arrow", tone: "blue" },
+          { label: "Passengers carried", value: myTrips.filter((t) => t.status === "Completed").length, note: "", icon: "people", tone: "amber" },
+          { label: "Gross collection", value: `₱${myTrips.filter((t) => t.status === "Completed").reduce((s, t) => s + (t.fare || 0), 0).toFixed(2)}`, note: "", icon: "money" },
         ],
       ]
     : [
         // 0: Overview
         [
-          { label: "Active trips", value: active.length, note: "Live transport operations", icon: "arrow" },
-          { label: "Available drivers", value: online.length, note: "Verified · GPS within 60 sec", icon: "people", tone: "blue" },
+          { label: "Active trips", value: active.length, note: "", icon: "arrow" },
+          { label: "Available drivers", value: online.length, note: "GPS in the last minute", icon: "people", tone: "blue" },
           { label: "Today's bookings", value: todays.length, note: `${todays.length ? Math.round((completed.length / todays.length) * 100) : 0}% completion rate`, icon: "route", tone: "amber" },
-          { label: "Location alerts", value: stale.length, note: `${stale.length} outdated positions`, icon: "pin", tone: "red" },
+          { label: "Location alerts", value: stale.length, note: stale.length ? "GPS older than 2 min" : "", icon: "pin", tone: "red" },
         ],
         // 1: Fleet tracking
         [
-          { label: "City-wide fleet", value: vehicles.length, note: "Total monitored units", icon: "arrow" },
+          { label: "City-wide fleet", value: vehicles.length, note: "", icon: "arrow" },
           { label: "Base fare", value: currency(data.baseFare), note: data.fareApproved ? "City ordinance approved" : "Draft rate", icon: "money", tone: "amber" },
-          { label: "Per-kilometer rate", value: currency(data.perKm), note: "Beyond base distance", icon: "money" },
-          { label: "GPS Fresh", value: live.length, note: "Active updates", icon: "pin", tone: "blue" },
+          { label: "Per-kilometer rate", value: currency(data.perKm), note: "", icon: "money" },
+          { label: "Reporting GPS", value: live.length, note: "", icon: "pin", tone: "blue" },
         ],
         // 2: People
         [
           { label: "Total bookings", value: data.trips.length, note: `${completed.length} completed today`, icon: "route" },
           { label: "Completed today", value: todays.length ? `${Math.round((completed.length / todays.length) * 100)}%` : "—", note: todays.length ? `${completed.length} of ${todays.length} bookings today` : "No bookings yet today", icon: "arrow", tone: "blue" },
-          { label: "Average wait", value: averageWait !== null ? `${averageWait}s` : "—", note: "Dispatch to pickup ETA", icon: "clock", tone: "amber" },
-          { label: "Open reports", value: openReports.length, note: "Grievances under investigation", icon: "warning", tone: "red" },
+          { label: "Average wait", value: averageWait !== null ? `${averageWait}s` : "—", note: "", icon: "clock", tone: "amber" },
+          { label: "Open reports", value: openReports.length, note: "", icon: "warning", tone: "red" },
         ],
         // 3: Routes & terminals
         [
-          { label: "Active routes", value: routes.length, note: "City routes", icon: "route" },
-          { label: "Active terminals", value: terminals.length, note: "Dispatch points", icon: "pin", tone: "blue" },
-          { label: "Total stops", value: routes.reduce((s: number, r: any) => s + (r.stops?.length || 0), 0), note: "Service points", icon: "arrow", tone: "amber" },
-          { label: "Total reports", value: openReports.length, note: "Needs investigation", icon: "warning", tone: openReports.length ? "red" : "gray" },
+          { label: "Active routes", value: routes.length, note: "", icon: "route" },
+          { label: "Active terminals", value: terminals.length, note: "", icon: "pin", tone: "blue" },
+          { label: "Total stops", value: routes.reduce((s: number, r: any) => s + (r.stops?.length || 0), 0), note: "", icon: "arrow", tone: "amber" },
+          { label: "Total reports", value: openReports.length, note: "", icon: "warning", tone: openReports.length ? "red" : "gray" },
         ],
         // 4: Trips & reports
         [
-          { label: "Total bookings", value: trips.length, note: "Operational trip records", icon: "route" },
+          { label: "Total bookings", value: trips.length, note: "", icon: "route" },
           { label: "Completed today", value: todays.length ? `${Math.round((completed.length / todays.length) * 100)}%` : "—", note: todays.length ? `${completed.length} of ${todays.length} bookings today` : "No bookings yet today", icon: "arrow", tone: "blue" },
-          { label: "Open reports", value: openReports.length, note: "Grievances under investigation", icon: "warning", tone: openReports.length ? "red" : "gray" },
-          { label: "Average wait", value: averageWait !== null ? `${averageWait}s` : "—", note: "Dispatch to pickup", icon: "clock", tone: "amber" },
+          { label: "Open reports", value: openReports.length, note: "", icon: "warning", tone: openReports.length ? "red" : "gray" },
+          { label: "Average wait", value: averageWait !== null ? `${averageWait}s` : "—", note: "", icon: "clock", tone: "amber" },
         ],
         // 5: System monitor
         [
-          { label: "Platform uptime", value: data.sampleMetrics ? `${data.sampleMetrics.uptimePercent}%` : "—", note: data.sampleMetrics ? "Core API availability" : "No telemetry collected", icon: "shield" },
-          { label: "API latency", value: latency != null ? `${latency}ms` : "—", note: latency != null ? (latency < 100 ? "Healthy response speed" : "Degraded latency") : "No telemetry collected", icon: "activity", tone: latency != null && latency >= 100 ? "red" : "blue" },
-          { label: "Audit events", value: logs.length, note: "Immutable audit ledger", icon: "report", tone: "amber" },
-          { label: "Security alerts", value: "0 active", note: "No breaches detected", icon: "shield" },
+          { label: "Platform uptime", value: data.sampleMetrics ? `${data.sampleMetrics.uptimePercent}%` : "—", note: data.sampleMetrics ? "" : "No telemetry collected", icon: "shield" },
+          { label: "API latency", value: latency != null ? `${latency}ms` : "—", note: latency != null ? (latency < 100 ? "" : "Slower than usual") : "No telemetry collected", icon: "activity", tone: latency != null && latency >= 100 ? "red" : "blue" },
+          { label: "Audit events", value: logs.length, note: "", icon: "report", tone: "amber" },
+          { label: "Security alerts", value: "—", note: "Not monitored yet", icon: "shield" },
         ],
       ];
   function exportTrips() {
@@ -698,26 +702,25 @@ export default function AdminDashboard({
         const activeHours = fullCounts.map((count, h) => ({ h, count })).filter((x) => x.count > 0).map((x) => x.h);
         const hours = activeHours.length ? activeHours : [6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21];
         const counts = hours.map((h) => fullCounts[h] ?? 0);
-        const max = Math.max(1, ...counts);
         const chartTotal = counts.reduce((a,b)=>a+b,0);
     content = (
       <>
         <Panel
           title="Trips by hour"
-          sub={hours.length ? `Completed franchise trips by hour · ${chartTotal} trips` : "No active hours recorded today"}
+          sub={`${chartTotal} ${chartTotal === 1 ? "trip" : "trips"} today · the current hour is highlighted`}
         >
-          {hours.length ? (
-              <div className="aa-chart" style={{ display: "flex", gap: 10, padding: "4px 2px 0", alignItems: "flex-end", minHeight: 170 }}>
-                {hours.map((h, i) => (
-                  <div className="aa-barcol" key={h} title={`${String(h).padStart(2, "0")}:00 · ${counts[i]} completed trips`} style={{ flex: "1 1 0", minWidth: 28 }}>
-                    <div className="aa-bar" style={counts[i] ? { height: `${Math.max(6, (counts[i] / max) * 100)}%`, width: "100%", background: "linear-gradient(180deg,#1B8A5A,#0F5A3A)", borderRadius: 8 } : { height: 2, width: "100%", background: "#dcefe6", borderRadius: 2 }} />
-                    <span style={{ fontSize: 10 }}>{String(h).padStart(2, "0")}</span>
-                  </div>
-                ))}
-              </div>
-          ) : (
-            <p className="aa-muted">No bookings recorded today.</p>
-          )}
+          <div className="aa-hours" role="img" aria-label={`Trips by hour today: ${fullCounts.map((n, h) => `${h}:00 ${n}`).join(", ")}`}>
+            {fullCounts.map((n, h) => {
+              const now = new Date(data.serverTime).getHours() === h;
+              const top = Math.max(1, ...fullCounts);
+              return (
+                <div key={h} className={`aa-hour${now ? " now" : ""}`} title={`${String(h).padStart(2, "0")}:00 · ${n} trips`}>
+                  <i style={{ height: n ? `${Math.max(18, (n / top) * 100)}%` : "2px" }} />
+                  <span>{h % 6 === 0 || now ? String(h).padStart(2, "0") : ""}</span>
+                </div>
+              );
+            })}
+          </div>
         </Panel>
         <div className="aa-grid equal">
           <Panel
@@ -738,7 +741,8 @@ export default function AdminDashboard({
             title="Needs attention"
             tag={
               <Pill tone="red">
-                {pending.length + stale.length + openReports.length} alerts
+                {pending.length + stale.length + openReports.length}{" "}
+                {pending.length + stale.length + openReports.length === 1 ? "item" : "items"}
               </Pill>
             }
           >
@@ -746,19 +750,19 @@ export default function AdminDashboard({
               {[
                 {
                   label: "Driver locations stale",
-                  detail: `${stale.length} drivers over 60 seconds`,
+                  detail: stale.length === 1 ? "1 driver has not reported in over 60 seconds" : `${stale.length} drivers have not reported in over 60 seconds`,
                   count: stale.length,
                   page: "System monitor",
                 },
                 {
                   label: "Driver verification pending",
-                  detail: `${pending.length} applications need review`,
+                  detail: pending.length === 1 ? "1 application to review" : `${pending.length} applications to review`,
                   count: pending.length,
                   page: "People",
                 },
                 {
                   label: "Unresolved reports",
-                  detail: `${openReports.length} reports need attention`,
+                  detail: openReports.length === 1 ? "1 open report" : `${openReports.length} open reports`,
                   count: openReports.length,
                   page: "Trips & reports",
                 },
@@ -784,12 +788,12 @@ export default function AdminDashboard({
     const demoFleet = vehicles;
     content = (
       <>
-        <Panel title="City-wide fleet tracking" sub={`${demoFleet.length} monitored units · Calbayog City`} tag={<Pill tone="blue">Live positions</Pill>}>
+        <Panel title="City-wide fleet tracking" sub={`${demoFleet.length} monitored units · Calbayog City`} tag={<Pill tone="">Oldest position first</Pill>}>
           <div className="aa-tablewrap">
             <table className="aa-table">
-              <thead><tr>{["Plate / unit","Vehicle","Driver","Route","Status","Last location","Freshness"].map((h)=><th key={h}>{h}</th>)}</tr></thead>
+              <thead><tr>{["Plate / body no.","Vehicle","Driver","Route","Status","Last location","Last seen"].map((h)=><th key={h}>{h}</th>)}</tr></thead>
               <tbody>
-                {demoFleet.map((v:any) => (
+                {[...demoFleet].sort((a: any, b: any) => (a.location?.updatedAt ?? 0) - (b.location?.updatedAt ?? 0)).map((v:any) => (
                   <tr key={v.id}>
                     <td><strong>{v.plate || v.id}</strong></td>
                     <td>{v.vehicleType || v.kind || "Vehicle"}</td>
@@ -797,7 +801,7 @@ export default function AdminDashboard({
                     <td>{v.routeId || "—"}</td>
                     <td><Pill tone={v.status==="Broken / Inactive"?"red":v.status==="In Terminal"?"amber":v.status==="Arrived"?"blue":""}>{v.status || "Active"}</Pill></td>
                     <td>{v.location?.name || "—"}</td>
-                    <td><Pill tone={v.stale?"amber":"green"}>{v.stale?"Stale":"Fresh"}</Pill></td>
+                    <td><Pill tone={v.stale?"amber":"green"}>{seenAgo(v.location?.updatedAt, data.serverTime)}</Pill></td>
                   </tr>
                 ))}
               </tbody>
@@ -837,7 +841,7 @@ export default function AdminDashboard({
             </button>
           </div>
         </div>
-        <div className="aa-grid split">
+        <div className="aa-grid split queue-first">
           <Panel
             title={peopleTab === "Associations" ? "Transport associations" : ""}
           >
@@ -1039,7 +1043,7 @@ export default function AdminDashboard({
               title={
                 routeTab === "Routes" ? "Route registry" : "Terminal registry"
               }
-              sub="Published routes visible to commuters"
+              sub=""
               tag={
                 <Pill tone="gray">
                   {routeTab === "Routes"
@@ -1190,7 +1194,7 @@ export default function AdminDashboard({
         )}
         <Panel
           title="Terminal Fare Configuration"
-          sub="Published amounts appear in rider and driver apps before confirmation."
+          sub=""
           tag={
             <button
               className="aa-button light"
@@ -1447,7 +1451,7 @@ export default function AdminDashboard({
             </div>
           </Panel>
         ) : null}
-        <Panel title="Franchise drivers" sub="Driver information and personal details under this franchise">
+        <Panel title="Franchise drivers" sub="">
           <div className="aa-tablewrap">
             <table className="aa-table">
               <thead><tr>{["Driver","Contact","License No.","Plate / unit","Franchise","Status"].map((h)=><th key={h}>{h}</th>)}</tr></thead>
@@ -1526,7 +1530,7 @@ export default function AdminDashboard({
         <div className="aa-grid routes">
           <Panel
             title="Service health"
-            sub="Current browser observations; historical SLA metrics are not collected"
+            sub="Measured in this browser session"
             tag={
               <Pill tone={connected ? "" : "red"}>
                 {connected ? "● API connected" : "Connection lost"}
@@ -1556,7 +1560,7 @@ export default function AdminDashboard({
             </div>
           </Panel>
         </div>
-        <Panel title="Audit trail" sub="Recorded administrative and automated actions" tag={<Pill tone="gray">Latest {(logs || []).length}</Pill>}>
+        <Panel title="Audit trail" sub="" tag={<Pill tone="gray">Latest {(logs || []).length}</Pill>}>
           <div className="aa-tablewrap">
             <table className="aa-table">
               <thead><tr>{["Time", "Actor", "Action", "Event"].map((h) => <th key={h}>{h}</th>)}</tr></thead>
@@ -1616,10 +1620,10 @@ export default function AdminDashboard({
         <div className="aa-inner">
           <header className="aa-header">
             <div className="aa-heading">
-              <BrandLogo compact iconOnly />
+              <BrandLogo compact wordmarkOnly tint="#111512" />
               <div>
                 <h1>{titles[pageIndex]}</h1>
-                <p>{subtitles[pageIndex]}</p>
+                {subtitles[pageIndex] ? <p>{subtitles[pageIndex]}</p> : null}
               </div>
             </div>
             <div className="aa-headtools">
@@ -1655,7 +1659,7 @@ export default function AdminDashboard({
               )}
             </div>
           )}
-          <Stats items={stats[pageIndex] || stats[0] || []} />
+          {pageIndex === 0 ? <Stats items={stats[0] || []} /> : null}
           {content}
         </div>
       </main>

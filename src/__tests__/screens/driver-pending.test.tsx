@@ -33,9 +33,9 @@ beforeEach(() => {
 
 it("names the franchise reviewing a PUJ/PUV application", async () => {
   await openPending();
-  expect(screen.getByText("Almost ready to drive")).toBeOnTheScreen();
+  expect(screen.getByText("Your application is in review")).toBeOnTheScreen();
   expect(
-    screen.getByText(/^Samar Northline approves every driver/),
+    screen.getByText(/^Samar Northline checks every driver/),
   ).toBeOnTheScreen();
   expect(
     screen.getByText("Samar Northline confirms you drive for the franchise."),
@@ -45,7 +45,7 @@ it("names the franchise reviewing a PUJ/PUV application", async () => {
 it("sends tricycle drivers to the city transport office", async () => {
   await openPending({ role: "Tricycle driver", franchiseName: undefined });
   expect(
-    screen.getByText(/^The Calbayog transport office approves every driver/),
+    screen.getByText(/^The Calbayog transport office checks every driver/),
   ).toBeOnTheScreen();
   expect(screen.getByText(/^Tricycle driver ·/)).toBeOnTheScreen();
 });
@@ -53,13 +53,13 @@ it("sends tricycle drivers to the city transport office", async () => {
 it("falls back to a generic reviewer when no franchise is listed", async () => {
   await openPending({ franchiseName: undefined });
   expect(
-    screen.getByText(/^Your franchise owner approves every driver/),
+    screen.getByText(/^Your franchise owner checks every driver/),
   ).toBeOnTheScreen();
 });
 
 it("explains a decline and hides the status check", async () => {
   await openPending({ applicationStatus: "declined" });
-  expect(screen.getByText("Your application was declined")).toBeOnTheScreen();
+  expect(screen.getByText("Application declined")).toBeOnTheScreen();
   expect(screen.getByText(/^Samar Northline declined your application/)).toBeOnTheScreen();
   expect(screen.queryByRole("button", { name: "Check status" })).toBeNull();
 });

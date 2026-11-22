@@ -37,10 +37,13 @@ export function cityHour(now: number) {
 
 export function greeting(now: number) {
   const hour = cityHour(now);
-  if (hour >= 5 && hour < 12) {
+  if (hour >= 5 && hour < 11) {
     return "Maupay nga aga";
   }
-  if (hour >= 12 && hour < 18) {
+  if (hour >= 11 && hour < 14) {
+    return "Maupay nga udto";
+  }
+  if (hour >= 14 && hour < 18) {
     return "Maupay nga kulop";
   }
   return "Maupay nga gab-i";

@@ -130,7 +130,7 @@ function SolidButton({
   title,
   onPress,
   disabled,
-  icon = "lock-closed-outline",
+  icon,
 }: {
   title: string;
   onPress: () => void;
@@ -150,8 +150,8 @@ function SolidButton({
         pressed && ps.pressed,
       ]}
     >
-      <Icon name={icon} size={22} color="white" />
-      <Text style={[ps.buttonText, { fontSize: 15 }]}>{title}</Text>
+      {icon ? <Icon name={icon} size={20} color={c.ink} /> : null}
+      <Text style={[ps.buttonText, { fontSize: 16 }]}>{title}</Text>
     </Pressable>
   );
 }
@@ -524,7 +524,7 @@ export default function MobileAuth({
               style={{
                 height: 6,
                 borderRadius: 4,
-                backgroundColor: "#D8EEE3",
+                backgroundColor: "#FFF4CC",
                 marginVertical: 2,
               }}
             >
@@ -532,7 +532,7 @@ export default function MobileAuth({
                 style={{
                   height: 6,
                   borderRadius: 4,
-                  backgroundColor: c.green,
+                  backgroundColor: c.ink,
                   width: step === 1 ? "48%" : "100%",
                 }}
               />
@@ -593,8 +593,8 @@ export default function MobileAuth({
                           gap: 6,
                           minHeight: 104,
                           borderWidth: role === item.name ? 2 : 1,
-                          borderColor: role === item.name ? c.green : "#E3ECE5",
-                          backgroundColor: role === item.name ? "#EEF6F0" : "#FFFFFF",
+                          borderColor: role === item.name ? c.ink : "#E3ECE5",
+                          backgroundColor: role === item.name ? "#FFF4CC" : "#FFFFFF",
                         },
                       ]}
                     >
@@ -603,7 +603,7 @@ export default function MobileAuth({
                           width: 40,
                           height: 40,
                           borderRadius: 12,
-                          backgroundColor: role === item.name ? c.green : "#F0F4F2",
+                          backgroundColor: role === item.name ? c.ink : "#F0F4F2",
                           alignItems: "center",
                           justifyContent: "center",
                         }}
@@ -614,13 +614,13 @@ export default function MobileAuth({
                           color={role === item.name ? "white" : "#84978B"}
                         />
                       </View>
-                      <Text style={[ps.label, { fontSize: 15, color: role === item.name ? c.green : c.ink }]}>
+                      <Text style={[ps.label, { fontSize: 15, color: role === item.name ? c.ink : c.ink }]}>
                         {item.name}
                       </Text>
                       <Text style={[ps.small, { fontSize: 10, flexWrap: "wrap" }]}>{item.sub}</Text>
                       {role === item.name ? (
                         <View style={{ position: "absolute", top: 8, right: 8 }}>
-                          <Icon name="checkmark-circle" size={18} color={c.green} />
+                          <Icon name="checkmark-circle" size={18} color={c.ink} />
                         </View>
                       ) : null}
                     </Pressable>
@@ -694,8 +694,8 @@ export default function MobileAuth({
                         height: 22,
                         borderRadius: 6,
                         borderWidth: 2,
-                        borderColor: consent ? c.green : "#A4B5AC",
-                        backgroundColor: consent ? c.green : "transparent",
+                        borderColor: consent ? c.ink : "#A4B5AC",
+                        backgroundColor: consent ? c.ink : "transparent",
                         alignItems: "center",
                         justifyContent: "center",
                         marginTop: 2,
@@ -726,7 +726,7 @@ export default function MobileAuth({
                   <Text style={[ps.section, { flexWrap: "wrap" }]}>{name}</Text>
                   <Text style={ps.body}>{phone}</Text>
                   <Text style={ps.body}>{email}</Text>
-                  <Text style={[ps.small, { color: c.green, flexWrap: "wrap" }]}>
+                  <Text style={[ps.small, { color: c.ink, flexWrap: "wrap" }]}>
                     {role === "Driver" ? "Driver partner" : "Commuter account"}
                     
                   </Text>
@@ -749,15 +749,15 @@ export default function MobileAuth({
                               onPress={() => setDriverType(item.kind)}
                               style={[
                                 ps.card,
-                                { flex: 1, padding: 12, gap: 6, minHeight: 104, borderWidth: selected ? 2 : 1, borderColor: selected ? c.green : "#E3ECE5", backgroundColor: selected ? "#EAF6EF" : "#FFFFFF" },
+                                { flex: 1, padding: 12, gap: 6, minHeight: 104, borderWidth: selected ? 2 : 1, borderColor: selected ? c.ink : "#E3ECE5", backgroundColor: selected ? "#FFF4CC" : "#FFFFFF" },
                               ]}
                             >
-                              <View style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: selected ? c.green : "#F0F4F2", alignItems: "center", justifyContent: "center" }}>
+                              <View style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: selected ? c.ink : "#F0F4F2", alignItems: "center", justifyContent: "center" }}>
                                 <Icon name={item.icon} size={22} color={selected ? "white" : "#5B7468"} />
                               </View>
-                              <Text style={[ps.label, { fontSize: 15, color: selected ? c.green : c.ink }]}>{item.label}</Text>
+                              <Text style={[ps.label, { fontSize: 15, color: selected ? c.ink : c.ink }]}>{item.label}</Text>
                               <Text style={[ps.small, { fontSize: 10 }]}>{item.sub}</Text>
-                              {selected ? <View style={{ position: "absolute", top: 8, right: 8 }}><Icon name="checkmark-circle" size={18} color={c.green} /></View> : null}
+                              {selected ? <View style={{ position: "absolute", top: 8, right: 8 }}><Icon name="checkmark-circle" size={18} color={c.ink} /></View> : null}
                             </Pressable>
                           );
                         })}
@@ -777,8 +777,8 @@ export default function MobileAuth({
                         {franchiseOpen ? (
                           <View style={[ps.input, { paddingVertical: 4, gap: 2 }]}>
                             {[KENT_OWNER_FRANCHISE, "North Samar Transport Coop", "Samar PUJ Operators Association", "Visayas Commuter Lines"].map((item) => (
-                              <Pressable key={item} accessibilityRole="radio" accessibilityState={{ selected: franchiseName === item }} onPress={() => { setFranchiseName(item); setFranchiseOpen(false); clearErr("franchise"); }} style={{ paddingVertical: 11, paddingHorizontal: 10, borderRadius: 10, backgroundColor: franchiseName === item ? "#E5F4ED" : "transparent" }}>
-                                <Text style={[ps.body, { color: franchiseName === item ? c.green : c.ink, fontWeight: franchiseName === item ? "700" : "500" }]}>{item}</Text>
+                              <Pressable key={item} accessibilityRole="radio" accessibilityState={{ selected: franchiseName === item }} onPress={() => { setFranchiseName(item); setFranchiseOpen(false); clearErr("franchise"); }} style={{ paddingVertical: 11, paddingHorizontal: 10, borderRadius: 10, backgroundColor: franchiseName === item ? "#FFF4CC" : "transparent" }}>
+                                <Text style={[ps.body, { color: franchiseName === item ? c.ink : c.ink, fontWeight: franchiseName === item ? "700" : "500" }]}>{item}</Text>
                               </Pressable>
                             ))}
                           </View>
@@ -816,8 +816,8 @@ export default function MobileAuth({
                                 { value: "San Policarpo TODA", label: "San Policarpo TODA" },
                                 { value: "Gadgaran Drivers Association", label: "Gadgaran Drivers Association" },
                               ].map((item) => (
-                                <Pressable key={item.label} accessibilityRole="radio" accessibilityState={{ selected: association === item.value }} onPress={() => { setAssociation(item.value); setAssocOpen(false); }} style={{ paddingVertical: 11, paddingHorizontal: 10, borderRadius: 10, backgroundColor: association === item.value ? "#E5F4ED" : "transparent" }}>
-                                  <Text style={[ps.body, { color: association === item.value ? c.green : c.ink, fontWeight: association === item.value ? "700" : "500" }]}>{item.label}</Text>
+                                <Pressable key={item.label} accessibilityRole="radio" accessibilityState={{ selected: association === item.value }} onPress={() => { setAssociation(item.value); setAssocOpen(false); }} style={{ paddingVertical: 11, paddingHorizontal: 10, borderRadius: 10, backgroundColor: association === item.value ? "#FFF4CC" : "transparent" }}>
+                                  <Text style={[ps.body, { color: association === item.value ? c.ink : c.ink, fontWeight: association === item.value ? "700" : "500" }]}>{item.label}</Text>
                                 </Pressable>
                               ))}
                             </View>
@@ -880,8 +880,8 @@ export default function MobileAuth({
                             }}
                             style={({ pressed }) => [ps.buttonLight, ps.row, { flex: 1, minHeight: 48, justifyContent: "center", borderRadius: 14, gap: 8 }, pressed && ps.pressed]}
                           >
-                            <Icon name={option.icon} size={19} color={c.green} />
-                            <Text style={[ps.buttonText, { color: c.green, fontSize: 12 }]}>{option.label}</Text>
+                            <Icon name={option.icon} size={19} color={c.ink} />
+                            <Text style={[ps.buttonText, { color: c.ink, fontSize: 12 }]}>{option.label}</Text>
                           </Pressable>
                         ))}
                       </View>
@@ -965,9 +965,9 @@ export default function MobileAuth({
                 <View
                   accessibilityRole="alert"
                   accessibilityLiveRegion="polite"
-                  style={{ backgroundColor: "#EAF6EF", borderRadius: 12, padding: 14 }}
+                  style={{ backgroundColor: "#FFF4CC", borderRadius: 12, padding: 14 }}
                 >
-                  <Text style={[ps.body, { color: c.green, flexWrap: "wrap" }]}>{info}</Text>
+                  <Text style={[ps.body, { color: c.ink, flexWrap: "wrap" }]}>{info}</Text>
                 </View>
               ) : null}
 
@@ -996,7 +996,7 @@ export default function MobileAuth({
                   hitSlop={8}
                   style={{ alignSelf: "flex-end", paddingVertical: 6, paddingHorizontal: 4 }}
                 >
-                  <Text style={[ps.small, { color: c.green, fontWeight: "700" }]}>Forgot password?</Text>
+                  <Text style={[ps.small, { color: c.ink, fontWeight: "700" }]}>Forgot password?</Text>
                 </Pressable>
               </View>
 
@@ -1014,7 +1014,7 @@ export default function MobileAuth({
               >
                 <Text style={[ps.body, { textAlign: "center", fontSize: 13, flexWrap: "wrap" }]}>
                   New to Angkol?{" "}
-                  <Text style={{ color: c.green, fontWeight: "700" }}>Create an account</Text>
+                  <Text style={{ color: c.ink, fontWeight: "700" }}>Create an account</Text>
                 </Text>
               </Pressable>
 

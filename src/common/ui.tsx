@@ -3,11 +3,12 @@ import { View, Text, Pressable, TextInput, Animated } from "react-native";
 import Reanimated from "react-native-reanimated";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { s } from "./styles";
-export const money = (n: number) => `₱${n.toFixed(2)}`;
+export const money = (n: number) =>
+  `₱${n.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ",")}`;
 export function Icon({
   name,
   size = 22,
-  color = "#176B48",
+  color = "#111512",
 }: {
   name: React.ComponentProps<typeof Ionicons>["name"];
   size?: number;
@@ -46,7 +47,7 @@ export function Button({
         accessibilityState={{ disabled }}
         style={[s.button, secondary && s.secondary, disabled && { opacity: 0.45 }]}
       >
-        <Text style={[s.buttonText, secondary && { color: "#176B48" }]} numberOfLines={2} adjustsFontSizeToFit>
+        <Text style={s.buttonText} numberOfLines={2} adjustsFontSizeToFit>
           {title}
         </Text>
       </Pressable>
@@ -173,7 +174,7 @@ export function Choice({
       onPress={onPress}
       style={[
         s.chip,
-        selected && { backgroundColor: "#DDEEE4", borderColor: "#176B48" },
+        selected && { backgroundColor: "#FFC20E", borderColor: "#111512" },
       ]}
     >
       <Text style={[s.label, { lineHeight: 20, flexShrink: 0 }]}>{label}</Text>

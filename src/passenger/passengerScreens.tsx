@@ -10,24 +10,25 @@ import {
 import type { Point, Route, Snapshot, Trip } from "../types/types";
 import CalbayogMap from "../map/CalbayogMap";
 import { Icon, money } from "../common/ui";
+import { Glyph } from "../common/Glyph";
 import { ps, passengerColors as c } from "./passengerStyles";
 import { isFinished } from "../domain/roles";
 
 type IconName = React.ComponentProps<typeof Icon>["name"];
 function Tile({ icon, dark = false }: { icon: IconName; dark?: boolean }) {
   return (
-    <View style={[v.tile, dark && { backgroundColor: "#FFFFFF18" }]}>
-      <Icon name={icon} size={23} color={dark ? "white" : c.green} />
+    <View style={v.tile}>
+      <Icon name={icon} size={22} color={dark ? "white" : c.ink} />
     </View>
   );
 }
 function Pill({ label, quiet = false }: { label: string; quiet?: boolean }) {
   return (
-    <View style={[v.pill, quiet && { backgroundColor: "#F1F3F2" }]}>
+    <View style={v.pill}>
       <Text
         style={[
           v.caption,
-          { color: quiet ? c.muted : c.green, fontWeight: "700" },
+          { color: quiet ? c.muted : c.ink, fontWeight: "700" },
         ]}
       >
         {label}
@@ -84,13 +85,13 @@ function Button({
         pressed && ps.pressed,
       ]}
     >
-      <Text style={[v.buttonLabel, secondary && { color: c.green }]}>
+      <Text style={v.buttonLabel}>
         {title}
       </Text>
       <Icon
         name="arrow-forward"
         size={19}
-        color={secondary ? c.green : "white"}
+        color={c.ink}
       />
     </Pressable>
   );
@@ -162,35 +163,32 @@ export function PassengerHomeScreen({
       data.trips.map((trip) => [trip.destinationPoint.name, trip.destinationPoint]),
     ).values(),
   ].slice(0, 3);
+  const onRoad = data.vehicles.filter((x) => x.status !== "Broken / Inactive").length;
+  const jeepneyRoutes = data.routes.filter((r) => r.active && r.transportType !== "Tricycle").length;
+  const recent = places.length ? places : data.landmarks.slice(0, 2);
   return (
     <View style={v.stack}>
-      <View style={v.hero}>
-        <Text style={v.heroTitle}>Where to?</Text>
-        <Pressable
-          accessibilityRole="button"
-          onPress={onBook}
-          style={({ pressed }) => [v.destination, pressed && ps.pressed]}
-        >
-          <Icon name="search-outline" size={23} />
-          <Text
-            style={[v.label, { flex: 1, color: c.muted }]}
-            numberOfLines={1}
-            ellipsizeMode="tail"
-          >
-            Enter your destination
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="Where to? Book a tricycle"
+        onPress={onBook}
+        style={({ pressed }) => [v.destination, pressed && ps.pressed]}
+      >
+        <View style={{ flex: 1, gap: 2 }}>
+          <Text style={v.heroTitle} numberOfLines={1}>
+            Where to?
           </Text>
-          <View style={v.searchArrow}>
-            <Icon name="arrow-forward" size={18} color="white" />
-          </View>
-        </Pressable>
-      </View>
+          <Text style={[v.small, { color: c.ink }]}>Tricycle, regular or special</Text>
+        </View>
+        <Icon name="arrow-forward" size={28} color={c.ink} />
+      </Pressable>
       {active && (
         <Pressable
           accessibilityRole="button"
           onPress={onTrack}
           style={({ pressed }) => [v.activeRide, pressed && ps.pressed]}
         >
-          <Tile icon={puv ? "bus-outline" : "bicycle-outline"} />
+          <Glyph name={puv ? "jeepney" : "tricycle"} size={26} />
           <View style={{ flex: 1, gap: 4 }}>
             <Text style={v.label}>{activeTitle}</Text>
             <Text numberOfLines={1} style={v.small}>
@@ -202,107 +200,66 @@ export function PassengerHomeScreen({
           <Icon name="chevron-forward" size={19} />
         </Pressable>
       )}
-      {lastRide && onRideAgain && (
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={`Ride again from ${lastRide.pickup} to ${lastRide.destination}`}
-          onPress={() => onRideAgain(lastRide)}
-          style={({ pressed }) => [v.activeRide, pressed && ps.pressed]}
-        >
-          <Tile icon="repeat" />
-          <View style={{ flex: 1, gap: 4 }}>
-            <Text style={v.label}>Ride again</Text>
-            <Text numberOfLines={1} style={v.small}>
-              {lastRide.pickup} to {lastRide.destination}
-            </Text>
-          </View>
-          <Text style={[v.label, { color: c.green, fontVariant: ["tabular-nums"] }]}>
-            {money(lastRide.fare)}
+      <Pressable
+        accessibilityRole="button"
+        onPress={onRoutes}
+        style={({ pressed }) => [v.listRow, v.ruled, pressed && ps.pressed]}
+      >
+        <Glyph name="jeepney" size={26} />
+        <View style={{ flex: 1 }}>
+          <Text style={v.label}>Jeepney routes</Text>
+          <Text style={v.small}>
+            {jeepneyRoutes} {jeepneyRoutes === 1 ? "route" : "routes"}, stops and next departures
           </Text>
-        </Pressable>
-      )}
-      <Section
-        title="Ride options"
-      />
-      <View style={[ps.row, { alignItems: "stretch", gap: 12 }]}>
-        {[
-          {
-            title: "Tricycle",
-            sub: "Door-to-door comfort",
-            icon: "bicycle" as const,
-            press: onBook,
-            dark: true,
-          },
-          {
-            title: "PUJ / PUV",
-            sub: "Your local routes",
-            icon: "bus" as const,
-            press: onRoutes,
-            dark: false,
-          },
-        ].map((item) => (
+        </View>
+        <Icon name="chevron-forward" size={18} color={c.muted} />
+      </Pressable>
+      <View style={{ gap: 10 }}>
+        <Section
+          title="Around you"
+          detail={`${onRoad} ${onRoad === 1 ? "unit" : "units"} on the road`}
+          action="Terminals"
+          onPress={onTerminals}
+        />
+        <CalbayogMap
+          height={200}
+          vehicles={data.vehicles}
+          terminals={data.terminals}
+          landmarks={data.landmarks}
+        />
+      </View>
+      <View>
+        <Section title="Recent" />
+        {lastRide && onRideAgain && (
           <Pressable
-            key={item.title}
             accessibilityRole="button"
-            onPress={item.press}
-            style={({ pressed }) => [
-              v.service,
-              item.dark && { backgroundColor: c.dark, borderColor: c.dark },
-              pressed && ps.pressed,
-            ]}
+            accessibilityLabel={`Ride again from ${lastRide.pickup} to ${lastRide.destination}`}
+            onPress={() => onRideAgain(lastRide)}
+            style={({ pressed }) => [v.listRow, pressed && ps.pressed]}
           >
-            <Tile icon={item.icon} dark={item.dark} />
-            <View style={{ gap: 5 }}>
-              <Text style={[v.section, item.dark && { color: "white" }]}>
-                {item.title}
+            <Icon name="repeat" size={20} color={c.muted} />
+            <View style={{ flex: 1 }}>
+              <Text style={v.label} numberOfLines={2}>
+                {lastRide.pickup} to {lastRide.destination}
               </Text>
-              <Text style={[v.small, item.dark && { color: "#C7DCD0" }]}>
-                {item.sub}
-              </Text>
+              <Text style={v.small}>Book the same ride again</Text>
             </View>
-            <Text style={[v.link, item.dark && { color: "#DDECE3" }]}>
-              {item.dark ? "Book a tricycle" : "See routes"}
+          </Pressable>
+        )}
+        {recent.map((point) => (
+          <Pressable
+            key={point.name}
+            accessibilityRole="button"
+            onPress={() => onDestination(point)}
+            style={({ pressed }) => [v.listRow, v.rowDivider, pressed && ps.pressed]}
+          >
+            <Icon name="time-outline" size={20} color={c.muted} />
+            <Text style={[v.label, { flex: 1 }]} numberOfLines={2}>
+              {point.name}
             </Text>
+            <Icon name="chevron-forward" size={18} color={c.muted} />
           </Pressable>
         ))}
-      </View>
-      <Section
-        title="Around you"
-        action="View terminals"
-        onPress={onTerminals}
-      />
-      <View style={{ borderRadius: 22, overflow: "hidden" }}>
-        <CalbayogMap height={180} vehicles={data.vehicles} />
-        <View style={v.mapNote}>
-          <View style={ps.dot} />
-          <Text style={v.caption}>Calbayog City</Text>
-        </View>
-      </View>
-      <Section
-        title="Recent places"
-      />
-      <View style={[v.card, { gap: 0, paddingVertical: 0 }]}>
-        {(places.length ? places : data.landmarks.slice(0, 2)).map(
-          (point, index) => (
-            <Pressable
-              key={point.name}
-              accessibilityRole="button"
-              onPress={() => onDestination(point)}
-              style={({ pressed }) => [
-                v.listRow,
-                index > 0 && v.rowDivider,
-                pressed && ps.pressed,
-              ]}
-            >
-              <Tile icon="time-outline" />
-              <View style={{ flex: 1, gap: 3 }}>
-                <Text style={v.label}>{point.name}</Text>
-                <Text style={v.small}>Calbayog City, Samar</Text>
-              </View>
-              <Icon name="arrow-forward" size={18} color={c.muted} />
-            </Pressable>
-          ),
-        )}
       </View>
     </View>
   );
@@ -371,7 +328,7 @@ export function PassengerRoutesScreen({
             }
             style={({ pressed }) => [
               v.filter,
-              filter === label && { backgroundColor: c.dark },
+              filter === label && { backgroundColor: c.ink, borderColor: c.ink },
               pressed && ps.pressed,
             ]}
           >
@@ -389,7 +346,7 @@ export function PassengerRoutesScreen({
           </Pressable>
         ))}
       </View>
-      <View style={{ borderRadius: 22, overflow: "hidden" }}>
+      <View style={{ borderRadius: 14, overflow: "hidden", borderWidth: 1, borderColor: c.line }}>
         <CalbayogMap
           height={210}
           pickup={selected?.stops[0]}
@@ -397,17 +354,7 @@ export function PassengerRoutesScreen({
           vehicles={data.vehicles}
           terminals={data.terminals}
         />
-        <View style={v.mapNote}>
-          <Icon name="bus-outline" size={16} />
-          <Text style={v.caption}>
-            {routes.length} local routes
-          </Text>
-        </View>
       </View>
-      <Section
-        title="Find your connection"
-        detail="Routes, fares, and stops in one place"
-      />
       {routes.map((route) => {
         const opened = route.id === selected?.id;
         return (
@@ -426,34 +373,14 @@ export function PassengerRoutesScreen({
                   {route.id}
                 </Text>
               </View>
-              <View style={{ flex: 1, gap: 4 }}>
+              <View style={{ flex: 1, gap: 3 }}>
                 <Text style={v.label}>{route.name}</Text>
                 <Text style={v.small}>
-                  {route.stops.length} stops ·{" "}
-                  {route.transportType || "PUJ / PUV"}
+                  Every {route.interval} min · {route.startsAt}–{route.endsAt}
                 </Text>
               </View>
-              <Icon
-                name={opened ? "chevron-up" : "chevron-down"}
-                size={18}
-                color={c.muted}
-              />
+              <Text style={v.price}>{money(route.fare)}</Text>
             </Pressable>
-            <View style={v.metrics}>
-              {[
-                { label: "FARE", value: money(route.fare) },
-                { label: "INTERVAL", value: `${route.interval} min` },
-                {
-                  label: "SERVICE",
-                  value: `${route.startsAt}–${route.endsAt}`,
-                },
-              ].map((item) => (
-                <View key={item.label} style={{ flex: 1, gap: 5 }}>
-                  <Text style={v.caption}>{item.label}</Text>
-                  <Text style={[v.label, { fontSize: 12 }]}>{item.value}</Text>
-                </View>
-              ))}
-            </View>
             {opened && (
               <>
                 <View style={v.timeline}>
@@ -480,28 +407,29 @@ export function PassengerRoutesScreen({
                           gap: 3,
                         }}
                       >
-                        <Text style={v.label}>{stop.name}</Text>
-                        <Text style={v.small}>
-                          {index === 0
-                            ? "Board here"
-                            : index === route.stops.length - 1
-                              ? "Final stop"
-                              : "Along the route"}
+                        <Text
+                          style={[
+                            v.label,
+                            index > 0 &&
+                              index < route.stops.length - 1 && {
+                                fontWeight: "500",
+                              },
+                          ]}
+                        >
+                          {stop.name}
                         </Text>
                       </View>
                     </View>
                   ))}
                 </View>
                 <Button
-                  title="Request terminal pickup"
+                  title="Hold a seat"
                   onPress={() => onPickup(route)}
                   disabled={busy || (!route.approved && !data.sampleMode)}
                 />
-                <Text style={v.caption}>
-                  {route.approved
-                    ? route.reference
-                    : "Route pending approval"}
-                </Text>
+                {!route.approved && (
+                  <Text style={v.caption}>Route pending approval</Text>
+                )}
               </>
             )}
           </View>
@@ -510,7 +438,7 @@ export function PassengerRoutesScreen({
       {!routes.length && (
         <Empty
           title="No routes found"
-          detail="Try another destination or search for a nearby stop."
+          detail="Try a street or a stop name."
         />
       )}
       {data.stopRequests.map((request) => (
@@ -562,14 +490,15 @@ export function PassengerTripsScreen({
             style={({ pressed }) => [
               v.segment,
               tab === label && {
-                backgroundColor: "white",
-                boxShadow: "0px 2px 8px rgba(6, 40, 28, .06)",
+                backgroundColor: "#FFFFFF",
+                borderWidth: 2,
+                borderColor: c.ink,
               },
               pressed && ps.pressed,
             ]}
           >
             <Text
-              style={[v.label, { color: tab === label ? c.green : c.muted }]}
+              style={[v.label, { color: tab === label ? c.ink : c.muted }]}
             >
               {label}
               {label === "Active" ? ` (${active.length})` : ""}
@@ -578,70 +507,71 @@ export function PassengerTripsScreen({
         ))}
       </View>
       <Section
-        title={tab === "Past" ? "Recent journeys" : "Your current ride"}
-        action={`${mode} ▾`}
+        title={tab === "Past" ? "Past rides" : "Now"}
+        action={mode}
         onPress={() => setMode(modes[(modes.indexOf(mode) + 1) % modes.length])}
       />
-      {visible.map((trip) => (
-        <Pressable
-          key={trip.id}
-          accessibilityRole="button"
-          onPress={() => onOpen(trip)}
-          style={({ pressed }) => [v.card, v.journeyCard, pressed && ps.pressed]}
-        >
-          <View style={ps.between}>
-            <View style={ps.row}><Icon name="calendar-outline" size={16} color={c.green} /><Text style={v.small}>{date(trip.createdAt)}</Text></View>
-            <Pill
-              label={trip.status === "Expired" ? "No driver found" : trip.status}
-              quiet={trip.status === "Cancelled" || trip.status === "Expired"}
-            />
-          </View>
-          <View style={v.journeyPath}>
-            <View style={{ flex: 1, gap: 12 }}>
-              <View style={ps.row}><View style={v.journeyDot} /><Text style={[v.label, { flex: 1 }]}>{trip.pickup}</Text></View>
-              <View style={ps.row}><View style={[v.journeyDot, { backgroundColor: c.amber }]} /><Text style={[v.label, { flex: 1 }]}>{trip.destination}</Text></View>
-            </View>
-            <Tile icon={isPuj(trip) ? "bus-outline" : "bicycle-outline"} />
-          </View>
-          <Text style={v.small}>
-            {isPuj(trip) ? "PUJ/PUV" : "Tricycle"} · {trip.driver || "No driver assigned"}
-          </Text>
-          <View
-            style={[
-              ps.between,
-              { borderTopWidth: 1, borderTopColor: c.line, paddingTop: 14 },
-            ]}
-          >
-            <View style={{ gap: 4 }}>
-              <Text style={v.link}>
-                {trip.status === "Expired"
-                  ? "Request again"
-                  : isPast(trip)
-                    ? "View receipt"
-                    : "Track your ride"}
-              </Text>
-              <Text style={v.caption}>
-                {trip.distance} km · {trip.minutes} min
-              </Text>
-            </View>
-            <Text style={[v.price, { fontSize: 13, lineHeight: 18 }]}>
-              {money(trip.status === "Cancelled" || trip.status === "Expired" ? 0 : trip.fare)}
-            </Text>
-          </View>
-        </Pressable>
-      ))}
+      {visible.length > 0 && (
+        <View style={[v.card, { paddingVertical: 0, gap: 0 }]}>
+          {visible.map((trip, index) => {
+            const voided = trip.status === "Cancelled" || trip.status === "Expired";
+            return (
+              <Pressable
+                key={trip.id}
+                accessibilityRole="button"
+                onPress={() => onOpen(trip)}
+                style={({ pressed }) => [
+                  v.ledgerRow,
+                  index > 0 && v.rowDivider,
+                  pressed && ps.pressed,
+                ]}
+              >
+                <Glyph
+                  name={isPuj(trip) ? "jeepney" : "tricycle"}
+                  size={24}
+                  color={voided ? c.muted : c.ink}
+                />
+                <View style={{ flex: 1, gap: 3 }}>
+                  <Text style={v.ledgerPlace} numberOfLines={1}>
+                    {trip.destination}
+                  </Text>
+                  <Text style={v.small} numberOfLines={1}>
+                    {date(trip.createdAt)} · from {trip.pickup}
+                  </Text>
+                </View>
+                <View style={{ alignItems: "flex-end", gap: 3 }}>
+                  <Text
+                    style={[
+                      v.price,
+                      { fontSize: 15, lineHeight: 20 },
+                      voided && { color: c.muted, textDecorationLine: "line-through" },
+                    ]}
+                  >
+                    {money(trip.fare)}
+                  </Text>
+                  {trip.status !== "Completed" && (
+                    <Text style={[v.caption, !voided && { color: c.ink, fontWeight: "700" }]}>
+                      {trip.status === "Expired" ? "No driver" : trip.status}
+                    </Text>
+                  )}
+                </View>
+              </Pressable>
+            );
+          })}
+        </View>
+      )}
       {!visible.length && (
         <>
           <Empty
             title={
               tab === "Active"
-                ? "Your next journey awaits"
-                : "No journeys in this view"
+                ? "No ride right now"
+                : "Nothing here yet"
             }
             detail={
               mode === "PUJ / PUV"
-                ? "PUJ/PUV rides you book appear here. Terminal pickup requests are on Routes."
-                : "Book a local ride and keep all your journeys in one place."
+                ? "Jeepney seats you book show up here."
+                : "Rides you take show up here, with receipts."
             }
             icon="time-outline"
           />
@@ -672,45 +602,29 @@ export function PassengerProfileScreen({
   busy: boolean;
 }) {
   const [alerts, setAlerts] = useState(true);
-  const initials = data.user.name
-    .split(" ")
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((word) => word[0])
-    .join("");
   return (
     <View style={v.stack}>
       <Pressable
         accessibilityRole="button"
         accessibilityLabel="Edit your personal details"
         onPress={onEdit}
-        style={({ pressed }) => [v.identity, pressed && ps.pressed]}
+        style={({ pressed }) => [ps.between, { minHeight: 56 }, pressed && ps.pressed]}
       >
-        <View style={v.avatarRing}>
-          <View style={v.avatar}>
-            <Text style={v.initials}>{initials}</Text>
-          </View>
-          <View style={v.editBadge}>
-            <Icon name="pencil" size={13} color="white" />
-          </View>
-        </View>
-        <View style={{ alignItems: "center", gap: 7 }}>
+        <View style={{ flex: 1, gap: 2 }}>
           <Text style={v.profileName}>{data.user.name}</Text>
-          <Pill label="Passenger" />
-          <Text style={[v.small, { color: "#D0E4D7" }]}>{data.user.email}</Text>
+          <Text style={v.small}>{data.user.phone || data.user.email}</Text>
         </View>
+        <Text style={v.link}>Edit</Text>
       </Pressable>
       <View style={v.profileStats}>
-        <View style={{ flex: 1, gap: 5 }}>
-          <Icon name="bicycle-outline" size={21} color={c.green} />
+        <View style={{ flex: 1, gap: 2 }}>
           <Text style={v.statValue}>
             {data.trips.filter((trip) => trip.status === "Completed").length}
           </Text>
-          <Text style={v.small}>Completed rides</Text>
+          <Text style={v.small}>rides</Text>
         </View>
-        <View style={{ width: 1, backgroundColor: c.line }} />
-        <View style={{ flex: 1, gap: 5 }}>
-          <Icon name="wallet-outline" size={21} color={c.green} />
+        <View style={{ width: 1, alignSelf: "stretch", backgroundColor: c.line }} />
+        <View style={{ flex: 1, gap: 2 }}>
           <Text style={v.statValue}>
             {money(
               data.trips
@@ -718,10 +632,9 @@ export function PassengerProfileScreen({
                 .reduce((sum, trip) => sum + trip.fare, 0),
             )}
           </Text>
-          <Text style={v.small}>Spent on rides</Text>
+          <Text style={v.small}>paid in fares</Text>
         </View>
       </View>
-      <Section title="Settings" />
       <View style={[v.card, { gap: 0, paddingVertical: 0 }]}>
         {[
           {
@@ -732,7 +645,7 @@ export function PassengerProfileScreen({
           },
           {
             icon: "time-outline" as const,
-            title: "Your journeys",
+            title: "Ride history",
             sub: "Trip history and receipts",
             press: onTrips,
           },
@@ -753,28 +666,21 @@ export function PassengerProfileScreen({
               pressed && ps.pressed,
             ]}
           >
-            <Tile icon={item.icon} />
-            <View style={{ flex: 1, gap: 4 }}>
-              <Text style={v.label}>{item.title}</Text>
-              <Text style={v.small}>{item.sub}</Text>
-            </View>
+            <Icon name={item.icon} size={20} color={c.ink} />
+            <Text style={[v.label, { flex: 1, fontWeight: "600" }]}>{item.title}</Text>
             <Icon name="chevron-forward" size={17} color={c.muted} />
           </Pressable>
         ))}
       </View>
-      <Section title="Preferences & support" />
       <View style={[v.card, { gap: 0, paddingVertical: 0 }]}>
         <View style={v.listRow}>
-          <Tile icon="chatbubble-ellipses-outline" />
-          <View style={{ flex: 1, gap: 4 }}>
-            <Text style={v.label}>Trip alerts</Text>
-            <Text style={v.small}>Local preview preference</Text>
-          </View>
+          <Icon name="chatbubble-ellipses-outline" size={20} color={c.ink} />
+          <Text style={[v.label, { flex: 1, fontWeight: "600" }]}>Trip alerts</Text>
           <Switch
             accessibilityLabel="Trip alerts"
             value={alerts}
             onValueChange={setAlerts}
-            trackColor={{ false: c.line, true: c.green }}
+            trackColor={{ false: "#C9CBC5", true: c.ink }}
             thumbColor="white"
           />
         </View>
@@ -787,24 +693,29 @@ export function PassengerProfileScreen({
             pressed && ps.pressed,
           ]}
         >
-          <Tile icon="shield-checkmark-outline" />
-          <View style={{ flex: 1, gap: 4 }}>
-            <Text style={v.label}>Help & safety</Text>
-            <Text style={v.small}>Support when you need it</Text>
-          </View>
+          <Icon name="shield-checkmark-outline" size={20} color={c.ink} />
+          <Text style={[v.label, { flex: 1, fontWeight: "600" }]}>Help & safety</Text>
           <Icon name="chevron-forward" size={17} color={c.muted} />
         </Pressable>
       </View>
-      <Button title="Sign out" secondary onPress={onSignOut} disabled={busy} />
-      <Pressable
-        accessibilityRole="button"
-        disabled={busy}
-        onPress={onDeleteAccount}
-        hitSlop={8}
-        style={({ pressed }) => [{ alignSelf: "center", paddingVertical: 8 }, pressed && ps.pressed]}
-      >
-        <Text style={[v.small, { color: "#C53B1D", fontWeight: "700" }]}>Delete account</Text>
-      </Pressable>
+      <View style={[v.card, { gap: 0, paddingVertical: 0 }]}>
+        <Pressable
+          accessibilityRole="button"
+          disabled={busy}
+          onPress={onSignOut}
+          style={({ pressed }) => [v.listRow, pressed && ps.pressed]}
+        >
+          <Text style={[v.label, { flex: 1, color: c.red }]}>Sign out</Text>
+        </Pressable>
+        <Pressable
+          accessibilityRole="button"
+          disabled={busy}
+          onPress={onDeleteAccount}
+          style={({ pressed }) => [v.listRow, v.rowDivider, pressed && ps.pressed]}
+        >
+          <Text style={[v.small, { flex: 1 }]}>Delete account and ride history</Text>
+        </Pressable>
+      </View>
     </View>
   );
 }
@@ -812,88 +723,89 @@ export function PassengerProfileScreen({
 const v = StyleSheet.create({
   stack: { gap: 22 },
   card: {
-    backgroundColor: "white",
+    backgroundColor: c.background,
     borderWidth: 1,
     borderColor: c.line,
-    borderRadius: 16,
-    padding: 18,
-    gap: 16,
-    boxShadow: "0px 4px 18px rgba(7, 44, 31, .04)",
+    borderRadius: 10,
+    padding: 16,
+    gap: 14,
   },
   section: {
-    fontFamily: "Manrope",
-    fontSize: 19,
-    lineHeight: 26,
-    fontWeight: "800",
-    color: c.ink,
-    letterSpacing: -0.4,
-  },
-  label: {
-    fontFamily: "Manrope",
-    fontSize: 14,
-    lineHeight: 21,
+    fontFamily: "Archivo",
+    fontSize: 16,
+    lineHeight: 22,
     fontWeight: "700",
     color: c.ink,
   },
-  body: { fontFamily: "Manrope", fontSize: 14, lineHeight: 22, color: c.ink },
+  serviceTitle: {
+    fontFamily: "Archivo",
+    fontSize: 20,
+    lineHeight: 24,
+    fontWeight: "700",
+    color: c.ink,
+  },
+  ledgerPlace: {
+    fontFamily: "Archivo",
+    fontWeight: "600",
+    fontSize: 16,
+    lineHeight: 21,
+    color: c.ink,
+  },
+  label: {
+    fontFamily: "Archivo",
+    fontSize: 16,
+    lineHeight: 22,
+    fontWeight: "600",
+    color: c.ink,
+  },
+  body: { fontFamily: "Archivo", fontSize: 14, lineHeight: 22, color: c.ink },
   small: {
-    fontFamily: "Manrope",
-    fontSize: 13,
-    lineHeight: 18,
+    fontFamily: "Archivo",
+    fontSize: 14,
+    lineHeight: 20,
     color: c.muted,
   },
   caption: {
-    fontFamily: "Manrope",
+    fontFamily: "Archivo",
     fontSize: 12,
     lineHeight: 16,
     color: c.muted,
   },
   link: {
-    fontFamily: "Manrope",
-    fontSize: 12,
+    fontFamily: "Archivo",
+    fontSize: 14,
     lineHeight: 20,
-    fontWeight: "700",
-    color: c.green,
+    fontWeight: "600",
+    color: c.ink,
   },
   tile: {
-    width: 44,
+    width: 28,
     height: 44,
-    borderRadius: 15,
-    backgroundColor: "#F0F5F2",
     alignItems: "center",
     justifyContent: "center",
     flexShrink: 0,
   },
   pill: {
-    backgroundColor: "#EAF3ED",
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 20,
     alignSelf: "flex-start",
   },
-  hero: {
-    padding: 20,
-    gap: 16,
-    backgroundColor: "#0D654B",
-    borderRadius: 20,
-  },
+  hero: { gap: 16 },
   heroTitle: {
-    fontFamily: "Manrope",
-    fontSize: 28,
-    lineHeight: 34,
-    letterSpacing: -0.7,
-    fontWeight: "800",
-    color: "white",
+    flex: 1,
+    fontFamily: "Archivo",
+    fontSize: 34,
+    lineHeight: 40,
+    fontWeight: "700",
+    letterSpacing: -0.8,
+    color: c.ink,
   },
   destination: {
     flexDirection: "row",
-    gap: 11,
+    gap: 14,
     alignItems: "center",
-    minHeight: 56,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    backgroundColor: "white",
-    borderRadius: 14,
+    minHeight: 96,
+    paddingHorizontal: 20,
+    backgroundColor: c.yellow,
+    borderRadius: 12,
   },
   searchArrow: {
     width: 30,
@@ -908,27 +820,33 @@ const v = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
-    backgroundColor: "#F0F6F2",
-    borderRadius: 16,
-    padding: 16,
+    backgroundColor: c.surface,
+    borderRadius: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
   },
   service: {
     flex: 1,
-    gap: 18,
-    borderWidth: 1,
-    borderColor: "#D9E9DE",
-    backgroundColor: "#E4F2E8",
-    borderRadius: 16,
-    padding: 19,
-    minHeight: 160,
+    gap: 22,
+    backgroundColor: c.surface,
+    borderRadius: 10,
+    padding: 16,
+    minHeight: 120,
     justifyContent: "space-between",
+  },
+  ledgerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 14,
+    paddingVertical: 14,
+    minHeight: 66,
   },
   mapNote: {
     position: "absolute",
-    left: 12,
-    bottom: 12,
-    backgroundColor: "white",
-    borderRadius: 20,
+    left: 10,
+    bottom: 10,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 8,
     paddingHorizontal: 12,
     paddingVertical: 8,
     flexDirection: "row",
@@ -938,39 +856,44 @@ const v = StyleSheet.create({
   listRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
-    paddingVertical: 17,
-    minHeight: 76,
+    gap: 14,
+    paddingVertical: 14,
+    minHeight: 56,
   },
-  rowDivider: { borderTopWidth: 1, borderTopColor: "#EBF0ED" },
+  rowDivider: { borderTopWidth: 1, borderTopColor: "#D6D7D1" },
+  ruled: { borderTopWidth: 1, borderBottomWidth: 1, borderColor: "#D6D7D1" },
   search: {
     flexDirection: "row",
     gap: 10,
     alignItems: "center",
     paddingHorizontal: 16,
-    backgroundColor: "#F2F6F3",
-    borderRadius: 14,
+    backgroundColor: "#FFFFFF",
+    borderWidth: 2,
+    borderColor: c.ink,
+    borderRadius: 8,
   },
   filter: {
-    paddingHorizontal: 15,
-    paddingVertical: 10,
-    backgroundColor: "#F2F6F3",
-    borderRadius: 20,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    minHeight: 36,
+    justifyContent: "center",
+    backgroundColor: c.surface,
+    borderRadius: 6,
   },
-  routeCard: { borderColor: "#DCEAE0", padding: 20 },
-  routeCardOpen: { backgroundColor: "#F3F9F4", borderColor: "#8DC7A2", boxShadow: "0px 8px 24px rgba(7, 68, 44, 0.09)" },
+  routeCard: { padding: 16 },
+  routeCardOpen: { borderColor: c.ink, borderWidth: 2, backgroundColor: "#FFFFFF" },
   routeCode: {
-    minWidth: 50,
+    minWidth: 46,
     maxWidth: 72,
-    height: 50,
-    borderRadius: 17,
-    backgroundColor: c.dark,
+    height: 30,
+    borderRadius: 4,
+    backgroundColor: c.ink,
     justifyContent: "center",
     alignItems: "center",
     paddingHorizontal: 8,
   },
   routeCodeText: {
-    fontFamily: "Manrope",
+    fontFamily: "Archivo",
     fontSize: 12,
     fontWeight: "800",
     color: "white",
@@ -985,11 +908,11 @@ const v = StyleSheet.create({
   timeline: { paddingHorizontal: 4, paddingTop: 4 },
   stop: { flexDirection: "row", gap: 12 },
   stopRail: { width: 14, alignItems: "center", paddingTop: 5 },
-  stopDot: { width: 9, height: 9, borderRadius: 5, backgroundColor: c.green },
-  stopLine: { width: 1, flex: 1, backgroundColor: "#D0DDD4", marginTop: 4 },
+  stopDot: { width: 12, height: 12, borderRadius: 6, backgroundColor: "#FFFFFF", borderWidth: 3, borderColor: c.ink },
+  stopLine: { width: 3, flex: 1, backgroundColor: c.ink, marginTop: -1, marginBottom: -6 },
   button: {
     minHeight: 54,
-    backgroundColor: c.green,
+    backgroundColor: c.yellow,
     paddingHorizontal: 18,
     paddingVertical: 14,
     borderRadius: 16,
@@ -999,16 +922,16 @@ const v = StyleSheet.create({
     gap: 12,
   },
   secondary: {
-    backgroundColor: "#F0F5F2",
+    backgroundColor: c.surface,
     borderWidth: 1,
     borderColor: c.line,
   },
   buttonLabel: {
-    fontFamily: "Manrope",
-    fontSize: 14,
+    fontFamily: "Archivo",
+    fontSize: 17,
     lineHeight: 22,
     fontWeight: "700",
-    color: "white",
+    color: c.ink,
     flexShrink: 1,
   },
   journeyCard: { borderColor: "#DCEAE0", boxShadow: "0px 6px 20px rgba(7, 68, 44, 0.07)" },
@@ -1017,95 +940,80 @@ const v = StyleSheet.create({
   segments: {
     flexDirection: "row",
     gap: 4,
-    padding: 5,
-    backgroundColor: "#EFF3F0",
-    borderRadius: 18,
+    padding: 4,
+    backgroundColor: c.surface,
+    borderRadius: 8,
   },
   segment: {
     flex: 1,
     alignItems: "center",
-    paddingVertical: 12,
-    borderRadius: 14,
+    paddingVertical: 9,
+    borderRadius: 9,
   },
   price: {
-    fontFamily: "Manrope",
-    fontSize: 16,
+    fontFamily: "ArchivoBoard",
+    fontSize: 20,
     lineHeight: 22,
-    color: c.green,
-    fontWeight: "800",
-    letterSpacing: -0.3,
+    fontVariant: ["tabular-nums"],
+    color: c.ink,
   },
   identity: {
-    overflow: "hidden",
     alignItems: "center",
-    gap: 18,
-    paddingVertical: 32,
-    paddingHorizontal: 20,
-    borderRadius: 20,
-    backgroundColor: "#0B5942",
-    borderWidth: 1,
-    borderColor: "#217558",
+    gap: 14,
+    paddingVertical: 12,
   },
   avatarRing: {
-    width: 98,
-    height: 98,
-    borderRadius: 49,
-    borderWidth: 1,
-    borderColor: "#9ECBB0",
-    padding: 7,
+    width: 84,
+    height: 84,
   },
   avatar: {
     flex: 1,
-    borderRadius: 44,
-    backgroundColor: c.dark,
+    borderRadius: 42,
+    backgroundColor: c.yellow,
     alignItems: "center",
     justifyContent: "center",
   },
   initials: {
-    fontFamily: "Manrope",
-    fontSize: 27,
-    lineHeight: 36,
-    fontWeight: "700",
-    color: "white",
+    fontFamily: "ArchivoBoard",
+    fontSize: 36,
+    lineHeight: 40,
+    color: c.ink,
   },
   editBadge: {
     position: "absolute",
     bottom: 0,
-    right: 0,
-    width: 27,
-    height: 27,
+    right: -2,
+    width: 28,
+    height: 28,
     borderRadius: 14,
-    backgroundColor: c.green,
+    backgroundColor: c.ink,
     borderWidth: 3,
-    borderColor: "#0B5942",
+    borderColor: c.background,
     justifyContent: "center",
     alignItems: "center",
   },
   profileName: {
-    fontFamily: "Manrope",
+    fontFamily: "Archivo",
     fontSize: 24,
-    lineHeight: 32,
-    letterSpacing: -0.6,
-    fontWeight: "800",
-    color: "white",
+    lineHeight: 29,
+    fontWeight: "700",
+    color: c.ink,
     textAlign: "center",
   },
   profileStats: {
     flexDirection: "row",
-    gap: 20,
-    paddingHorizontal: 22,
-    paddingVertical: 18,
-    backgroundColor: "#E5F1E7",
-    borderWidth: 1,
-    borderColor: "#D1E7D7",
-    borderRadius: 16,
+    gap: 18,
+    paddingHorizontal: 18,
+    paddingVertical: 16,
+    backgroundColor: c.surface,
+    borderRadius: 10,
     alignItems: "center",
   },
   statValue: {
-    fontFamily: "Manrope",
-    fontSize: 22,
-    lineHeight: 30,
-    fontWeight: "800",
-    color: c.green,
+    fontFamily: "ArchivoBoard",
+    fontSize: 34,
+    lineHeight: 36,
+    color: c.ink,
+    fontVariant: ["tabular-nums"],
   },
 });

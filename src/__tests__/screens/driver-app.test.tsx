@@ -59,7 +59,7 @@ async function openDriver(
 
 describe("Driver availability", () => {
   test.each([
-    [true, true, "You’re available"],
+    [true, true, "You’re online"],
     [true, false, "Reconnecting GPS…"],
     [false, true, "You’re offline"],
     [false, false, "You’re offline"],
@@ -75,7 +75,11 @@ describe("Driver availability", () => {
       const toggle = screen.getByRole("switch", {
         name: "Driver availability",
       });
-      expect(toggle).toHaveProp("value", available && sharing);
+      if (available && sharing) {
+        expect(toggle).toBeChecked();
+      } else {
+        expect(toggle).not.toBeChecked();
+      }
     },
   );
 
@@ -84,10 +88,10 @@ describe("Driver availability", () => {
       user: makeUser({ ...tricycleDriver, verified: false }),
     });
     expect(screen.getByText("Awaiting approval")).toBeOnTheScreen();
-    expect(screen.queryByText("You’re available")).toBeNull();
+    expect(screen.queryByText("You’re online")).toBeNull();
     expect(
       screen.getByRole("switch", { name: "Driver availability" }),
-    ).toHaveProp("disabled", true);
+    ).toBeDisabled();
   });
 
   it("offers to enable GPS and keeps availability disabled while it is off", async () => {
@@ -98,17 +102,15 @@ describe("Driver availability", () => {
     );
     expect(
       screen.getByRole("switch", { name: "Driver availability" }),
-    ).toHaveProp("disabled", true);
+    ).toBeDisabled();
     await press("Enable GPS to go online");
     expect(toggleSharing).toHaveBeenCalledTimes(1);
   });
 
   it("sends changes to availability from the switch", async () => {
     const { action } = await openDriver();
-    await fireEvent(
+    await fireEvent.press(
       screen.getByRole("switch", { name: "Driver availability" }),
-      "valueChange",
-      false,
     );
     expect(action).toHaveBeenCalledWith("/availability", { available: false });
   });
@@ -117,7 +119,7 @@ describe("Driver availability", () => {
     await openDriver("Dashboard", {}, { busy: true });
     expect(
       screen.getByRole("switch", { name: "Driver availability" }),
-    ).toHaveProp("disabled", true);
+    ).toBeDisabled();
   });
 
   it("shows the connection warning while using saved data", async () => {
@@ -131,7 +133,7 @@ describe("Driver availability", () => {
     await openDriver("Dashboard", {
       trips: [makeTrip({ expires: Date.now() + 10 * 60_000 })],
     });
-    await press("1 nearby ride request");
+    await press("See 1 ride request");
     expect(setParams).toHaveBeenCalledWith({
       screen: "Requests",
       run: "",
@@ -141,16 +143,10 @@ describe("Driver availability", () => {
 });
 
 describe("Driver route", () => {
-  it("shows the assigned stops with their terminal, intermediate, and final roles", async () => {
+  it("shows each stop on the assigned route", async () => {
     await openDriver("Route", { user: pujDriver, runs: [], stopRequests: [] });
-    const stops = within(screen.getByText("Stops on this route").parent!);
-    for (const [index, label] of [
-      "Departure terminal",
-      "Along the route",
-      "Final stop",
-    ].entries()) {
-      const stop = stops.getByText(route.stops[index].name);
-      expect(within(stop.parent!).getByText(label)).toBeOnTheScreen();
+    for (const stop of route.stops) {
+      expect(screen.getByText(stop.name)).toBeOnTheScreen();
     }
     expect(screen.getByTestId("calbayog-map")).toBeOnTheScreen();
   });
@@ -205,7 +201,7 @@ describe("Driver route", () => {
 
   it("opens the route browser from the assigned route", async () => {
     await openDriver("Route", { user: pujDriver });
-    await press("Browse routes & terminals");
+    await press("All routes");
     expect(setParams).toHaveBeenCalledWith({
       screen: "Routes",
       run: "",
@@ -223,7 +219,6 @@ describe("Driver records", () => {
     async (user, label, destination) => {
       await openDriver("Records", { user, trips: [trip], runs: [run] });
       const card = button(label);
-      expect(within(card).getByText("View trip record")).toBeOnTheScreen();
       expect(
         within(card)
           .queryAllByRole("button")
@@ -272,26 +267,21 @@ describe("Driver records", () => {
 
 describe("Driver earnings", () => {
   test.each([
-    [[], "0 completed trips", "₱0.00"],
-    [[trip], "1 completed trip", "₱17.00"],
-    [[trip, { ...trip, id: "second-trip" }], "2 completed trips", "₱34.00"],
+    [[], "0 trips", "₱0.00"],
+    [[trip], "1 trip", "₱17.00"],
+    [[trip, { ...trip, id: "second-trip" }], "2 trips", "₱34.00"],
   ] as const)(
     "shows the earnings count and total for %p",
     async (trips, wording, total) => {
       await openDriver("Earnings", { trips: [...trips] });
-      const banner = within(screen.getByText("LAST 7 DAYS").parent!.parent!);
-      expect(
-        banner.getByText(`${wording} · recorded cash fares`),
-      ).toBeOnTheScreen();
-      expect(banner.getByText(total)).toBeOnTheScreen();
+      const summary = screen.getByText(new RegExp(`^${wording} this week ·`));
+      expect(within(summary.parent!).getByText(total)).toBeOnTheScreen();
     },
   );
 
   it("counts one completed PUJ run as one trip", async () => {
     await openDriver("Earnings", { user: pujDriver, runs: [run] });
-    expect(
-      screen.getByText("1 completed trip · recorded cash fares"),
-    ).toBeOnTheScreen();
+    expect(screen.getByText(/^1 trip this week ·/)).toBeOnTheScreen();
   });
 
   it("excludes cancelled and out-of-window trips from the weekly total", async () => {
@@ -306,9 +296,7 @@ describe("Driver earnings", () => {
         { ...trip, id: "cancelled", status: "Cancelled" },
       ],
     });
-    expect(
-      screen.getByText("1 completed trip · recorded cash fares"),
-    ).toBeOnTheScreen();
+    expect(screen.getByText(/^1 trip this week ·/)).toBeOnTheScreen();
   });
 });
 

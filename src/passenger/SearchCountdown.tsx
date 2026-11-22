@@ -27,19 +27,19 @@ export function SearchCountdown({ expires }: { expires: number }) {
       style={{ gap: 10 }}
     >
       <View style={[ps.between, { alignItems: "baseline" }]}>
-        <Text style={[ps.label, { color: c.green }]}>
-          {left === 0 ? "Closing the search…" : late ? "Last call for nearby drivers" : "Asking nearby drivers"}
+        <Text style={[ps.section]}>
+          {left === 0 ? "Closing the search…" : late ? "Last call" : "Search closes in"}
         </Text>
         <Text
           style={[
             ps.label,
-            { fontVariant: ["tabular-nums"], color: late ? "#9A5B13" : c.ink },
+            { fontVariant: ["tabular-nums"], color: late ? c.amber : c.ink },
           ]}
         >
           {clock(left)}
         </Text>
       </View>
-      <View style={{ height: 6, borderRadius: 3, backgroundColor: "#E6EEE8", overflow: "hidden" }}>
+      <View style={{ height: 6, borderRadius: 3, backgroundColor: c.line, overflow: "hidden" }}>
         <Reanimated.View
           style={{
             position: "absolute",
@@ -48,16 +48,13 @@ export function SearchCountdown({ expires }: { expires: number }) {
             bottom: 0,
             width: `${share * 100}%`,
             borderRadius: 3,
-            backgroundColor: late ? c.amber : c.green,
+            backgroundColor: late ? c.yellow : c.ink,
             transitionProperty: ["width", "backgroundColor"],
             transitionDuration: 1000,
             transitionTimingFunction: "linear",
           }}
         />
       </View>
-      <Text style={ps.small}>
-        Requests stay open for 10 minutes. If nobody accepts, you can send it again in one tap.
-      </Text>
     </View>
   );
 }
