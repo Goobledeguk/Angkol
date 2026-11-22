@@ -113,30 +113,30 @@ const fonts = ["Regular", "Medium", "SemiBold", "Bold"]
 const css = (W, H) => `${fonts}
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{width:${W}px;height:${H}px;overflow:hidden}
-body{font-family:Archivo;background:#fff;color:#111512;-webkit-font-smoothing:antialiased;display:flex;flex-direction:column;position:relative}
-body.ink{background:#111512;color:#fff}
-body.yellow{background:#FFC20E}
-body.photo{background:#111512 var(--photo) 50% 0/118% auto no-repeat;color:#fff}
+body{font-family:Archivo;background:#fff;color:#14201A;-webkit-font-smoothing:antialiased;display:flex;flex-direction:column;position:relative}
+body.ink{background:#0F5D45;color:#fff}
+body.yellow{background:#E4EFE9}
+body.photo{background:#14201A var(--photo) 50% 0/118% auto no-repeat;color:#fff}
 body.photo::before{content:"";position:absolute;inset:0;background:linear-gradient(180deg,rgba(10,12,11,.72) 0%,rgba(10,12,11,.38) 30%,rgba(10,12,11,0) 48%)}
 .copy{position:relative;z-index:2;padding:var(--pad-top) var(--pad) 0}
 .logo{display:block;width:150px;margin:-14px 0 6px -18px}
 h1{font-weight:700;font-size:var(--h1);line-height:1.08;letter-spacing:-.6px;max-width:var(--measure)}
 p{margin-top:12px;font-weight:400;font-size:var(--p);line-height:1.4;max-width:var(--measure)}
-.white p{color:#4F5551}.ink p{color:#C9CCC6}.yellow p{color:#3A3206}.photo p{color:#EDEFEC}
+.white p{color:#56625B}.ink p{color:#D5EADF}.yellow p{color:#3D5348}.photo p{color:#EDEFEC}
 .art{position:relative;flex:1;min-height:0;margin-top:var(--gap)}
 .phone{position:absolute;left:50%;transform:translateX(-50%);top:0;width:var(--phone);aspect-ratio:${RAW_W}/${RAW_H + 32};border-radius:var(--r-out);background:#0B0D0C;padding:var(--bezel);box-shadow:0 0 0 1px rgba(255,255,255,.08)}
 .white .phone{box-shadow:0 24px 60px -28px rgba(0,0,0,.45)}
 .screen{width:100%;height:100%;border-radius:var(--r-in);overflow:hidden;background:#fff;display:flex;flex-direction:column}
 .screen img{width:100%;display:block}
-.sb{flex:0 0 auto;height:var(--sb);display:flex;align-items:center;justify-content:space-between;padding:0 var(--sb-pad);font-weight:600;font-size:var(--sb-font);color:#111512;position:relative}
+.sb{flex:0 0 auto;height:var(--sb);display:flex;align-items:center;justify-content:space-between;padding:0 var(--sb-pad);font-weight:600;font-size:var(--sb-font);color:#14201A;position:relative}
 .sb .cam{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);background:#000}
 .ios .sb .cam{width:28%;height:62%;border-radius:999px}
 .android .sb .cam{width:var(--sb-font);height:var(--sb-font);border-radius:50%}
 .sb svg{height:calc(var(--sb-font) * .85)}
-.detail{position:absolute;left:var(--pad);right:var(--pad);top:0;bottom:-40px;border-radius:22px;overflow:hidden;background-color:#fff;background-repeat:no-repeat;box-shadow:0 0 0 1.5px #111512}
+.detail{position:absolute;left:var(--pad);right:var(--pad);top:0;bottom:-40px;border-radius:22px;overflow:hidden;background-color:#fff;background-repeat:no-repeat;box-shadow:0 0 0 1.5px #14201A}
 `;
 
-const icons = `<svg viewBox="0 0 64 12"><g fill="#111512"><rect x="0" y="8" width="3" height="4" rx="1"/><rect x="5" y="5.5" width="3" height="6.5" rx="1"/><rect x="10" y="3" width="3" height="9" rx="1"/><rect x="15" y="0" width="3" height="12" rx="1"/><path d="M30 3.2a10 10 0 0 1 13 0l-1.6 1.7a7.6 7.6 0 0 0-9.8 0zM32.6 6a6.3 6.3 0 0 1 7.8 0l-1.6 1.7a4 4 0 0 0-4.6 0zM36.5 11.5l-1.9-2a2.7 2.7 0 0 1 3.8 0z"/><rect x="47" y="1" width="15" height="10" rx="3" fill="none" stroke="#111512" stroke-width="1.4"/><rect x="49" y="3" width="10" height="6" rx="1.4"/></g></svg>`;
+const icons = `<svg viewBox="0 0 64 12"><g fill="#14201A"><rect x="0" y="8" width="3" height="4" rx="1"/><rect x="5" y="5.5" width="3" height="6.5" rx="1"/><rect x="10" y="3" width="3" height="9" rx="1"/><rect x="15" y="0" width="3" height="12" rx="1"/><path d="M30 3.2a10 10 0 0 1 13 0l-1.6 1.7a7.6 7.6 0 0 0-9.8 0zM32.6 6a6.3 6.3 0 0 1 7.8 0l-1.6 1.7a4 4 0 0 0-4.6 0zM36.5 11.5l-1.9-2a2.7 2.7 0 0 1 3.8 0z"/><rect x="47" y="1" width="15" height="10" rx="3" fill="none" stroke="#14201A" stroke-width="1.4"/><rect x="49" y="3" width="10" height="6" rx="1.4"/></g></svg>`;
 
 const phone = (id) =>
   `<div class="phone"><div class="screen"><div class="sb"><span>9:41</span><i class="cam"></i>${icons}</div><img src="${raw(id)}"></div></div>`;
@@ -186,7 +186,7 @@ ${art}
 
 function featureGraphic() {
   return `<!doctype html><html><head><meta charset="utf-8"><style>${css(1024, 500)}
-body{background:#111512 url(${asset("calbayog-welcome.jpg")}) center 40%/cover no-repeat;color:#fff}
+body{background:#14201A url(${asset("calbayog-welcome.jpg")}) center 40%/cover no-repeat;color:#fff}
 body::before{content:"";position:absolute;inset:0;background:linear-gradient(90deg,rgba(10,12,11,.86) 0%,rgba(10,12,11,.55) 42%,rgba(10,12,11,0) 72%)}
 .fg{position:relative;z-index:2;padding:0 64px;margin:auto 0}
 .fg img{display:block;width:300px;margin:0 0 4px -36px}

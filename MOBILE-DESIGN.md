@@ -7,15 +7,17 @@ What the UI is built on, so later changes keep it consistent.
 - **Product:** book tricycles and board jeepneys in Calbayog at the city's fixed fare, paid to the driver in cash.
 - **Character:** plain, exact, street-level.
 - **World:** TODA body numbers on sidecars, LTO plates, terminal fare boards.
-- **Moment:** the body-number plate (`src/common/BodyNumber.tsx`). It is the one place the condensed display face and the red offset shadow appear, because riders match it against a real vehicle.
+- **Moment:** the body-number plate (`src/common/BodyNumber.tsx`). It is the one place the condensed display face and the plate yellow appear, because riders match it against a real vehicle.
 - **Signature:** the stop rail. A ring marks the pickup and a filled square marks the drop-off, both on the map (`src/map/RouteDiagram.tsx`) and in lists (`src/common/RouteBoard.tsx`).
 
 ## Tokens
 
 These live in `src/passenger/passengerStyles.ts` (`passengerColors`, `ps`), and `src/admin/adminDashboardStyles.ts` covers the web admin.
 
-- **Ink `#111512`:** text, the stop rail and the nav bar.
-- **Yellow `#FFC20E`:** the primary action on a screen, live vehicle markers on the map, and the body-number plate. Nowhere else. Active tabs and route codes stay ink/white, and the current chart bar is ink.
+- **Brand green `#0F5D45`:** from the app icon. Primary actions (white text), the active tab, route lines, vehicle markers on the map, the driver's online card, today's chart bar. `brandSoft #E4EFE9` for selected states, `brandDeep #0A4434` for dark panels.
+- **Leaf `#00A651`:** the icon's bright stripe. Only "live" states: the online switch and the jeepney board edge.
+- **Ink `#14201A` / muted `#56625B` / line `#DCE4DF` / surface `#F1F5F2`:** green-leaning neutrals. No pure black chrome: the nav bar is white with a hairline, icon buttons are round with a hairline.
+- **Plate yellow `#F6C744`:** the body-number plate only, because real TODA plates are yellow.
 - **Red `#C8321B`:** errors, destructive actions and the unread dot only.
 - **Cards:** white with a 1px `line` hairline, radius 10. Grey filled cards are retired.
 - **Type:** Archivo 400/500/600 in sentence case. `ArchivoBoard` (condensed display) is used for money totals, plates and PARA!. No uppercase labels anywhere else.

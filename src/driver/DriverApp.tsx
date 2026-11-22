@@ -85,8 +85,8 @@ function Button({
         pressed && ps.pressed,
       ]}
     >
-      {icon && <Icon name={icon} color={c.ink} size={19} />}
-      <Text style={ps.buttonText}>{title}</Text>
+      {icon && <Icon name={icon} color={light ? c.brand : c.onBrand} size={19} />}
+      <Text style={[ps.buttonText, light && { color: c.brand }]}>{title}</Text>
     </Pressable>
   );
 }
@@ -604,7 +604,7 @@ export default function DriverApp({
               borderRadius: 12,
               padding: 18,
               gap: 6,
-              backgroundColor: c.ink,
+              backgroundColor: online ? c.brand : "#34413B",
               minHeight: 132,
               justifyContent: "space-between",
             },
@@ -630,13 +630,13 @@ export default function DriverApp({
                 haptic.warning();
                 void action("/availability", { available });
               }}
-              trackColor={{ false: "#4A504C", true: c.yellow }}
+              trackColor={{ false: "#5E6B64", true: c.leaf }}
               thumbColor="#FFFFFF"
-              {...({ activeThumbColor: "#FFFFFF", activeTrackColor: c.yellow } as object)}
+              {...({ activeThumbColor: "#FFFFFF", activeTrackColor: c.leaf } as object)}
             />
           </View>
           <View style={ps.between}>
-            <Text style={[ps.small, { color: "#C9CCC6", flex: 1 }]}>
+            <Text style={[ps.small, { color: "#D5EADF", flex: 1 }]}>
               {online ? "Riders nearby can book you. Tap to go offline." : "Tap to go online and take rides."}
             </Text>
             <BodyNumber value={data.user.plate} size="sm" />
@@ -1380,10 +1380,10 @@ export default function DriverApp({
                       width: "100%",
                       height: Math.max(2, (day.fare / max) * 110),
                       borderRadius: 3,
-                      backgroundColor: isToday ? c.ink : day.fare ? "#8E928E" : c.line,
+                      backgroundColor: isToday ? c.brand : day.fare ? "#AFC6B9" : c.line,
                     }}
                   />
-                  <Text style={[ps.tiny, isToday && { color: c.ink, fontWeight: "800" }]}>{label}</Text>
+                  <Text style={[ps.tiny, isToday && { color: c.brand, fontWeight: "800" }]}>{label}</Text>
                 </View>
               );
             })}
@@ -1744,8 +1744,8 @@ export default function DriverApp({
                 pressed && ps.pressed,
               ]}
             >
-              <Glyph name={tab.icon as GlyphName} size={24} color={page === tab.label ? "#FFFFFF" : "#8E928E"} />
-              <Text style={[ps.navLabel, page === tab.label && { color: "#FFFFFF" }]}>
+              <Glyph name={tab.icon as GlyphName} size={24} color={page === tab.label ? c.brand : c.muted} />
+              <Text style={[ps.navLabel, page === tab.label && { color: c.brand }]}>
                 {tab.text}
               </Text>
             </Pressable>

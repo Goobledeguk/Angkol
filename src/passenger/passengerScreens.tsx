@@ -85,13 +85,13 @@ function Button({
         pressed && ps.pressed,
       ]}
     >
-      <Text style={v.buttonLabel}>
+      <Text style={[v.buttonLabel, secondary && { color: c.ink }]}>
         {title}
       </Text>
       <Icon
         name="arrow-forward"
         size={19}
-        color={c.ink}
+        color={secondary ? c.ink : c.onBrand}
       />
     </Pressable>
   );
@@ -175,12 +175,12 @@ export function PassengerHomeScreen({
         style={({ pressed }) => [v.destination, pressed && ps.pressed]}
       >
         <View style={{ flex: 1, gap: 2 }}>
-          <Text style={v.heroTitle} numberOfLines={1}>
+          <Text style={[v.heroTitle, { color: c.onBrand }]} numberOfLines={1}>
             Where to?
           </Text>
-          <Text style={[v.small, { color: c.ink }]}>Tricycle, regular or special</Text>
+          <Text style={[v.small, { color: "#D5EADF" }]}>Tricycle, regular or special</Text>
         </View>
-        <Icon name="arrow-forward" size={28} color={c.ink} />
+        <Icon name="arrow-forward" size={28} color={c.onBrand} />
       </Pressable>
       {active && (
         <Pressable
@@ -804,7 +804,7 @@ const v = StyleSheet.create({
     alignItems: "center",
     minHeight: 96,
     paddingHorizontal: 20,
-    backgroundColor: c.yellow,
+    backgroundColor: c.brand,
     borderRadius: 12,
   },
   searchArrow: {
@@ -912,7 +912,7 @@ const v = StyleSheet.create({
   stopLine: { width: 3, flex: 1, backgroundColor: c.ink, marginTop: -1, marginBottom: -6 },
   button: {
     minHeight: 54,
-    backgroundColor: c.yellow,
+    backgroundColor: c.brand,
     paddingHorizontal: 18,
     paddingVertical: 14,
     borderRadius: 16,
@@ -931,7 +931,7 @@ const v = StyleSheet.create({
     fontSize: 17,
     lineHeight: 22,
     fontWeight: "700",
-    color: c.ink,
+    color: c.onBrand,
     flexShrink: 1,
   },
   journeyCard: { borderColor: "#DCEAE0", boxShadow: "0px 6px 20px rgba(7, 68, 44, 0.07)" },
@@ -969,7 +969,7 @@ const v = StyleSheet.create({
   avatar: {
     flex: 1,
     borderRadius: 42,
-    backgroundColor: c.yellow,
+    backgroundColor: c.brandSoft,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -977,7 +977,7 @@ const v = StyleSheet.create({
     fontFamily: "ArchivoBoard",
     fontSize: 36,
     lineHeight: 40,
-    color: c.ink,
+    color: c.brand,
   },
   editBadge: {
     position: "absolute",

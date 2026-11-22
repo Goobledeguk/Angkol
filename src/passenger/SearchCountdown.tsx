@@ -48,7 +48,7 @@ export function SearchCountdown({ expires }: { expires: number }) {
             bottom: 0,
             width: `${share * 100}%`,
             borderRadius: 3,
-            backgroundColor: late ? c.yellow : c.ink,
+            backgroundColor: late ? c.amber : c.brand,
             transitionProperty: ["width", "backgroundColor"],
             transitionDuration: 1000,
             transitionTimingFunction: "linear",

@@ -79,8 +79,8 @@ function Action({
         pressed && ps.pressed,
       ]}
     >
-      {icon && <Icon name={icon} size={19} color={c.ink} />}
-      <Text style={ps.buttonText}>{title}</Text>
+      {icon && <Icon name={icon} size={19} color={light ? c.brand : c.onBrand} />}
+      <Text style={[ps.buttonText, light && { color: c.brand }]}>{title}</Text>
     </Pressable>
   );
 }
@@ -144,10 +144,10 @@ function ParaButton({ onPress, disabled }: { onPress: () => void; disabled?: boo
         pressed && ps.pressed,
       ]}
     >
-      <Text style={{ fontFamily: "ArchivoBoard", fontSize: 40, lineHeight: 44, letterSpacing: 1, color: c.ink }}>
+      <Text style={{ fontFamily: "ArchivoBoard", fontSize: 40, lineHeight: 44, letterSpacing: 1, color: c.onBrand }}>
         PARA!
       </Text>
-      <Text style={[ps.small, { color: c.ink, fontWeight: "600" }]}>Ask the driver to stop here</Text>
+      <Text style={[ps.small, { color: "#D5EADF", fontWeight: "600" }]}>Ask the driver to stop here</Text>
     </Pressable>
   );
 }
@@ -1802,8 +1802,8 @@ export default function PassengerApp({
                   pressed && ps.pressed,
                 ]}
               >
-                <Glyph name={tab.icon} size={24} color={selected ? "#FFFFFF" : "#8E928E"} />
-                <Text style={[ps.navLabel, selected && { color: "#FFFFFF" }]}>
+                <Glyph name={tab.icon} size={24} color={selected ? c.brand : c.muted} />
+                <Text style={[ps.navLabel, selected && { color: c.brand }]}>
                   {tab.text}
                 </Text>
               </Pressable>

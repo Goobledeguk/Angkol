@@ -6,11 +6,11 @@ import type { Point } from "../types/types";
 import { DEFAULT_CENTER, distanceKm } from "../services/mapbox";
 import { glyphShapes } from "../common/Glyph";
 
-const INK = "#111512";
-const PAPER = "#F4F3EE";
-const GRID = "#EAE9E4";
-const YELLOW = "#FFC20E";
-const MUTED = "#6B706C";
+const INK = "#14201A";
+const PAPER = "#EDF2EE";
+const GRID = "#E0E8E2";
+const BRAND = "#0F5D45";
+const MUTED = "#66726B";
 const TILE = 512;
 const EARTH_M = 40075016;
 
@@ -188,6 +188,21 @@ export default function RouteDiagram({
   (stops ?? []).forEach((st) => claim(px(st.point), 7));
   const marks = nearby.map((v) => ({ v, at: px(v.location) })).filter(({ at }) => inside(at));
   marks.forEach(({ at }) => claim(at, 17));
+  taken.push({ x: 0, y: height - 34, w: 120, h: 34 }, { x: 0, y: 0, w: 64, h: 62 });
+  // Pickup and drop-off names go first so plate tags work around them.
+  const required = placeLabels(
+    [
+      ...(pickupAt && inside(pickupAt)
+        ? [{ at: pickupAt, text: (pickupLabel || pickup!.name).toUpperCase(), required: true }]
+        : []),
+      ...(destinationAt && inside(destinationAt)
+        ? [{ at: destinationAt, text: (destinationLabel || destination!.name).toUpperCase(), required: true }]
+        : []),
+    ],
+    taken,
+    width,
+    height,
+  );
   const tags = marks
     .map(({ v, at }) => {
       if (!v.plate) {
@@ -208,26 +223,22 @@ export default function RouteDiagram({
       }
       return { v, at, tag: tag ?? null };
     });
-  taken.push({ x: 0, y: height - 34, w: 120, h: 34 }, { x: 0, y: 0, w: 64, h: 62 });
-  const labels = placeLabels(
-    [
-      ...(pickupAt && inside(pickupAt)
-        ? [{ at: pickupAt, text: (pickupLabel || pickup!.name).toUpperCase(), required: true }]
-        : []),
-      ...(destinationAt && inside(destinationAt)
-        ? [{ at: destinationAt, text: (destinationLabel || destination!.name).toUpperCase(), required: true }]
-        : []),
-      ...(terminals ?? [])
-        .map((t) => ({ at: px(t.point), text: t.name.toUpperCase(), gap: 16 }))
-        .filter(({ at }) => inside(at)),
-      ...context
-        .map((p) => ({ at: px(p), text: p.name.toUpperCase(), color: MUTED, size: 10, gap: 7 }))
-        .filter(({ at }) => inside(at)),
-    ],
-    taken,
-    width,
-    height,
-  );
+  const labels = [
+    ...required,
+    ...placeLabels(
+      [
+        ...(terminals ?? [])
+          .map((t) => ({ at: px(t.point), text: t.name.toUpperCase(), gap: 16 }))
+          .filter(({ at }) => inside(at)),
+        ...context
+          .map((p) => ({ at: px(p), text: p.name.toUpperCase(), color: MUTED, size: 10, gap: 7 }))
+          .filter(({ at }) => inside(at)),
+      ],
+      taken,
+      width,
+      height,
+    ),
+  ];
 
   return (
     <View style={[styles.frame, { height }]} onLayout={(e) => setWidth(Math.max(1, e.nativeEvent.layout.width))}>
@@ -246,12 +257,12 @@ export default function RouteDiagram({
 
         {routePts.length >= 2 && (
           <G>
-            <Polyline points={routeD} fill="none" stroke={INK} strokeWidth={8} strokeLinecap="round" strokeLinejoin="round" />
+            <Polyline points={routeD} fill="none" stroke="#FFFFFF" strokeWidth={10} strokeLinecap="round" strokeLinejoin="round" />
             <Polyline
               points={routeD}
               fill="none"
-              stroke={YELLOW}
-              strokeWidth={2.6}
+              stroke={BRAND}
+              strokeWidth={5}
               strokeLinecap="round"
               strokeLinejoin="round"
               strokeDasharray={routeIsGuess ? "6 6" : undefined}
@@ -273,7 +284,7 @@ export default function RouteDiagram({
 
         {(stops ?? []).map((s) => {
           const at = px(s.point);
-          return inside(at) ? <Rect key={`s-${s.id}`} x={at.x - 6} y={at.y - 6} width={12} height={12} fill={YELLOW} stroke={INK} strokeWidth={2.5} /> : null;
+          return inside(at) ? <Rect key={`s-${s.id}`} x={at.x - 6} y={at.y - 6} width={12} height={12} fill="#FFFFFF" stroke={BRAND} strokeWidth={3} /> : null;
         })}
 
         {pickup && inside(px(pickup)) && (
@@ -293,8 +304,8 @@ export default function RouteDiagram({
           const glyph = v.vehicleType === "Jeepney" || v.kind === "PUJ / PUV driver" ? "jeepney" : "tricycle";
           return (
             <G key={`v-${v.id}`} opacity={v.stale ? 0.45 : 1}>
-              <Circle cx={at.x} cy={at.y} r={16} fill={YELLOW} stroke={INK} strokeWidth={3} />
-              <G transform={`translate(${at.x - 10.8} ${at.y - 10.8}) scale(0.9)`} fill="none" stroke={INK} strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round">
+              <Circle cx={at.x} cy={at.y} r={16} fill={BRAND} stroke="#FFFFFF" strokeWidth={3} />
+              <G transform={`translate(${at.x - 10.8} ${at.y - 10.8}) scale(0.9)`} fill="none" stroke="#FFFFFF" strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round">
                 {glyphShapes(glyph)}
               </G>
               {tag && v.plate ? (

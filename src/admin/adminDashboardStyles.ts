@@ -131,9 +131,9 @@ export const adminDashboardStyles = `
 .angkol-admin ::selection{background:#c69c5755}
 
 /* Signboard: jeepney-board lettering, ink and tricycle yellow. */
-.angkol-admin{--ink:#111512;--muted:#5c625e;--line:#e1e2dd;--paper:#ffffff;--yellow:#ffc20e;--green:#111512;background:#fff;font-family:"Archivo",sans-serif}
-.angkol-admin .aa-sidebar{background:#111512;color:#b9bdb8}
-.angkol-admin .aa-nav button[aria-current=page]{background:var(--yellow);color:#111512;box-shadow:none;font-weight:700}
+.angkol-admin{--ink:#14201A;--muted:#5c625e;--line:#e1e2dd;--paper:#ffffff;--yellow:#ffc20e;--green:#14201A;background:#fff;font-family:"Archivo",sans-serif}
+.angkol-admin .aa-sidebar{background:#14201A;color:#b9bdb8}
+.angkol-admin .aa-nav button[aria-current=page]{background:var(--yellow);color:#14201A;box-shadow:none;font-weight:700}
 .angkol-admin .aa-header{border-bottom:3px solid var(--ink)}
 .angkol-admin .aa-header h1{font-family:"ArchivoBoard",sans-serif;font-weight:400;text-transform:uppercase;font-size:44px;line-height:1;letter-spacing:.2px}
 .angkol-admin .aa-panel,.angkol-admin .aa-stat{background:#f2f2ee;border:0;border-radius:10px}
@@ -143,15 +143,15 @@ export const adminDashboardStyles = `
 .angkol-admin .aa-statvalue{font-family:"ArchivoBoard",sans-serif;font-weight:400;font-size:48px;line-height:1;letter-spacing:0;margin:8px 0 4px}
 .angkol-admin .aa-stat.amber .aa-statvalue{color:#946000}
 .angkol-admin .aa-table td{border-color:#e1e2dd}
-.angkol-admin .aa-button{background:var(--yellow);color:#111512;border-radius:8px;font-family:"ArchivoCond",sans-serif;font-weight:400;text-transform:uppercase;letter-spacing:.6px;font-size:14px}
-.angkol-admin .aa-button.light{background:#fff;box-shadow:inset 0 0 0 2px #111512}
+.angkol-admin .aa-button{background:var(--yellow);color:#14201A;border-radius:8px;font-family:"ArchivoCond",sans-serif;font-weight:400;text-transform:uppercase;letter-spacing:.6px;font-size:14px}
+.angkol-admin .aa-button.light{background:#fff;box-shadow:inset 0 0 0 2px #14201A}
 .angkol-admin .aa-button.plain{background:transparent}
-.angkol-admin .aa-search{border:2px solid #111512;border-radius:8px}
+.angkol-admin .aa-search{border:2px solid #14201A;border-radius:8px}
 .angkol-admin .aa-listitem,.angkol-admin .aa-fare{background:#fff;border:0}
 .angkol-admin .aa-fare b{font-family:"ArchivoBoard",sans-serif;font-weight:400;font-size:30px}
 .angkol-admin .aa-barcol:last-child .aa-bar{background:var(--yellow)}
-.angkol-admin .aa-bar,.angkol-admin .aa-barcol:nth-last-child(-n+4):not(:last-child) .aa-bar{background:#111512}
-.angkol-admin .aa-pill-btn.active{background:#111512;color:#fff}
+.angkol-admin .aa-bar,.angkol-admin .aa-barcol:nth-last-child(-n+4):not(:last-child) .aa-bar{background:#14201A}
+.angkol-admin .aa-pill-btn.active{background:#14201A;color:#fff}
 .angkol-admin .aa-avatar{background:var(--yellow)}
 .angkol-admin ::selection{background:#ffc20e88}
 
@@ -161,8 +161,8 @@ export const adminDashboardStyles = `
 .angkol-admin .aa-statlabel{font-size:13px;font-weight:600;display:flex;align-items:center;gap:7px}
 .angkol-admin .aa-stat.red .aa-statlabel::before,.angkol-admin .aa-stat.amber .aa-statlabel::before{content:"";width:9px;height:9px;flex-shrink:0}
 .angkol-admin .aa-stat.red .aa-statlabel::before{background:#c8321b}
-.angkol-admin .aa-stat.amber .aa-statlabel::before{background:#ffc20e;box-shadow:inset 0 0 0 1.5px #111512}
-.angkol-admin .aa-statvalue,.angkol-admin .aa-stat.amber .aa-statvalue,.angkol-admin .aa-stat.red .aa-statvalue{color:#111512}
+.angkol-admin .aa-stat.amber .aa-statlabel::before{background:#ffc20e;box-shadow:inset 0 0 0 1.5px #14201A}
+.angkol-admin .aa-statvalue,.angkol-admin .aa-stat.amber .aa-statvalue,.angkol-admin .aa-stat.red .aa-statvalue{color:#14201A}
 .angkol-admin .aa-button{font-family:"Archivo",sans-serif;font-weight:700;text-transform:none;letter-spacing:0;font-size:13px}
 .angkol-admin .aa-person .aa-avatar,.angkol-admin .aa-user .aa-avatar{display:none}
 .angkol-admin .aa-table td,.angkol-admin .aa-person b{text-transform:none}
@@ -173,8 +173,8 @@ export const adminDashboardStyles = `
 .angkol-admin .aa-grid.queue-first>:last-child{order:-1}
 .angkol-admin .aa-hours{display:flex;align-items:flex-end;gap:4px;height:64px;padding-top:6px}
 .angkol-admin .aa-hour{flex:1;height:100%;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;gap:4px}
-.angkol-admin .aa-hour i{display:block;width:100%;background:#111512;border-radius:2px}
-.angkol-admin .aa-hour.now i{background:#ffc20e;box-shadow:inset 0 0 0 1.5px #111512;min-height:18px}
+.angkol-admin .aa-hour i{display:block;width:100%;background:#14201A;border-radius:2px}
+.angkol-admin .aa-hour.now i{background:#ffc20e;box-shadow:inset 0 0 0 1.5px #14201A;min-height:18px}
 .angkol-admin .aa-hour span{font-size:10px;line-height:12px;height:12px;color:#4f5551;font-variant-numeric:tabular-nums}
 @media(max-width:850px){.angkol-admin .aa-grid.queue-first{grid-template-columns:1fr}}
 
@@ -183,8 +183,8 @@ export const adminDashboardStyles = `
 .angkol-admin .aa-panel,.angkol-admin .aa-stat{background:#fff;border:1px solid var(--line)}
 .angkol-admin .aa-listitem,.angkol-admin .aa-fare{background:#fff;border:1px solid var(--line)}
 .angkol-admin .aa-nav button{font-size:14px}
-.angkol-admin .aa-nav button[aria-current=page]{background:#fff;color:#111512}
-.angkol-admin .aa-brandmark{background:#fff;color:#111512}
+.angkol-admin .aa-nav button[aria-current=page]{background:#fff;color:#14201A}
+.angkol-admin .aa-brandmark{background:#fff;color:#14201A}
 .angkol-admin .aa-user b{font-size:13px}.angkol-admin .aa-user small{font-size:12px}
 .angkol-admin .aa-header p,.angkol-admin .aa-date,.angkol-admin .aa-panelhead p{font-size:13px}
 .angkol-admin .aa-table{font-size:13px}
@@ -196,7 +196,23 @@ export const adminDashboardStyles = `
 .angkol-admin .aa-pill,.angkol-admin .aa-badge-status{font-size:12px}
 .angkol-admin .aa-search input,.angkol-admin .aa-select{font-size:13px!important}
 .angkol-admin .aa-hour span{font-size:11px}
-.angkol-admin .aa-hour.now i{background:#111512;box-shadow:none}
+.angkol-admin .aa-hour.now i{background:#14201A;box-shadow:none}
 .angkol-admin .aa-hour i{background:#9a9e9a}
 .angkol-admin .aa-dot{background:#c8321b;border-color:#fff}
+/* Brand green: the app icon's #0F5D45 carries actions and the current selection; neutrals lean green. */
+.angkol-admin{--brand:#0F5D45;--brand-deep:#0A4434;--brand-soft:#E4EFE9;--ink:#14201A;--muted:#56625B;--line:#DCE4DF}
+.angkol-admin .aa-sidebar{background:var(--brand-deep);color:#B9D3C5}
+.angkol-admin .aa-nav button[aria-current=page]{background:#fff;color:var(--brand)}
+.angkol-admin .aa-brandmark{background:#fff;color:var(--brand)}
+.angkol-admin .aa-button{background:var(--brand);color:#fff;font-family:"Archivo",sans-serif;font-weight:600;text-transform:none;letter-spacing:0}
+.angkol-admin .aa-button.light{background:#fff;color:var(--brand);box-shadow:inset 0 0 0 1.5px var(--brand)}
+.angkol-admin .aa-search{border:1.5px solid #C5D0C9}
+.angkol-admin .aa-pill-btn.active{background:var(--brand);color:#fff}
+.angkol-admin .aa-avatar{background:var(--brand-soft);color:var(--brand)}
+.angkol-admin ::selection{background:#0F5D4533}
+.angkol-admin .aa-stat.amber .aa-statlabel::before{background:#946000;box-shadow:none}
+.angkol-admin .aa-bar,.angkol-admin .aa-barcol:nth-last-child(-n+4):not(:last-child) .aa-bar{background:#AFC6B9}
+.angkol-admin .aa-barcol:last-child .aa-bar{background:var(--brand)}
+.angkol-admin .aa-hour i{background:#AFC6B9}
+.angkol-admin .aa-hour.now i{background:var(--brand);box-shadow:none}
 `;

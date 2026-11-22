@@ -93,7 +93,7 @@ const shapes: Record<GlyphName, React.ReactNode> = {
 export function Glyph({
   name,
   size = 24,
-  color = "#111512",
+  color = "#14201A",
   fill = "none",
   weight = 2.4,
 }: {

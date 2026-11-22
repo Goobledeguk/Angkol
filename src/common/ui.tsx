@@ -8,7 +8,7 @@ export const money = (n: number) =>
 export function Icon({
   name,
   size = 22,
-  color = "#111512",
+  color = "#14201A",
 }: {
   name: React.ComponentProps<typeof Ionicons>["name"];
   size?: number;
@@ -47,7 +47,7 @@ export function Button({
         accessibilityState={{ disabled }}
         style={[s.button, secondary && s.secondary, disabled && { opacity: 0.45 }]}
       >
-        <Text style={s.buttonText} numberOfLines={2} adjustsFontSizeToFit>
+        <Text style={[s.buttonText, secondary && { color: "#0F5D45" }]} numberOfLines={2} adjustsFontSizeToFit>
           {title}
         </Text>
       </Pressable>
@@ -174,7 +174,7 @@ export function Choice({
       onPress={onPress}
       style={[
         s.chip,
-        selected && { backgroundColor: "#FFC20E", borderColor: "#111512" },
+        selected && { backgroundColor: "#E4EFE9", borderColor: "#0F5D45" },
       ]}
     >
       <Text style={[s.label, { lineHeight: 20, flexShrink: 0 }]}>{label}</Text>

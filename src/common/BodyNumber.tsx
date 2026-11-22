@@ -92,9 +92,6 @@ export function BodyNumber({
           lineHeight: big ? 58 : 22,
           color: c.ink,
           fontVariant: ["tabular-nums"],
-          textShadowColor: c.red,
-          textShadowOffset: { width: big ? 3 : 1.5, height: big ? 3 : 1.5 },
-          textShadowRadius: 0.1,
         }}
       >
         {value}

@@ -1620,7 +1620,7 @@ export default function AdminDashboard({
         <div className="aa-inner">
           <header className="aa-header">
             <div className="aa-heading">
-              <BrandLogo compact wordmarkOnly tint="#111512" />
+              <BrandLogo compact wordmarkOnly tint="#0F5D45" />
               <div>
                 <h1>{titles[pageIndex]}</h1>
                 {subtitles[pageIndex] ? <p>{subtitles[pageIndex]}</p> : null}
