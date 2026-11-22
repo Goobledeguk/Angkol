@@ -36,7 +36,7 @@ function response(json: unknown, ok = true) {
 
 function decodePath(url: string) {
   const encoded = decodeURIComponent(
-    url.match(/path-4\+0b4f3c-0\.9\(([^)]+)\)/)![1],
+    url.match(/path-5\+0f5d45-0\.95\(([^)]+)\)/)![1],
   );
   const coordinates: number[][] = [];
   let latitude = 0;
@@ -183,9 +183,9 @@ describe("static map URLs", () => {
       pickup,
       destination,
     })!;
-    expect(url.match(/pin-s\+1f7a5c/g)).toHaveLength(8);
+    expect(url.match(/pin-s\+0f5d45/g)).toHaveLength(8);
     expect(url).toContain(
-      "pin-s+1f7a5c(127,12.07),pin-s+0b4f3c(124.59,12.07),pin-s+c69c57(124.61,12.09)/",
+      "pin-s+0f5d45(127,12.07),pin-s+14201a(124.59,12.07),pin-s+14201a(124.61,12.09)/",
     );
     expect(url).not.toContain("(128,12.07)");
   });
@@ -210,7 +210,7 @@ describe("static map URLs", () => {
       path: { type: "LineString", coordinates },
     });
     expect(url).toContain(
-      "path-4+0b4f3c-0.9(_p~iF~ps%7CU_ulLnnqC_mqNvxq%60%40)",
+      "path-5+0f5d45-0.95(_p~iF~ps%7CU_ulLnnqC_mqNvxq%60%40)",
     );
   });
 
@@ -228,7 +228,7 @@ describe("static map URLs", () => {
     })!;
     expect(url.length).toBeLessThan(8192);
     expect(url).toMatch(
-      /pin-s\+1f7a5c.*path-4\+0b4f3c.*pin-s\+0b4f3c.*pin-s\+c69c57/,
+      /pin-s\+0f5d45.*path-5\+0f5d45.*pin-s\+14201a.*pin-s\+14201a/,
     );
     const decoded = decodePath(url);
     expect(decoded.length).toBeGreaterThan(2);

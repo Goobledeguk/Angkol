@@ -133,14 +133,14 @@ export function staticMapUrl(scene: MapScene): string | null {
   const { pickup, destination, markers = [], path, view, width, height } = scene;
   const overlays: string[] = [];
   for (const marker of markers.slice(0, 8)) {
-    overlays.push(`pin-s+1f7a5c(${marker.longitude},${marker.latitude})`);
+    overlays.push(`pin-s+0f5d45(${marker.longitude},${marker.latitude})`);
   }
   const pathIndex = overlays.length;
   if (pickup) {
-    overlays.push(`pin-s+0b4f3c(${pickup.longitude},${pickup.latitude})`);
+    overlays.push(`pin-s+14201a(${pickup.longitude},${pickup.latitude})`);
   }
   if (destination) {
-    overlays.push(`pin-s+c69c57(${destination.longitude},${destination.latitude})`);
+    overlays.push(`pin-s+14201a(${destination.longitude},${destination.latitude})`);
   }
 
   const camera = `${view.longitude.toFixed(6)},${view.latitude.toFixed(6)},${view.zoom},0`;
@@ -153,7 +153,7 @@ export function staticMapUrl(scene: MapScene): string | null {
     let step = Math.max(1, Math.ceil((coords.length - 1) / (STATIC_URL_LIMIT / 2)));
     while (true) {
       const line = encodeURIComponent(encodePolyline(coords, step));
-      overlays[pathIndex] = `path-4+0b4f3c-0.9(${line})`;
+      overlays[pathIndex] = `path-5+0f5d45-0.95(${line})`;
       const url = `${prefix}${overlays.join(",")}/${suffix}`;
       if (url.length < STATIC_URL_LIMIT) {
         return url;
