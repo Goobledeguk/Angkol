@@ -26,6 +26,7 @@
  *
  * Use test accounts only: the drivers really accept and complete bookings.
  */
+import { pathToFileURL } from "node:url";
 import { createClient } from "@supabase/supabase-js";
 
 const args = Object.fromEntries(
@@ -62,13 +63,6 @@ const accounts = (process.env.EMULATOR_DRIVERS ?? "")
   })
   .filter((a) => a.email && a.password);
 
-if (!SUPABASE_URL || !ANON_KEY) {
-  fail("Set EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_ANON_KEY (run with --env-file=.env).");
-}
-if (!accounts.length) {
-  fail("Set EMULATOR_DRIVERS=email:password[,email:password…] with approved tricycle driver test accounts.");
-}
-
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 let stopping = false;
 const claimed = new Set(); // bookings another emulated driver is already taking
@@ -80,7 +74,7 @@ function fail(message) {
 
 /* ----------------------------------------------------------------- geometry */
 
-function distanceKm(a, b) {
+export function distanceKm(a, b) {
   const rad = Math.PI / 180;
   const dLat = (b.latitude - a.latitude) * rad;
   const dLng = (b.longitude - a.longitude) * rad;
@@ -90,39 +84,270 @@ function distanceKm(a, b) {
   return 6371 * 2 * Math.asin(Math.sqrt(h));
 }
 
+// Keep this geometry cleanup in sync with src/services/routeGeometry.ts.
+const SPUR_TOLERANCE_M = 15;
+const LOOP_LIMIT_M = 600;
+const RAD = Math.PI / 180;
+
+function distance(a, b) {
+  const h =
+    Math.sin(((b[1] - a[1]) * RAD) / 2) ** 2 +
+    Math.cos(a[1] * RAD) * Math.cos(b[1] * RAD) *
+      Math.sin(((b[0] - a[0]) * RAD) / 2) ** 2;
+  return 12_742_000 * Math.asin(Math.sqrt(Math.min(1, h)));
+}
+
+function samePoint(a, b) {
+  return a[0] === b[0] && a[1] === b[1];
+}
+
+function deduplicate(coords) {
+  const points = [coords[0]];
+  for (let i = 1; i < coords.length - 1; i++) {
+    if (!samePoint(points[points.length - 1], coords[i])) {
+      points.push(coords[i]);
+    }
+  }
+  const last = coords[coords.length - 1];
+  if (points.length > 1 && samePoint(points[points.length - 1], last)) {
+    points.pop();
+  }
+  return [...points, last];
+}
+
+function interpolate(a, b, t) {
+  if (t === 0) {
+    return a;
+  }
+  if (t === 1) {
+    return b;
+  }
+  return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
+}
+
+// Scale longitude locally so the projection uses approximately metric axes.
+function projection(point, a, b) {
+  const scale = Math.cos(point[1] * RAD);
+  const x = (b[0] - a[0]) * scale;
+  const y = b[1] - a[1];
+  const lengthSquared = x * x + y * y;
+  if (!lengthSquared) {
+    return 0;
+  }
+  return (((point[0] - a[0]) * scale) * x + (point[1] - a[1]) * y) / lengthSquared;
+}
+
+function cumulativeLengths(points) {
+  const lengths = [0];
+  for (let i = 1; i < points.length; i++) {
+    lengths.push(lengths[i - 1] + distance(points[i - 1], points[i]));
+  }
+  return lengths;
+}
+
+function removeSpur(points) {
+  const lengths = cumulativeLengths(points);
+  for (let i = 0; i < points.length - 2; i++) {
+    const start = points[i];
+    const next = points[i + 1];
+    const longitudeScale = Math.cos(start[1] * RAD);
+    const latitudeMargin = SPUR_TOLERANCE_M / 111_194;
+    const longitudeMargin = latitudeMargin / Math.max(0.000001, longitudeScale);
+    for (let j = i + 2; j < points.length; j++) {
+      const a = points[j - 1];
+      const b = points[j];
+      if (start[0] < Math.min(a[0], b[0]) - longitudeMargin ||
+        start[0] > Math.max(a[0], b[0]) + longitudeMargin ||
+        start[1] < Math.min(a[1], b[1]) - latitudeMargin ||
+        start[1] > Math.max(a[1], b[1]) + latitudeMargin) {
+        continue;
+      }
+      const dot = (next[0] - start[0]) * (b[0] - a[0]) * longitudeScale ** 2 +
+        (next[1] - start[1]) * (b[1] - a[1]);
+      if (dot >= 0) {
+        continue;
+      }
+      const t = Math.max(0, Math.min(1, projection(start, a, b)));
+      const gap = distance(start, interpolate(a, b, t));
+      const returnAt = lengths[j - 1] + (lengths[j] - lengths[j - 1]) * t;
+      if (gap > SPUR_TOLERANCE_M || returnAt - lengths[i] <= 3 * gap) {
+        continue;
+      }
+
+      // Match the outbound and inbound halves by distance along the path.
+      // Checking every vertex also handles a retraced path with several bends.
+      let match = j;
+      let retraces = true;
+      for (let k = i + 1; k < j && lengths[k] <= returnAt; k++) {
+        const mirroredAt = returnAt - (lengths[k] - lengths[i]);
+        while (match > i + 1 && lengths[match - 1] > mirroredAt) {
+          match--;
+        }
+        const fraction = (mirroredAt - lengths[match - 1]) /
+          (lengths[match] - lengths[match - 1]);
+        const mirror = interpolate(points[match - 1], points[match], fraction);
+        if (distance(points[k], mirror) > SPUR_TOLERANCE_M) {
+          retraces = false;
+          break;
+        }
+      }
+      if (retraces) {
+        return deduplicate([...points.slice(0, i + 1), ...points.slice(j)]);
+      }
+    }
+  }
+  return null;
+}
+
+function crossing(a, b, c, d) {
+  const x = b[0] - a[0];
+  const y = b[1] - a[1];
+  const u = d[0] - c[0];
+  const v = d[1] - c[1];
+  const denominator = x * v - y * u;
+  if (denominator === 0) {
+    return null;
+  }
+  const dx = c[0] - a[0];
+  const dy = c[1] - a[1];
+  const t = (dx * v - dy * u) / denominator;
+  const s = (dx * y - dy * x) / denominator;
+  if (t < 0 || t > 1 || s < 0 || s > 1) {
+    return null;
+  }
+  return { t, s };
+}
+
+function removeLoop(points) {
+  const lengths = cumulativeLengths(points);
+  const limit = Math.min(LOOP_LIMIT_M, lengths[lengths.length - 1] * 0.35);
+  for (let i = 0; i < points.length - 3; i++) {
+    const a = points[i];
+    const b = points[i + 1];
+    for (let j = i + 2; j < points.length - 1; j++) {
+      const between = lengths[j] - lengths[i + 1];
+      if (between >= limit) {
+        break;
+      }
+      const hit = crossing(a, b, points[j], points[j + 1]);
+      if (!hit) {
+        continue;
+      }
+      const loopLength = between + (1 - hit.t) * (lengths[i + 1] - lengths[i]) +
+        hit.s * (lengths[j + 1] - lengths[j]);
+      if (loopLength > 0 && loopLength < limit) {
+        return deduplicate([
+          ...points.slice(0, i + 1),
+          interpolate(a, b, hit.t),
+          ...points.slice(j + 1),
+        ]);
+      }
+    }
+  }
+  return null;
+}
+
+function cleanRoute(coords) {
+  if (coords.length < 2) {
+    return coords.slice();
+  }
+  let points = deduplicate(coords);
+  while (true) {
+    const cleaned = removeSpur(points) ??
+      removeSpur(points.slice().reverse())?.reverse() ?? removeLoop(points);
+    if (!cleaned) {
+      return points;
+    }
+    points = cleaned;
+  }
+}
+
+function roadEntry(point, road) {
+  if (projection(point, road[0], road[1]) <= 0) {
+    return { index: 0, point: road[0] };
+  }
+
+  let closest = { index: 0, point: road[0] };
+  let bestDistance = distance(point, road[0]);
+  for (let i = 0; i < road.length - 1; i++) {
+    const t = Math.max(0, Math.min(1, projection(point, road[i], road[i + 1])));
+    const candidate = interpolate(road[i], road[i + 1], t);
+    const gap = distance(point, candidate);
+    if (gap < bestDistance) {
+      closest = { index: i + t, point: candidate };
+      bestDistance = gap;
+    }
+  }
+  return closest;
+}
+
+function joinEnds(
+  start,
+  road,
+  end,
+) {
+  const points = road.length >= 2 ? deduplicate(road) : road;
+  if (points.length < 2) {
+    return cleanRoute([start, ...points, end]);
+  }
+
+  const entry = roadEntry(start, points);
+  const exit = roadEntry(end, points.slice().reverse());
+  const exitIndex = points.length - 1 - exit.index;
+  if (entry.index > exitIndex) {
+    return cleanRoute([start, end]);
+  }
+  return cleanRoute([
+    start,
+    entry.point,
+    ...points.slice(Math.floor(entry.index) + 1, Math.ceil(exitIndex)),
+    exit.point,
+    end,
+  ]);
+}
+
 const toPoints = (coordinates) =>
   (coordinates ?? [])
     .filter((c) => Array.isArray(c) && Number.isFinite(c[0]) && Number.isFinite(c[1]))
     .map(([longitude, latitude]) => ({ latitude, longitude }));
 
 /** Road path between two points: Mapbox if a token is set, else a straight line. */
-async function pathBetween(from, to) {
+export async function pathBetween(from, to, signal) {
   if (MAPBOX.startsWith("pk.")) {
     try {
       const url =
         "https://api.mapbox.com/directions/v5/mapbox/driving/" +
         `${from.longitude},${from.latitude};${to.longitude},${to.latitude}` +
-        `?geometries=geojson&overview=full&access_token=${encodeURIComponent(MAPBOX)}`;
-      const response = await fetch(url);
+        `?geometries=geojson&overview=full&continue_straight=false&access_token=${encodeURIComponent(MAPBOX)}`;
+      const response = await fetch(url, { signal });
       if (response.ok) {
         const json = await response.json();
         const points = toPoints(json.routes?.[0]?.geometry?.coordinates);
         if (points.length >= 2) {
-          return [from, ...points, to];
+          return connectPath(from, points, to);
         }
       }
     } catch {
+      signal?.throwIfAborted();
       // Fall through to a straight line.
     }
   }
   return [from, to];
 }
 
-/** Splits a path into positions spaced by how far the driver moves per tick. */
-function stepsAlong(path) {
-  const stepKm = (KMH * SPEED * TICK_MS) / 3_600_000;
-  const steps = [];
+function connectPath(from, road, to) {
+  const coordinates = joinEnds(
+    [from.longitude, from.latitude],
+    road.map(({ longitude, latitude }) => [longitude, latitude]),
+    [to.longitude, to.latitude],
+  );
+  return toPoints(coordinates);
+}
+
+/** Yields each GPS tick and the road vertices traversed since the last tick. */
+export function* stepsAlong(path, stepKm = (KMH * SPEED * TICK_MS) / 3_600_000) {
   let carry = 0;
+  let trail = [path[0]];
   for (let i = 1; i < path.length; i++) {
     const a = path[i - 1];
     const b = path[i];
@@ -130,16 +355,18 @@ function stepsAlong(path) {
     let at = stepKm - carry;
     while (at < length) {
       const t = at / length;
-      steps.push({
+      const point = {
         latitude: a.latitude + (b.latitude - a.latitude) * t,
         longitude: a.longitude + (b.longitude - a.longitude) * t,
-      });
+      };
+      yield { point, trail: [...trail, point] };
+      trail = [point];
       at += stepKm;
     }
+    trail.push(b);
     carry = length - (at - stepKm);
   }
-  steps.push(path[path.length - 1]);
-  return steps;
+  yield { point: path[path.length - 1], trail };
 }
 
 /* ------------------------------------------------------------------ drivers */
@@ -226,7 +453,7 @@ class EmulatedDriver {
 
   /** Drives a path, stopping early if the ride leaves one of `keepGoing`. */
   async drive(bookingId, path, keepGoing) {
-    for (const point of stepsAlong(path)) {
+    for (const { point } of stepsAlong(path)) {
       if (stopping) {return null;}
       await this.moveTo(point);
       await sleep(TICK_MS);
@@ -266,21 +493,31 @@ class EmulatedDriver {
     const dropoff = { latitude: Number(ride.dropoff_latitude), longitude: Number(ride.dropoff_longitude) };
     const label = `${ride.pickup_name} → ${ride.dropoff_name}`;
 
-    await this.transition(id, "Accepted");
-    this.log(`accepted ${label}`);
+    // A ride this driver already had (for example after a restart) resumes where it was.
+    let status = ride.request_status;
+    if (status === "Requested") {
+      await this.transition(id, "Accepted");
+      status = "Accepted";
+      this.log(`accepted ${label}`);
+    } else {
+      this.log(`resuming ${label} (${status})`);
+    }
 
     // 1. Drive to the passenger.
-    const toPickup = await pathBetween(this.position, pickup);
-    const km = distanceKm(this.position, pickup);
-    this.log(`heading to pickup (${km.toFixed(1)} km)`);
-    let status = await this.drive(id, toPickup, ["Accepted"]);
-    if (status !== "Accepted") {return this.log(`ride ended while heading to pickup (${status})`);}
-    await this.transition(id, "Arrived");
-    this.log(`arrived at ${ride.pickup_name}`);
+    if (status === "Accepted") {
+      const toPickup = await pathBetween(this.position, pickup);
+      const km = distanceKm(this.position, pickup);
+      this.log(`heading to pickup (${km.toFixed(1)} km)`);
+      status = await this.drive(id, toPickup, ["Accepted"]);
+      if (status !== "Accepted") {return this.log(`ride ended while heading to pickup (${status})`);}
+      await this.transition(id, "Arrived");
+      status = "Arrived";
+      this.log(`arrived at ${ride.pickup_name}`);
+    }
 
     // 2. Wait for the passenger to board (they tap start), or start it ourselves.
     const deadline = Date.now() + BOARD_WAIT_S * 1000;
-    while (!stopping && Date.now() < deadline) {
+    while (status === "Arrived" && !stopping && Date.now() < deadline) {
       await sleep(1000);
       status = await this.status(id);
       if (status !== "Arrived") {break;}
@@ -297,7 +534,7 @@ class EmulatedDriver {
 
     // 3. Drive the booked route to the destination.
     const booked = toPoints(ride.route_polyline?.coordinates);
-    const toDropoff = booked.length >= 2 ? [pickup, ...booked, dropoff] : await pathBetween(pickup, dropoff);
+    const toDropoff = booked.length >= 2 ? connectPath(pickup, booked, dropoff) : await pathBetween(pickup, dropoff);
     status = await this.drive(id, toDropoff, ["In progress"]);
     if (status === "Completed") {return this.log("passenger said PARA, dropped off early");}
     if (status !== "In progress") {return this.log(`ride ended on the way (${status})`);}
@@ -307,9 +544,21 @@ class EmulatedDriver {
     this.log(`PARA at ${ride.dropoff_name}, ride completed`);
   }
 
+  /** A ride this driver accepted earlier and has not finished. */
+  async findOwnRide() {
+    const { data } = await this.client
+      .from("bookings")
+      .select("*")
+      .eq("driver_id", this.id)
+      .eq("service_type", "Tricycle")
+      .in("request_status", ["Accepted", "Arrived", "In progress"])
+      .limit(1);
+    return data?.[0] ?? null;
+  }
+
   async run() {
     while (!stopping) {
-      const ride = await this.findRequest();
+      const ride = (await this.findOwnRide()) ?? (await this.findRequest());
       if (!ride) {
         await sleep(POLL_MS);
         continue;
@@ -335,31 +584,44 @@ class EmulatedDriver {
 
 /* --------------------------------------------------------------------- main */
 
-const drivers = accounts.map((account) => new EmulatedDriver(account));
-const started = [];
-for (const driver of drivers) {
-  try {
-    await driver.start();
-    started.push(driver);
-  } catch (error) {
-    console.error(`emulator: ${error.message}`);
+async function main() {
+  if (!SUPABASE_URL || !ANON_KEY) {
+    fail("Set EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_ANON_KEY (run with --env-file=.env).");
   }
+  if (!accounts.length) {
+    fail("Set EMULATOR_DRIVERS=email:password[,email:password…] with approved tricycle driver test accounts.");
+  }
+
+  const drivers = accounts.map((account) => new EmulatedDriver(account));
+  const started = [];
+  for (const driver of drivers) {
+    try {
+      await driver.start();
+      started.push(driver);
+    } catch (error) {
+      console.error(`emulator: ${error.message}`);
+    }
+  }
+  if (!started.length) {fail("No emulated drivers could start.");}
+
+  console.log(
+    `emulator: ${started.length} driver(s) online, speed ×${SPEED}, board wait ${BOARD_WAIT_S}s. Book a tricycle ride in the passenger app. Ctrl+C to stop.`,
+  );
+
+  async function shutdown() {
+    if (stopping) {return;}
+    stopping = true;
+    console.log("\nemulator: taking drivers offline…");
+    await Promise.all(started.map((driver) => driver.stop()));
+    process.exit(0);
+  }
+  process.on("SIGINT", shutdown);
+  process.on("SIGTERM", shutdown);
+
+  await Promise.all(started.map((driver) => driver.run()));
+  await shutdown();
 }
-if (!started.length) {fail("No emulated drivers could start.");}
 
-console.log(
-  `emulator: ${started.length} driver(s) online, speed ×${SPEED}, board wait ${BOARD_WAIT_S}s. Book a tricycle ride in the passenger app. Ctrl+C to stop.`,
-);
-
-async function shutdown() {
-  if (stopping) {return;}
-  stopping = true;
-  console.log("\nemulator: taking drivers offline…");
-  await Promise.all(started.map((driver) => driver.stop()));
-  process.exit(0);
+if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) {
+  await main();
 }
-process.on("SIGINT", shutdown);
-process.on("SIGTERM", shutdown);
-
-await Promise.all(started.map((driver) => driver.run()));
-await shutdown();

@@ -48,6 +48,7 @@
     "ios": "expo run:ios",
     "web": "expo start --web",
     "emulate:drivers": "node --env-file=.env scripts/emulator/drivers.mjs",
+    "emulate:pujs": "node --env-file=.env scripts/emulator/pujs.mjs",
     "typecheck": "tsc --noEmit",
     "lint": "expo lint",
     "test": "jest",
