@@ -120,6 +120,12 @@ export type Vehicle = {
   ownerId?: string;
   ownerName?: string;
   currentDriver?: string;
+  /** PUJ/PUV: the driver is running the route right now (not waiting at the terminal). */
+  onRun?: boolean;
+  /** Tricycle: the driver is online and taking rides. */
+  online?: boolean;
+  runId?: string | null;
+  nextStop?: string | null;
 };
 export type StopRequest = {
   id: string;
@@ -163,6 +169,8 @@ export type Snapshot = {
     message: string;
     createdAt: string;
     read: boolean;
+    /** The ride this update is about, when known. */
+    tripId?: string | null;
   }[];
   logs: { id: number; action: string; at: string }[];
   serverTime: number;

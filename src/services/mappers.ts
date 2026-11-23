@@ -3,6 +3,7 @@ import type {
   Point,
   Role,
   Route,
+  Snapshot,
   Trip,
   User,
   Vehicle,
@@ -184,6 +185,33 @@ export function mapTrip(
     rating: booking.rating ?? null,
     pickupNote: booking.pickup_note || undefined,
   };
+}
+
+export function linkNotifications(
+  notifications: Snapshot["notifications"],
+  trips: readonly Pick<Trip, "id" | "createdAt" | "timestamps">[],
+): Snapshot["notifications"] {
+  return notifications.map((notification) => {
+    if (notification.tripId != null) {
+      return notification;
+    }
+
+    const createdAt = Date.parse(notification.createdAt);
+    let closest = Infinity;
+    let tripId: string | null = null;
+    for (const trip of trips) {
+      const timestamps = [Date.parse(trip.createdAt), ...Object.values(trip.timestamps)];
+      for (const timestamp of timestamps) {
+        const distance = Math.abs(createdAt - timestamp);
+        if (distance <= 10_000 && distance < closest) {
+          closest = distance;
+          tripId = trip.id;
+        }
+      }
+    }
+
+    return { ...notification, tripId };
+  });
 }
 
 export function mapRun(row: any, users: Map<string, any>): DriverRun {
