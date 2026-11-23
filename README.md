@@ -26,3 +26,11 @@ The welcome screen uses the bundled Calbayog photo. Get started opens the restor
 Visual style: clean and premium, using deep green, white surfaces, subtle borders, and the locally bundled Manrope font (license in assets/fonts). The welcome photo uses an AI-enhanced portrait version to reduce enlargement on phones; assets/calbayog-welcome.jpg retains the original supplied image.
 
 The web portal opens administrator sign-in directly, with the Calbayog photo behind a transparent form; the dashboard keeps its white background. The mobile welcome screen is unchanged. Passenger home, routes, trips, and profile use the cohesive premium components in src/passengerScreens.tsx. All interactions still use the local sample adapter.
+
+## Driver emulator
+
+`npm run emulate:drivers` signs in as one or more tricycle driver **test** accounts (set `EMULATOR_DRIVERS=email:password,…` in `.env`) and works rides like a real driver: it accepts a requested tricycle ride, drives to your pickup on real roads, marks Arrived, starts the trip when you board (or after `EMULATOR_BOARD_WAIT` seconds), drives the booked route, and calls PARA at the destination. Its GPS position goes to Supabase, so the passenger map and ETA follow it. Tapping PARA! or cancelling in the app ends the ride early. `EMULATOR_SPEED` speeds up driving (default ×4). Add `-- --once` to stop after one ride each. Ctrl+C takes the drivers offline.
+
+## Test seed data
+
+`supabase/seed.sql` adds fictional test accounts, vehicles, past rides, a PUJ run, a stop request, reports and notifications. Run it once in the Supabase SQL editor after the migrations; it is safe to re-run. Accounts (all confirmed and approved): `driver1@angkol.test` / `Driver1!` and `driver2@angkol.test` / `Driver2!` (tricycle, used by the emulator), `driver3@angkol.test` / `Driver3!` (PUJ on CB01), `passenger1@angkol.test` / `Passenger1!`, `passenger2@angkol.test` / `Passenger2!`, `admin@angkol.test` / `Admin1!`, `owner@angkol.test` / `Owner1!`. Do not run it on a production project.
