@@ -50,7 +50,8 @@ const ONCE = args.once === "true";
 
 const KMH = 22; // average city tricycle speed
 const TICK_MS = 2000; // how often the driver moves and writes GPS
-const POLL_MS = 3000; // how often idle drivers look for ride requests
+const POLL_MS = 3000;
+const HEARTBEAT_MS = 20000; // parked GPS heartbeat // how often idle drivers look for ride requests
 const SPAWN = { latitude: 12.0676, longitude: 124.5942 }; // Calbayog City Hall
 
 const accounts = (process.env.EMULATOR_DRIVERS ?? "")
@@ -560,6 +561,11 @@ class EmulatedDriver {
     while (!stopping) {
       const ride = (await this.findOwnRide()) ?? (await this.findRequest());
       if (!ride) {
+        // Parked drivers still report their position, like the app does every 30 s.
+        if (Date.now() - (this.lastBeat ?? 0) > HEARTBEAT_MS) {
+          this.lastBeat = Date.now();
+          await this.moveTo(this.position);
+        }
         await sleep(POLL_MS);
         continue;
       }
