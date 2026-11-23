@@ -175,11 +175,12 @@ export function cleanRoute(coords: number[][]): number[][] {
   }
 }
 
+/**
+ * Where a point should join the road: the closest spot on it. Searching the
+ * whole line (not just the first segment) also trims roads that overshoot the
+ * point and hook back.
+ */
 function roadEntry(point: number[], road: number[][]) {
-  if (projection(point, road[0], road[1]) <= 0) {
-    return { index: 0, point: road[0] };
-  }
-
   let closest = { index: 0, point: road[0] };
   let bestDistance = distance(point, road[0]);
   for (let i = 0; i < road.length - 1; i++) {

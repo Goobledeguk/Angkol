@@ -22,6 +22,8 @@ export type MapProps = {
   me?: Point | null;
   /** Draw the pickup as a person (a passenger waiting there). Defaults to true. */
   pickupIsPerson?: boolean;
+  /** Changing this re-frames the map (for example after "Use my location" or a search pick). */
+  recenterKey?: string | number;
   /** Keep re-framing as vehicles move until the person pans the map themselves. */
   track?: boolean;
   onSelect?: (point: Point) => void;

@@ -151,6 +151,7 @@ export default function RouteDiagram({
   me,
   pickupIsPerson = true,
   track = false,
+  recenterKey,
   onSelect,
   onVehiclePress,
 }: MapProps) {
@@ -168,7 +169,16 @@ export default function RouteDiagram({
   const ends = given.length >= 2 ? given : pickup && destination ? [[pickup.longitude, pickup.latitude], [destination.longitude, destination.latitude]] : [];
   // Join the road to the real pickup and drop-off without doubling back, and drop
   // the small loops and U-turn spurs routing services sometimes return.
-  const path = snapped ? joinEnds(ends[0], snapped, ends[ends.length - 1]) : given.length >= 2 ? cleanRoute(given) : given;
+  // Routing services snap the ends to a road, which can overshoot the real spot and hook back.
+  const startAt = pickup ? [pickup.longitude, pickup.latitude] : ends[0];
+  const endAt = destination ? [destination.longitude, destination.latitude] : ends[ends.length - 1];
+  const path = snapped
+    ? joinEnds(startAt, snapped, endAt)
+    : given.length >= 2
+      ? pickup && destination
+        ? joinEnds(startAt, given, endAt)
+        : cleanRoute(given)
+      : given;
   const line: Point[] = path.map(([longitude, latitude]) => ({ name: "", latitude, longitude }));
   const anchor = pickup ?? destination ?? me ?? line[0] ?? FALLBACK;
   const nearby = (vehicles ?? []).filter((v) => distanceKm(anchor, v.location) <= 3);
@@ -193,7 +203,7 @@ export default function RouteDiagram({
   // drop-off, route or vehicle set), never while the person is exploring.
   const at = (p?: Point | null) => (p ? `${p.latitude.toFixed(5)},${p.longitude.toFixed(5)}` : "-");
   const subject = mode
-    ? `pin:${mode}`
+    ? `pin:${mode}:${recenterKey ?? ""}`
     : [
         at(pickup),
         at(destination),
@@ -406,12 +416,11 @@ export default function RouteDiagram({
     ),
   ].map((l) => ({ ...l, x: l.x + bleedX, y: l.y + bleedY }));
 
+  // The vehicle type is the reliable signal; fleet rows default their kind to PUJ.
   const glyphFor = (v: Vehicle) =>
-    v.vehicleType === "Jeepney" || v.vehicleType === "Mini Van" || v.vehicleType === "Coaster" || v.vehicleType === "Bus" || v.kind === "PUJ / PUV driver"
-      ? "jeepney"
-      : "tricycle";
+    v.vehicleType === "Tricycle" || (!v.vehicleType && v.kind === "Tricycle driver") ? "tricycle" : "jeepney";
 
-  const webTouch = Platform.OS === "web" ? ({ touchAction: "none", cursor: "grab" } as object) : null;
+  const webTouch = Platform.OS === "web" ? ({ touchAction: "none", cursor: "grab", userSelect: "none" } as object) : null;
 
   return (
     <View

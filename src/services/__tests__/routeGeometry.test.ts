@@ -87,6 +87,16 @@ describe("joinEnds", () => {
     ]);
   });
 
+  it("trims a road that overshoots the drop-off and hooks back toward it", () => {
+    const start = [0, 0];
+    const end = [0.006, 0.001];
+    // The road runs past the drop-off to x = 0.009, then turns back up.
+    const road = [[0, 0], [0.003, 0], [0.006, 0], [0.009, 0], [0.009, 0.002], [0.0085, 0.0021]];
+    const joined = joinEnds(start, road, end);
+    expect(joined.at(-1)).toEqual(end);
+    expect(joined.some(([x]) => x > 0.0061)).toBe(false);
+  });
+
   it("retains road vertices when the true endpoints are ahead of the road connectors", () => {
     const start = [-0.001, 0];
     const end = [0.011, 0];

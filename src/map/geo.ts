@@ -30,7 +30,7 @@ export function fitCamera(points: Point[], width: number, height: number, pad: n
   const spanX = Math.max(maxX - minX, 1e-7);
   const spanY = Math.max(maxY - minY, 1e-7);
   const fitScale = Math.min(Math.max(1, width - pad * 2) / spanX, Math.max(1, height - pad * 2) / spanY);
-  const zoom = Math.max(12.5, Math.min(maxZoom, Math.log2(fitScale / TILE)));
+  const zoom = Math.max(MIN_ZOOM, Math.min(maxZoom, Math.log2(fitScale / TILE)));
   return { cx: (minX + maxX) / 2, cy: (minY + maxY) / 2, zoom };
 }
 
