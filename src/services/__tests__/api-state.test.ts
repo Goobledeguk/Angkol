@@ -436,7 +436,7 @@ describe("the state snapshot", () => {
       ],
     }, { notifications: error });
     harness.fake.table("notifications", notificationQuery("*"), [
-      { notification_id: "legacy", created_at: new Date(now + 1000).toISOString() },
+      { notification_id: "legacy", message: "A driver accepted your ride request and is on the way.", created_at: new Date(now + 1000).toISOString() },
     ]);
     const { notifications } = await api<Snapshot>("/state");
     expect(notifications).toMatchObject([{ id: "legacy", tripId: "booking-1" }]);

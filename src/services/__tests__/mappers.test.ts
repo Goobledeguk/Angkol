@@ -654,6 +654,15 @@ const notification = {
 const older = new Date(now - 60_000).toISOString();
 
 describe("linkNotifications", () => {
+  it("leaves non-ride messages unlinked even when a ride changed at the same time", () => {
+    const at = "2026-11-21T08:00:00.000Z";
+    const [linked] = linkNotifications(
+      [{ id: "n1", message: "Welcome to Angkol. Your account is ready.", createdAt: at, read: false }],
+      [{ id: "t1", createdAt: at, timestamps: { Requested: Date.parse(at) } }],
+    );
+    expect(linked.tripId).toBeNull();
+  });
+
   it("keeps an explicit booking link even when a closer trip is in the snapshot", () => {
     const linked = { ...notification, tripId: "explicit" };
     expect(linkNotifications([linked], [

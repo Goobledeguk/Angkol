@@ -16,6 +16,8 @@ export type GestureInputs = {
   onVehiclePress?: (vehicle: Vehicle) => void;
   /** Commits a camera (the gesture is over). */
   commit: (cam: Camera, userMoved: boolean) => void;
+  /** Re-reads the frame's on-screen position (it moves when the page scrolls). */
+  measure: () => void;
 };
 
 /**
@@ -35,8 +37,11 @@ export class MapGestures {
   private pinch?: { mid: { x: number; y: number }; dist: number };
   private travel = 0;
   private startedAt = 0;
-  private lastTap = 0;
+  private lastTap = { at: 0, x: 0, y: 0 };
   private origin = { x: 0, y: 0 };
+  private wheelTimer: ReturnType<typeof setTimeout> | null = null;
+  /** True while a finger is down; automatic re-framing waits for it. */
+  active = false;
 
   constructor() {
     this.responder = PanResponder.create({
@@ -52,7 +57,26 @@ export class MapGestures {
   }
 
   sync(inputs: GestureInputs) {
+    if (this.inputs && this.inputs.mode !== inputs.mode) {
+      this.cancelPending();
+    }
     this.inputs = inputs;
+  }
+
+  /** Commits a wheel zoom once the wheel stops, unless something newer happens first. */
+  settleLater(cam: Camera, delayMs = 250) {
+    this.cancelPending();
+    this.wheelTimer = setTimeout(() => {
+      this.wheelTimer = null;
+      this.settle(cam);
+    }, delayMs);
+  }
+
+  cancelPending() {
+    if (this.wheelTimer) {
+      clearTimeout(this.wheelTimer);
+      this.wheelTimer = null;
+    }
   }
 
   /** The frame's position on screen, so taps map to the right spot even inside a scrolled page. */
@@ -86,6 +110,9 @@ export class MapGestures {
   }
 
   private grant(e: GestureResponderEvent) {
+    this.active = true;
+    this.cancelPending();
+    this.inputs?.measure();
     const t = e.nativeEvent.touches;
     this.single = t.length === 1 ? t[0] : { pageX: e.nativeEvent.pageX, pageY: e.nativeEvent.pageY };
     this.pinch = undefined;
@@ -133,6 +160,7 @@ export class MapGestures {
   }
 
   private release(e: GestureResponderEvent) {
+    this.active = false;
     if (this.travel < 8 && Date.now() - this.startedAt < 400) {
       this.reset();
       this.tap(e.nativeEvent.pageX, e.nativeEvent.pageY);
@@ -142,6 +170,7 @@ export class MapGestures {
   }
 
   private finish() {
+    this.active = false;
     const inputs = this.inputs;
     const { tx, ty, s } = this.live;
     if (!inputs || (tx === 0 && ty === 0 && s === 1)) {
@@ -159,12 +188,14 @@ export class MapGestures {
     const x = pageX - this.origin.x;
     const y = pageY - this.origin.y;
     const now = Date.now();
-    if (now - this.lastTap < 300) {
-      this.lastTap = 0;
-      this.settle(zoomAbout(cam, 2, x - w / 2, y - h / 2));
+    const prev = this.lastTap;
+    if (now - prev.at < 300 && Math.hypot(x - prev.x, y - prev.y) < 30) {
+      this.lastTap = { at: 0, x: 0, y: 0 };
+      // In pinpoint mode the first tap already moved the spot under the pin, so zoom on the pin.
+      this.settle(inputs.mode ? zoomAbout(cam, 2, 0, 0) : zoomAbout(cam, 2, x - w / 2, y - h / 2));
       return;
     }
-    this.lastTap = now;
+    this.lastTap = { at: now, x, y };
     const scale = scaleOf(cam.zoom);
     const hit = inputs.vehicles.find((v) => {
       const vx = w / 2 + (mercX(v.location.longitude) - cam.cx) * scale;

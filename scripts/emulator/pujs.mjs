@@ -219,7 +219,8 @@ class EmulatedJeepney {
     }
 
     const dropoff = bookingPoint(booking, "dropoff");
-    const canComplete = status === "Arrived" || status === "In progress";
+    // Only riders who actually boarded are dropped off; unboarded seats lapse on their own.
+    const canComplete = status === "In progress";
     const nearDropoff = points.slice(Math.max(0, pickupIndex))
       .some((point) => distanceKm(point, dropoff) <= BOOKING_RADIUS_KM);
     if (canComplete && (nearDropoff || finalStop)) {

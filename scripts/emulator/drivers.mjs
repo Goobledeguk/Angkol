@@ -535,7 +535,13 @@ class EmulatedDriver {
 
     // 3. Drive the booked route to the destination.
     const booked = toPoints(ride.route_polyline?.coordinates);
-    const toDropoff = booked.length >= 2 ? connectPath(pickup, booked, dropoff) : await pathBetween(pickup, dropoff);
+    // A ride resumed mid-trip continues from where the tricycle is, not from the pickup.
+    const resumedOnTheWay = ride.request_status === "In progress";
+    const toDropoff = resumedOnTheWay
+      ? await pathBetween(this.position, dropoff)
+      : booked.length >= 2
+        ? connectPath(pickup, booked, dropoff)
+        : await pathBetween(pickup, dropoff);
     status = await this.drive(id, toDropoff, ["In progress"]);
     if (status === "Completed") {return this.log("passenger said PARA, dropped off early");}
     if (status !== "In progress") {return this.log(`ride ended on the way (${status})`);}

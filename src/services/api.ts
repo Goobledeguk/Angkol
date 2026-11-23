@@ -396,6 +396,19 @@ async function mapBookingRow(
   return mapTrip(row, maps.users, maps.drivers);
 }
 
+/** Best effort: the run itself already succeeded if this fails. */
+async function setFleetStatus(driverId: string, status: "In transit" | "In Terminal") {
+  try {
+    await db()
+      .from("vehicles")
+      .update({ status })
+      .eq("driver_id", driverId)
+      .not("status", "in", '("Broken / Inactive","Decommissioned")');
+  } catch {
+    // Ignore: the passenger map refreshes on the next status change.
+  }
+}
+
 /* ------------------------------------------------------------------ adapter */
 
 export async function clearSession() {
@@ -915,6 +928,8 @@ export async function api<T = { ok: boolean }>(
         p_boarded: boarded,
       });
       raise(error);
+      // Passengers see a jeepney as running from its fleet status (run rows are private).
+      await setFleetStatus(userId, "In transit");
       const profile = await client
         .from("users")
         .select("name")
@@ -966,6 +981,9 @@ export async function api<T = { ok: boolean }>(
         p_complete: complete,
       });
       raise(error);
+      if (complete) {
+        await setFleetStatus(userId, "In Terminal");
+      }
       const profile = await client
         .from("users")
         .select("name")

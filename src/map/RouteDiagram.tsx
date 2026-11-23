@@ -217,10 +217,15 @@ export default function RouteDiagram({
         height,
       ].join("|");
   const [cam, setCam] = useState<Camera>(fitted);
+  const [gestures] = useState(() => new MapGestures());
   const moved = useRef(false);
   const lastSubject = useRef(subject);
   const trackKey = track ? focus.map(at).join(";") : "";
   useEffect(() => {
+    if (gestures.active) {
+      // Never yank the map out from under a finger; the next update re-frames.
+      return;
+    }
     if (lastSubject.current !== subject) {
       lastSubject.current = subject;
       moved.current = false;
@@ -233,7 +238,6 @@ export default function RouteDiagram({
   }, [subject, trackKey]);
 
   // ------------------------------------------------------------ gestures
-  const [gestures] = useState(() => new MapGestures());
   const frame = useRef<React.ComponentRef<typeof View>>(null);
   const commit = (next: Camera, userMoved: boolean) => {
     if (userMoved) {
@@ -241,16 +245,16 @@ export default function RouteDiagram({
     }
     setCam(next);
   };
+  const measure = () => {
+    frame.current?.measureInWindow?.((x: number, y: number) => gestures.setOrigin(x, y));
+  };
   useLayoutEffect(() => {
-    gestures.sync({ cam, width, height, mode, vehicles: vehicles ?? [], onSelect, onVehiclePress, commit });
+    gestures.sync({ cam, width, height, mode, vehicles: vehicles ?? [], onSelect, onVehiclePress, commit, measure });
   });
   // Clear the live transform in the same frame the committed camera is drawn.
   useLayoutEffect(() => {
     gestures.reset();
   }, [cam, gestures]);
-  const measure = () => {
-    frame.current?.measureInWindow?.((x: number, y: number) => gestures.setOrigin(x, y));
-  };
 
   // Mouse wheel / trackpad zoom on the web.
   useEffect(() => {
@@ -261,7 +265,6 @@ export default function RouteDiagram({
     if (!node?.addEventListener) {
       return;
     }
-    let settleTimer: ReturnType<typeof setTimeout> | null = null;
     let latest: Camera | null = null;
     const onWheel = (event: WheelEvent) => {
       event.preventDefault();
@@ -275,26 +278,23 @@ export default function RouteDiagram({
         latest = zoomAbout(current, factor, fx, fy);
         return latest;
       });
-      if (settleTimer) {
-        clearTimeout(settleTimer);
+      if (latest) {
+        gestures.settleLater(latest);
       }
-      settleTimer = setTimeout(() => {
-        if (latest) {
-          gestures.settle(latest);
-        }
-      }, 250);
     };
     node.addEventListener("wheel", onWheel, { passive: false });
     return () => {
       node.removeEventListener("wheel", onWheel);
-      if (settleTimer) {
-        clearTimeout(settleTimer);
-      }
+      gestures.cancelPending();
     };
   }, [gestures]);
 
-  const zoomBy = (factor: number) => gestures.settle(zoomAbout(cam, factor, 0, 0));
+  const zoomBy = (factor: number) => {
+    gestures.cancelPending();
+    gestures.settle(zoomAbout(cam, factor, 0, 0));
+  };
   const recenter = () => {
+    gestures.cancelPending();
     moved.current = false;
     if (mode && me) {
       gestures.settle(cameraAt(me, 16.4));

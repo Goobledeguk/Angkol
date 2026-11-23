@@ -87,7 +87,7 @@ describe("starting a driver run", () => {
         revision: 1,
         events: [event],
       });
-      expect(harness.fake.client.from.mock.calls).toEqual([["drivers"], ["users"]]);
+      expect(harness.fake.client.from.mock.calls).toEqual([["drivers"], ["vehicles"], ["users"]]);
     },
   );
 

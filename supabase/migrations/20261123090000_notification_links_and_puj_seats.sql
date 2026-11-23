@@ -125,13 +125,14 @@ begin
       order by r.started_at desc limit 1
     ) run on run.onboard is not null
     where v.routes_id = new.routes_id and v.active
-      and v.status not in ('Broken / Inactive', 'Decommissioned')
+      and v.status not in ('Broken / Inactive', 'Decommissioned', 'In Terminal')
+      -- A unit whose GPS went quiet (app closed, run left open) is not really on the route.
+      and v.location_updated_at > now() - interval '3 minutes'
       and v.capacity - run.onboard - (
         select count(*) from public.bookings s
         where s.vehicle_id = v.vehicle_id and s.request_status in ('Arrived', 'In progress')
       ) > 0
-    order by (v.status = 'In Terminal') desc,
-             v.location_updated_at desc nulls last
+    order by v.location_updated_at desc nulls last
     limit 1;
 
     if not found then

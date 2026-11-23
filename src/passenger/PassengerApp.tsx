@@ -331,6 +331,7 @@ export default function PassengerApp({
     previousStatuses = useRef(new Map(data.trips.map((t) => [t.id, t.status])));
   const me = useMyLocation(true, gpsAt ?? 0);
   const pinRequest = useRef(0);
+  const shownTrip = useRef<string | undefined>(undefined);
   // Bumped when a spot is set from outside the map, so the pin map moves to it.
   const [placed, setPlaced] = useState(0);
   const active = data.trips.find((t) => !isFinished(t));
@@ -371,9 +372,14 @@ export default function PassengerApp({
     }
   }, [error]);
   useEffect(() => {
+    // The ride on screen; remembered so it still counts after it finishes and stops being active.
+    const shown = params.trip || active?.id || shownTrip.current;
+    shownTrip.current = shown;
     for (const value of data.trips) {
       const previous = previousStatuses.current.get(value.id);
-      if (page === "PUJ arrived" && previous && previous !== value.status) {
+      if (value.id !== shown) {
+        // Another ride changed; record it but leave this screen alone.
+      } else if (page === "PUJ arrived" && previous && previous !== value.status) {
         if (value.status === "Completed") {
           haptic.success();
           router.setParams({ screen: "PUJ complete", trip: value.id });
@@ -401,7 +407,7 @@ export default function PassengerApp({
       }
       previousStatuses.current.set(value.id, value.status);
     }
-  }, [data.trips, page]);
+  }, [data.trips, page, params.trip, active?.id]);
   async function perform(task: () => Promise<void>) {
     if (submitting.current) {
       return;
@@ -419,6 +425,7 @@ export default function PassengerApp({
     }
   }
   function choosePoint(point: Point) {
+    pinRequest.current++;
     setPlaced((n) => n + 1);
     if (editing === "pickup") {
       setPickup(point);
@@ -453,8 +460,19 @@ export default function PassengerApp({
     }
     void reverseGeocode(point.latitude, point.longitude)
       .then((street) => {
-        if (request === pinRequest.current && street) {
-          place(named(landmark && landmark.d <= 0.4 ? `${street}, near ${landmark.l.name}` : street));
+        if (request !== pinRequest.current || !street) {
+          return;
+        }
+        const label = landmark && landmark.d <= 0.4 ? `${street}, near ${landmark.l.name}` : street;
+        // Only rename the field if it still holds the exact spot that was looked up.
+        const rename = (current: Point | null) =>
+          current && current.latitude === point.latitude && current.longitude === point.longitude
+            ? { ...current, name: label }
+            : current;
+        if (kind === "pickup") {
+          setPickup(rename);
+        } else {
+          setDestination(rename);
         }
       })
       .catch(() => undefined);
@@ -468,6 +486,7 @@ export default function PassengerApp({
   const gps = () =>
     perform(async () => {
       const here = await currentPoint();
+      pinRequest.current++;
       setPickup(here);
       setEditing("pickup");
       setPlaced((n) => n + 1);
