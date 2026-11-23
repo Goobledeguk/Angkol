@@ -21,6 +21,8 @@ import Animated, {
 } from "react-native-reanimated";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import { registerAccount, requestPasswordReset, signInAccount } from "./session";
+import { pickLicensePhoto, savePendingLicense, type LicensePhoto } from "../services/documents";
+import { isPhMobile, normalizePhMobile } from "../domain/format";
 import type { Role } from "../types/types";
 import { Icon } from "../common/ui";
 import { ps, passengerColors as c } from "../passenger/passengerStyles";
@@ -128,7 +130,7 @@ function SolidButton({
   title,
   onPress,
   disabled,
-  icon = "lock-closed-outline",
+  icon,
 }: {
   title: string;
   onPress: () => void;
@@ -148,8 +150,8 @@ function SolidButton({
         pressed && ps.pressed,
       ]}
     >
-      <Icon name={icon} size={22} color="white" />
-      <Text style={[ps.buttonText, { fontSize: 15 }]}>{title}</Text>
+      {icon ? <Icon name={icon} size={20} color={c.onBrand} /> : null}
+      <Text style={[ps.buttonText, { fontSize: 16 }]}>{title}</Text>
     </Pressable>
   );
 }
@@ -171,7 +173,8 @@ export default function MobileAuth({
     [driverType, setDriverType] = useState<Role>("Tricycle driver");
   const [assocOpen, setAssocOpen] = useState(false);
   const [franchiseOpen, setFranchiseOpen] = useState(false);
-  const [licenseDoc, setLicenseDoc] = useState(false);
+  const [licensePhoto, setLicensePhoto] = useState<LicensePhoto | null>(null);
+  const licenseDoc = !!licensePhoto;
   const [name, setName] = useState(""),
     [birthday, setBirthday] = useState(""),
     [phone, setPhone] = useState(""),
@@ -255,7 +258,7 @@ export default function MobileAuth({
     setPermitNo("");
     setCapacity("3");
     setConsent(false);
-    setLicenseDoc(false);
+    setLicensePhoto(null);
     // eslint-disable-next-line react-hooks/immutability -- Reanimated SharedValue is mutated via .value by design
     translateY.value = withSpring(0);
   }, [translateY]);
@@ -274,6 +277,8 @@ export default function MobileAuth({
     }
     if (!phone.trim()) {
       e.phone = "Phone number is required.";
+    } else if (!isPhMobile(phone)) {
+      e.phone = "Use a Philippine mobile number, like 0917 123 4567.";
     }
     if (!email.trim()) {
       e.email = "Email address is required.";
@@ -327,7 +332,7 @@ export default function MobileAuth({
     setInfo("");
     try {
       if (signup) {
-        const base = { email, password, name: name.trim(), phone: phone.trim(), birthday, consent };
+        const base = { email, password, name: name.trim(), phone: normalizePhMobile(phone), birthday, consent };
         const pujDriver = role === "Driver" && driverType === "PUJ / PUV driver";
         const tricycleDriver = role === "Driver" && driverType === "Tricycle driver";
         const { needsConfirmation } = await registerAccount(
@@ -348,9 +353,13 @@ export default function MobileAuth({
                   plate: plate.trim(),
                   permitNo: permitNo.trim(),
                   capacity: Number(capacity) || 3,
+                  licenseDocAttached: licenseDoc,
                 }
               : { ...base, role: "Passenger" },
         );
+        if (licensePhoto) {
+          await savePendingLicense(email, licensePhoto).catch(() => undefined);
+        }
         if (needsConfirmation) {
           const sentTo = email.trim();
           changeMode(false);
@@ -515,7 +524,7 @@ export default function MobileAuth({
               style={{
                 height: 6,
                 borderRadius: 4,
-                backgroundColor: "#D8EEE3",
+                backgroundColor: c.brandSoft,
                 marginVertical: 2,
               }}
             >
@@ -523,7 +532,7 @@ export default function MobileAuth({
                 style={{
                   height: 6,
                   borderRadius: 4,
-                  backgroundColor: c.green,
+                  backgroundColor: c.ink,
                   width: step === 1 ? "48%" : "100%",
                 }}
               />
@@ -584,8 +593,8 @@ export default function MobileAuth({
                           gap: 6,
                           minHeight: 104,
                           borderWidth: role === item.name ? 2 : 1,
-                          borderColor: role === item.name ? c.green : "#E3ECE5",
-                          backgroundColor: role === item.name ? "#EEF6F0" : "#FFFFFF",
+                          borderColor: role === item.name ? c.ink : "#E3ECE5",
+                          backgroundColor: role === item.name ? c.brandSoft : "#FFFFFF",
                         },
                       ]}
                     >
@@ -594,7 +603,7 @@ export default function MobileAuth({
                           width: 40,
                           height: 40,
                           borderRadius: 12,
-                          backgroundColor: role === item.name ? c.green : "#F0F4F2",
+                          backgroundColor: role === item.name ? c.ink : "#F0F4F2",
                           alignItems: "center",
                           justifyContent: "center",
                         }}
@@ -605,13 +614,13 @@ export default function MobileAuth({
                           color={role === item.name ? "white" : "#84978B"}
                         />
                       </View>
-                      <Text style={[ps.label, { fontSize: 15, color: role === item.name ? c.green : c.ink }]}>
+                      <Text style={[ps.label, { fontSize: 15, color: role === item.name ? c.ink : c.ink }]}>
                         {item.name}
                       </Text>
                       <Text style={[ps.small, { fontSize: 10, flexWrap: "wrap" }]}>{item.sub}</Text>
                       {role === item.name ? (
                         <View style={{ position: "absolute", top: 8, right: 8 }}>
-                          <Icon name="checkmark-circle" size={18} color={c.green} />
+                          <Icon name="checkmark-circle" size={18} color={c.ink} />
                         </View>
                       ) : null}
                     </Pressable>
@@ -685,8 +694,8 @@ export default function MobileAuth({
                         height: 22,
                         borderRadius: 6,
                         borderWidth: 2,
-                        borderColor: consent ? c.green : "#A4B5AC",
-                        backgroundColor: consent ? c.green : "transparent",
+                        borderColor: consent ? c.ink : "#A4B5AC",
+                        backgroundColor: consent ? c.ink : "transparent",
                         alignItems: "center",
                         justifyContent: "center",
                         marginTop: 2,
@@ -717,7 +726,7 @@ export default function MobileAuth({
                   <Text style={[ps.section, { flexWrap: "wrap" }]}>{name}</Text>
                   <Text style={ps.body}>{phone}</Text>
                   <Text style={ps.body}>{email}</Text>
-                  <Text style={[ps.small, { color: c.green, flexWrap: "wrap" }]}>
+                  <Text style={[ps.small, { color: c.ink, flexWrap: "wrap" }]}>
                     {role === "Driver" ? "Driver partner" : "Commuter account"}
                     
                   </Text>
@@ -740,15 +749,15 @@ export default function MobileAuth({
                               onPress={() => setDriverType(item.kind)}
                               style={[
                                 ps.card,
-                                { flex: 1, padding: 12, gap: 6, minHeight: 104, borderWidth: selected ? 2 : 1, borderColor: selected ? c.green : "#E3ECE5", backgroundColor: selected ? "#EAF6EF" : "#FFFFFF" },
+                                { flex: 1, padding: 12, gap: 6, minHeight: 104, borderWidth: selected ? 2 : 1, borderColor: selected ? c.ink : "#E3ECE5", backgroundColor: selected ? c.brandSoft : "#FFFFFF" },
                               ]}
                             >
-                              <View style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: selected ? c.green : "#F0F4F2", alignItems: "center", justifyContent: "center" }}>
+                              <View style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: selected ? c.ink : "#F0F4F2", alignItems: "center", justifyContent: "center" }}>
                                 <Icon name={item.icon} size={22} color={selected ? "white" : "#5B7468"} />
                               </View>
-                              <Text style={[ps.label, { fontSize: 15, color: selected ? c.green : c.ink }]}>{item.label}</Text>
+                              <Text style={[ps.label, { fontSize: 15, color: selected ? c.ink : c.ink }]}>{item.label}</Text>
                               <Text style={[ps.small, { fontSize: 10 }]}>{item.sub}</Text>
-                              {selected ? <View style={{ position: "absolute", top: 8, right: 8 }}><Icon name="checkmark-circle" size={18} color={c.green} /></View> : null}
+                              {selected ? <View style={{ position: "absolute", top: 8, right: 8 }}><Icon name="checkmark-circle" size={18} color={c.ink} /></View> : null}
                             </Pressable>
                           );
                         })}
@@ -761,15 +770,15 @@ export default function MobileAuth({
                     {driverType === "PUJ / PUV driver" ? (
                       <View style={{ gap: 7 }}>
                         <Text style={[ps.small, { fontWeight: "700", color: "#18382C" }]}>Business / Franchise</Text>
-                        <Pressable accessibilityRole="button" onPress={() => setFranchiseOpen((v) => !v)} style={[ps.input, ps.row, { paddingVertical: 0, minHeight: 54, justifyContent: "space-between", borderColor: fieldErr.franchise ? "#C53B1D" : undefined }]}>
+                        <Pressable accessibilityRole="button" accessibilityLabel={franchiseName ? `Business or franchise: ${franchiseName}` : "Select business or franchise"} accessibilityState={{ expanded: franchiseOpen }} onPress={() => setFranchiseOpen((v) => !v)} style={[ps.input, ps.row, { paddingVertical: 0, minHeight: 54, justifyContent: "space-between", borderColor: fieldErr.franchise ? "#C53B1D" : undefined }]}>
                           <Text style={{ flex: 1, color: franchiseName ? c.ink : "#A2B0A7", fontSize: 14 }} numberOfLines={1}>{franchiseName || "Select business / franchise"}</Text>
                           <Icon name={franchiseOpen ? "chevron-up-outline" : "chevron-down-outline"} size={20} color="#6A7E73" />
                         </Pressable>
                         {franchiseOpen ? (
                           <View style={[ps.input, { paddingVertical: 4, gap: 2 }]}>
                             {[KENT_OWNER_FRANCHISE, "North Samar Transport Coop", "Samar PUJ Operators Association", "Visayas Commuter Lines"].map((item) => (
-                              <Pressable key={item} onPress={() => { setFranchiseName(item); setFranchiseOpen(false); clearErr("franchise"); }} style={{ paddingVertical: 11, paddingHorizontal: 10, borderRadius: 10, backgroundColor: franchiseName === item ? "#E5F4ED" : "transparent" }}>
-                                <Text style={[ps.body, { color: franchiseName === item ? c.green : c.ink, fontWeight: franchiseName === item ? "700" : "500" }]}>{item}</Text>
+                              <Pressable key={item} accessibilityRole="radio" accessibilityState={{ selected: franchiseName === item }} onPress={() => { setFranchiseName(item); setFranchiseOpen(false); clearErr("franchise"); }} style={{ paddingVertical: 11, paddingHorizontal: 10, borderRadius: 10, backgroundColor: franchiseName === item ? c.brandSoft : "transparent" }}>
+                                <Text style={[ps.body, { color: franchiseName === item ? c.ink : c.ink, fontWeight: franchiseName === item ? "700" : "500" }]}>{item}</Text>
                               </Pressable>
                             ))}
                           </View>
@@ -792,7 +801,7 @@ export default function MobileAuth({
                         </View>
                         <View style={{ gap: 7 }}>
                           <Text style={[ps.small, { fontWeight: "700", color: "#18382C" }]}>TODA (optional)</Text>
-                          <Pressable accessibilityRole="button" onPress={() => setAssocOpen((v) => !v)} style={[ps.input, ps.row, { paddingVertical: 0, minHeight: 54, justifyContent: "space-between" }]}>
+                          <Pressable accessibilityRole="button" accessibilityLabel={association ? `TODA: ${association}` : "Select TODA, optional"} accessibilityState={{ expanded: assocOpen }} onPress={() => setAssocOpen((v) => !v)} style={[ps.input, ps.row, { paddingVertical: 0, minHeight: 54, justifyContent: "space-between" }]}>
                             <Text style={{ flex: 1, color: association ? c.ink : "#A2B0A7", fontSize: 14 }} numberOfLines={1}>{association || "Select TODA / Not part of an association"}</Text>
                             <Icon name={assocOpen ? "chevron-up-outline" : "chevron-down-outline"} size={20} color="#6A7E73" />
                           </Pressable>
@@ -807,8 +816,8 @@ export default function MobileAuth({
                                 { value: "San Policarpo TODA", label: "San Policarpo TODA" },
                                 { value: "Gadgaran Drivers Association", label: "Gadgaran Drivers Association" },
                               ].map((item) => (
-                                <Pressable key={item.label} onPress={() => { setAssociation(item.value); setAssocOpen(false); }} style={{ paddingVertical: 11, paddingHorizontal: 10, borderRadius: 10, backgroundColor: association === item.value ? "#E5F4ED" : "transparent" }}>
-                                  <Text style={[ps.body, { color: association === item.value ? c.green : c.ink, fontWeight: association === item.value ? "700" : "500" }]}>{item.label}</Text>
+                                <Pressable key={item.label} accessibilityRole="radio" accessibilityState={{ selected: association === item.value }} onPress={() => { setAssociation(item.value); setAssocOpen(false); }} style={{ paddingVertical: 11, paddingHorizontal: 10, borderRadius: 10, backgroundColor: association === item.value ? c.brandSoft : "transparent" }}>
+                                  <Text style={[ps.body, { color: association === item.value ? c.ink : c.ink, fontWeight: association === item.value ? "700" : "500" }]}>{item.label}</Text>
                                 </Pressable>
                               ))}
                             </View>
@@ -826,20 +835,60 @@ export default function MobileAuth({
                 )}
                 {role === "Driver" && (
                   <View style={{ gap: 8 }}>
-                    <Text style={[ps.small, { fontWeight: "700", color: "#18382C" }]}>Documents</Text>
-                    <Pressable
-                      accessibilityRole="button"
-                      accessibilityLabel={licenseDoc ? "License ID attached" : "Attach License ID"}
-                      accessibilityHint="Marks your license document as attached."
-                      onPress={() => { const next = !licenseDoc; setLicenseDoc(next); setFieldErr((e) => ({ ...e, doc: next ? "License ID attached." : "" })); }}
-                      style={[ps.buttonLight, ps.row, { minHeight: 48, justifyContent: "center", borderRadius: 14 }]}
-                    >
-                      <Icon name={licenseDoc ? "checkmark-circle" : "card-outline"} size={20} color={c.green} />
-                      <Text style={[ps.buttonText, { color: c.green, fontSize: 10 }]}>{licenseDoc ? "License ID attached" : "Submit file / take photo (License ID)"}</Text>
-                    </Pressable>
+                    <Text style={[ps.small, { fontWeight: "700", color: "#18382C" }]}>Driver’s license photo</Text>
+                    <Text style={[ps.small, { color: "#5B7468", flexWrap: "wrap" }]}>The front of your license, readable and uncropped. It is only used to review your application.</Text>
+                    {licensePhoto ? (
+                      <View style={[ps.row, { borderWidth: 1, borderColor: c.line, borderRadius: 14, padding: 10, gap: 12 }]}>
+                        <Image
+                          source={{ uri: licensePhoto.uri }}
+                          style={{ width: 72, height: 48, borderRadius: 8, backgroundColor: "#E5F0E9" }}
+                          accessibilityLabel="Photo of your driver's license"
+                        />
+                        <View style={{ flex: 1, gap: 2 }}>
+                          <Text style={[ps.small, { fontWeight: "700", color: c.ink }]}>License photo added</Text>
+                          <Text style={[ps.small, { color: c.muted }]}>Sent for review after you confirm your email</Text>
+                        </View>
+                        <Pressable
+                          accessibilityRole="button"
+                          accessibilityLabel="Remove license photo"
+                          hitSlop={8}
+                          onPress={() => { setLicensePhoto(null); setFieldErr((e) => ({ ...e, doc: "" })); }}
+                          style={{ padding: 6 }}
+                        >
+                          <Icon name="trash-outline" size={20} color={c.muted} />
+                        </Pressable>
+                      </View>
+                    ) : (
+                      <View style={[ps.row, { gap: 10 }]}>
+                        {([
+                          { source: "camera", label: "Take photo", icon: "camera-outline" },
+                          { source: "library", label: "Choose photo", icon: "image-outline" },
+                        ] as const).map((option) => (
+                          <Pressable
+                            key={option.source}
+                            accessibilityRole="button"
+                            accessibilityLabel={`${option.label} of your driver's license`}
+                            onPress={() => {
+                              void pickLicensePhoto(option.source)
+                                .then((photo) => {
+                                  if (photo) {
+                                    setLicensePhoto(photo);
+                                    setFieldErr((e) => ({ ...e, doc: "" }));
+                                  }
+                                })
+                                .catch((error: Error) => setFieldErr((e) => ({ ...e, doc: error.message })));
+                            }}
+                            style={({ pressed }) => [ps.buttonLight, ps.row, { flex: 1, minHeight: 48, justifyContent: "center", borderRadius: 14, gap: 8 }, pressed && ps.pressed]}
+                          >
+                            <Icon name={option.icon} size={19} color={c.ink} />
+                            <Text style={[ps.buttonText, { color: c.ink, fontSize: 12 }]}>{option.label}</Text>
+                          </Pressable>
+                        ))}
+                      </View>
+                    )}
                     {fieldErr.doc ? (
-                      <View accessibilityRole={String(fieldErr.doc).toLowerCase().includes("attached") ? undefined : "alert"} accessibilityLiveRegion="polite">
-                        <Text style={[ps.small, { color: String(fieldErr.doc).toLowerCase().includes("attached") ? c.green : "#C53B1D", flexWrap: "wrap", paddingHorizontal: 4 }]}>{fieldErr.doc}</Text>
+                      <View accessibilityRole="alert" accessibilityLiveRegion="polite">
+                        <Text style={[ps.small, { color: "#C53B1D", flexWrap: "wrap", paddingHorizontal: 4 }]}>{fieldErr.doc}</Text>
                       </View>
                     ) : null}
                   </View>
@@ -916,9 +965,9 @@ export default function MobileAuth({
                 <View
                   accessibilityRole="alert"
                   accessibilityLiveRegion="polite"
-                  style={{ backgroundColor: "#EAF6EF", borderRadius: 12, padding: 14 }}
+                  style={{ backgroundColor: c.brandSoft, borderRadius: 12, padding: 14 }}
                 >
-                  <Text style={[ps.body, { color: c.green, flexWrap: "wrap" }]}>{info}</Text>
+                  <Text style={[ps.body, { color: c.ink, flexWrap: "wrap" }]}>{info}</Text>
                 </View>
               ) : null}
 
@@ -947,7 +996,7 @@ export default function MobileAuth({
                   hitSlop={8}
                   style={{ alignSelf: "flex-end", paddingVertical: 6, paddingHorizontal: 4 }}
                 >
-                  <Text style={[ps.small, { color: c.green, fontWeight: "700" }]}>Forgot password?</Text>
+                  <Text style={[ps.small, { color: c.ink, fontWeight: "700" }]}>Forgot password?</Text>
                 </Pressable>
               </View>
 
@@ -965,7 +1014,7 @@ export default function MobileAuth({
               >
                 <Text style={[ps.body, { textAlign: "center", fontSize: 13, flexWrap: "wrap" }]}>
                   New to Angkol?{" "}
-                  <Text style={{ color: c.green, fontWeight: "700" }}>Create an account</Text>
+                  <Text style={{ color: c.ink, fontWeight: "700" }}>Create an account</Text>
                 </Text>
               </Pressable>
 

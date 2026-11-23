@@ -9,7 +9,6 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
-import { Icon } from "../common/ui";
 import { passengerColors as c } from "../passenger/passengerStyles";
 
 export default function WelcomeScreen({
@@ -36,16 +35,11 @@ export default function WelcomeScreen({
       <SafeAreaView style={{ flex: 1 }}>
         <ScrollView contentContainerStyle={styles.content} bounces={false}>
           <View style={styles.bottom}>
-            <View style={styles.location}>
-              <Icon name="location-outline" size={16} color="white" />
-              <Text style={styles.locationText}>CALBAYOG CITY, SAMAR</Text>
-            </View>
             <Text accessibilityRole="header" style={styles.title}>
-              Your city.{"\n"}Your next ride.
+              Tricycles and jeepneys{"\n"}in Calbayog
             </Text>
             <Text style={styles.description}>
-              From familiar streets to your next stop. Travel around Calbayog
-              with Angkol.
+              Book at the city’s fixed fare and pay the driver in cash.
             </Text>
             <Pressable
               accessibilityRole="button"
@@ -80,7 +74,7 @@ const styles = StyleSheet.create({
   location: { flexDirection: "row", alignItems: "center", gap: 7, alignSelf: "flex-start" },
   locationText: {
     color: "#DCEDE3",
-    fontFamily: "Manrope",
+    fontFamily: "Archivo",
     fontSize: 10,
     lineHeight: 16,
     fontWeight: "700",
@@ -89,15 +83,15 @@ const styles = StyleSheet.create({
   },
   title: {
     color: "white",
-    fontFamily: "Manrope",
-    fontSize: 42,
-    lineHeight: 48,
-    fontWeight: "800",
-    letterSpacing: -1.2,
+    fontFamily: "Archivo",
+    fontWeight: "700",
+    fontSize: 40,
+    lineHeight: 44,
+    letterSpacing: -0.8,
   },
   description: {
     color: "#E5EEE8",
-    fontFamily: "Manrope",
+    fontFamily: "Archivo",
     fontSize: 14,
     lineHeight: 23,
   },
@@ -107,17 +101,17 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
     gap: 16,
-    backgroundColor: c.green,
-    borderRadius: 18,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 8,
     paddingHorizontal: 20,
     paddingVertical: 15,
     marginTop: 6,
   },
   buttonText: {
-    color: "white",
-    fontFamily: "Manrope",
-    fontSize: 16,
+    color: c.brand,
+    fontFamily: "Archivo",
+    fontWeight: "700",
+    fontSize: 17,
     textAlign: "center",
-    fontWeight: "900",
   },
 });

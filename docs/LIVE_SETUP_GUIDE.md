@@ -71,6 +71,11 @@ data.
 2. **Confirm email** (Authentication → Sign In / Providers → Email) can stay
    on. When it is on, registration returns to the sign-in screen and tells
    the user to open the confirmation link first. Turn it off only for testing.
+   **Set up custom SMTP before real users sign up** (Authentication → Emails →
+   SMTP Settings). Supabase's built-in mailer only sends to members of your
+   Supabase organization and is heavily rate limited, so with Confirm email on
+   every other address is rejected at sign-up as "Email address is invalid".
+   Any transactional provider works (Resend, Postmark, Amazon SES, Brevo).
 3. Open **Authentication → URL Configuration** and add these to **Redirect
    URLs** so password reset links open the app:
    - `angkol://reset-password`

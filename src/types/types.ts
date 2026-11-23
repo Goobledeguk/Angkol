@@ -5,7 +5,12 @@ export type Role =
   | "Administrator"
   | "Vehicle Owner / Operator";
 export type AdminLevel = "Technical Team" | "Franchise Owner";
-export type VehicleStatus = "Arrived" | "In Terminal" | "Broken / Inactive" | "In transit";
+export type VehicleStatus =
+  | "Arrived"
+  | "In Terminal"
+  | "Broken / Inactive"
+  | "In transit"
+  | "Decommissioned";
 export type ApplicationStatus = "pending" | "accepted" | "declined";
 export type Point = { name: string; latitude: number; longitude: number };
 export type Geometry = { type: "LineString"; coordinates: number[][] };
@@ -38,7 +43,8 @@ export type Status =
   | "Arrived"
   | "In progress"
   | "Completed"
-  | "Cancelled";
+  | "Cancelled"
+  | "Expired";
 export type Quote = {
   id: string;
   pickup: string;
@@ -54,6 +60,10 @@ export type Quote = {
   expires: number;
 };
 export type Trip = Quote & {
+  serviceType?: "Tricycle" | "PUJ/PUV";
+  routeId?: string | null;
+  vehicleId?: string;
+  paymentStatus?: "unpaid" | "pending" | "paid";
   driverPhoto?: string;
   demoPayment?: {
     method: "GCash" | "Maya" | "Bank transfer";

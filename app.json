@@ -4,13 +4,8 @@
     "slug": "angkol",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/angkol-icon.png",
+    "icon": "./assets/app-icon.png",
     "userInterfaceStyle": "light",
-    "splash": {
-      "image": "./assets/angkol-icon.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#0B5D45"
-    },
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.angkol.app"
@@ -19,8 +14,8 @@
       "package": "com.angkol.app",
       "blockedPermissions": ["android.permission.RECORD_AUDIO"],
       "adaptiveIcon": {
-        "backgroundColor": "#0B5D45",
-        "foregroundImage": "./assets/angkol-icon.png"
+        "backgroundColor": "#0F5D45",
+        "foregroundImage": "./assets/adaptive-icon-foreground.png"
       },
       "predictiveBackGestureEnabled": false,
       "softwareKeyboardLayoutMode": "pan"
@@ -29,10 +24,6 @@
       "barStyle": "dark-content",
       "backgroundColor": "#FFFFFF",
       "translucent": false
-    },
-    "androidNavigationBar": {
-      "barStyle": "dark-content",
-      "backgroundColor": "#FFFFFF"
     },
     "web": {
       "favicon": "./assets/angkol-icon.png"
@@ -50,7 +41,24 @@
       [
         "expo-image-picker",
         {
-          "photosPermission": "Angkol uses your photo library so you can set a profile picture."
+          "photosPermission": "Angkol uses your photo library so you can set a profile picture or attach your driver's license.",
+          "cameraPermission": "Angkol uses your camera so you can photograph your driver's license for review."
+        }
+      ],
+      "expo-status-bar",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/adaptive-icon-foreground.png",
+          "imageWidth": 220,
+          "resizeMode": "contain",
+          "backgroundColor": "#0F5D45"
+        }
+      ],
+      [
+        "expo-navigation-bar",
+        {
+          "style": "dark"
         }
       ]
     ]

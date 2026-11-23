@@ -19,11 +19,24 @@ import { router, useLocalSearchParams } from "expo-router";
 import { confirmAccountDeletion } from "../common/confirmAccountDeletion";
 import { Share, Linking } from "../services/previewActions";
 import { api } from "../services/api";
+import { currentPoint } from "../services/location";
+import { distanceKm } from "../services/mapbox";
+import { isStale, lastSeen, tripRef, vehicleForDriver } from "../domain/vehicles";
+import { statusLabel, isPhMobile, normalizePhMobile } from "../domain/format";
+import { greeting as greetingFor, minutesUntil, nextDeparture, waitLabel } from "../domain/schedule";
 import type { Point, Quote, Route, Snapshot, Trip } from "../types/types";
 import CalbayogMap from "../map/CalbayogMap";
 import { Icon, money } from "../common/ui";
+import { RouteBoard } from "../common/RouteBoard";
+import { BodyNumber } from "../common/BodyNumber";
+import { Glyph, type GlyphName } from "../common/Glyph";
+import * as Speech from "expo-speech";
 import { ps, passengerColors as c } from "./passengerStyles";
-import DriverAvatar from "../common/DriverAvatar";
+import { isFinished } from "../domain/roles";
+import { haptic } from "../common/haptics";
+import { SearchCountdown } from "./SearchCountdown";
+import { RateTrip } from "./RateTrip";
+import { Ticket } from "./Ticket";
 
 type Props = {
   data: Snapshot;
@@ -66,17 +79,76 @@ function Action({
         pressed && ps.pressed,
       ]}
     >
-      {icon && <Icon name={icon} size={19} color={light ? c.green : "white"} />}
-      <Text style={[ps.buttonText, light && { color: c.green }]}>{title}</Text>
+      {icon && <Icon name={icon} size={19} color={light ? c.brand : c.onBrand} />}
+      <Text style={[ps.buttonText, light && { color: c.brand }]}>{title}</Text>
     </Pressable>
   );
 }
 function Tag({ text, icon }: { text: string; icon?: IconName }) {
   return (
     <View style={ps.pill}>
-      {icon && <Icon name={icon} size={12} />}
+      {icon ? <Icon name={icon} size={14} color={c.ink} /> : <View style={[ps.square, { width: 9, height: 9 }]} />}
       <Text style={ps.pillText}>{text}</Text>
     </View>
+  );
+}
+function Secondary({
+  title,
+  onPress,
+  disabled,
+}: {
+  title: string;
+  onPress: () => void;
+  disabled?: boolean;
+}) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityState={{ disabled: !!disabled }}
+      disabled={disabled}
+      onPress={onPress}
+      style={({ pressed }) => [ps.secondaryButton, disabled && { opacity: 0.45 }, pressed && ps.pressed]}
+    >
+      <Text style={ps.secondaryText} numberOfLines={1} adjustsFontSizeToFit>
+        {title}
+      </Text>
+    </Pressable>
+  );
+}
+function DriverLine({ trip, small }: { trip: Trip; small?: boolean }) {
+  return (
+    <View style={[ps.row, { gap: 14 }]}>
+      <BodyNumber value={trip.plate} toda={trip.driverAssociation} size={small ? "sm" : "sm"} />
+      <View style={{ flex: 1, gap: 2 }}>
+        <Text style={ps.label}>{trip.driver}</Text>
+        <Text style={ps.small}>{trip.driverAssociation || "Tricycle"}{trip.plate ? ` · body no. ${trip.plate}` : ""}</Text>
+      </View>
+    </View>
+  );
+}
+function ParaButton({ onPress, disabled }: { onPress: () => void; disabled?: boolean }) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel="Para. Ask the driver to stop here"
+      accessibilityState={{ disabled: !!disabled }}
+      disabled={disabled}
+      onPress={() => {
+        haptic.tap();
+        onPress();
+      }}
+      style={({ pressed }) => [
+        ps.button,
+        { minHeight: 84, flexDirection: "column", gap: 0 },
+        disabled && { opacity: 0.45 },
+        pressed && ps.pressed,
+      ]}
+    >
+      <Text style={{ fontFamily: "ArchivoBoard", fontSize: 40, lineHeight: 44, letterSpacing: 1, color: c.onBrand }}>
+        PARA!
+      </Text>
+      <Text style={[ps.small, { color: "#D5EADF", fontWeight: "600" }]}>Ask the driver to stop here</Text>
+    </Pressable>
   );
 }
 function Hint({
@@ -90,8 +162,8 @@ function Hint({
 }) {
   return (
     <View style={[ps.hint, info && ps.info]}>
-      <Icon name={icon} size={18} color={info ? c.green : "#B37D2C"} />
-      <Text style={[ps.hintText, info && { color: c.green }]}>{text}</Text>
+      <Icon name={icon} size={16} color={info ? c.muted : c.amber} />
+      <Text style={[ps.hintText, info && { color: c.muted }]}>{text}</Text>
     </View>
   );
 }
@@ -108,6 +180,9 @@ function Locations({
   onDestination?: () => void;
   card?: boolean;
 }) {
+  if (!onPickup && !onDestination) {
+    return <RouteBoard from={pickup} to={destination} />;
+  }
   return (
     <View style={card ? ps.card : { gap: 7 }}>
       {[
@@ -129,7 +204,7 @@ function Locations({
           disabled={!item.onPress}
           accessibilityRole={item.onPress ? "button" : undefined}
           onPress={item.onPress}
-          style={card ? ps.row : ps.location}
+          style={card || !item.onPress ? [ps.row, { paddingVertical: 4 }] : ps.location}
         >
           <View style={[ps.dot, item.orange && ps.square]} />
           <View style={{ flex: 1 }}>
@@ -137,7 +212,7 @@ function Locations({
             <Text style={ps.label}>{item.value}</Text>
           </View>
           {item.onPress && (
-            <Icon name="chevron-forward" size={19} color="#90A59A" />
+            <Icon name="chevron-forward" size={18} color={c.muted} />
           )}
         </Pressable>
       ))}
@@ -181,40 +256,8 @@ const fullDate = (at: number | string) =>
     month: "short",
     year: "numeric",
   });
-function nextDeparture(route: Snapshot["routes"][number], now: number) {
-  if (
-    route.scheduled === false ||
-    !route.interval ||
-    !route.startsAt ||
-    !route.endsAt
-  ) {
-    return "No fixed schedule";
-  }
-  const clock = new Date(now).toLocaleTimeString("en-GB", {
-    timeZone: "Asia/Manila",
-    hour12: false,
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-  const minutes = (v: string) => {
-    const [h, m] = v.split(":").map(Number);
-    return h * 60 + m;
-  };
-  const start = minutes(route.startsAt),
-    end = minutes(route.endsAt),
-    current = minutes(clock);
-  const next = Math.max(
-    start,
-    start +
-      Math.ceil((current - start) / Math.max(1, route.interval)) *
-        Math.max(1, route.interval),
-  );
-  return next > end
-    ? `Tomorrow ${route.startsAt}`
-    : `${String(Math.floor(next / 60)).padStart(2, "0")}:${String(next % 60).padStart(2, "0")}`;
-}
 function tripText(trip: Trip) {
-  return `Angkol · ${trip.id}\n${trip.status}\n${trip.pickup} → ${trip.destination}\nDriver: ${trip.driver || "Awaiting assignment"}${trip.plate ? ` · ${trip.plate}` : ""}\n${trip.demoPayment ? `${trip.demoPayment.method} TEST ONLY — no money charged; actual fare remains payable. Demo reference: ${trip.demoPayment.reference}\nFare` : "Fixed cash fare"}: ${money(trip.fare)}${trip.sampleFare ? " (sample fare)" : ""}\n${fullDate(trip.createdAt)} · ${stamp(trip.createdAt)}`;
+  return `Angkol trip ${tripRef(trip.id)}\n${trip.status}\n${trip.pickup} → ${trip.destination}\nDriver: ${trip.driver || "Awaiting assignment"}${trip.plate ? ` · ${trip.plate}` : ""}\n${trip.demoPayment ? `${trip.demoPayment.method} TEST ONLY — no money charged; actual fare remains payable. Demo reference: ${trip.demoPayment.reference}\nFare` : "Fixed cash fare"}: ${money(trip.fare)}${trip.sampleFare ? " (sample fare)" : ""}\n${fullDate(trip.createdAt)} · ${stamp(trip.createdAt)}`;
 }
 
 export default function PassengerApp({
@@ -263,9 +306,10 @@ export default function PassengerApp({
     [destination, setDestination] = useState<Point | null>(null);
   const [quote, setQuote] = useState<Quote | null>(null),
     [pickupNote, setPickupNote] = useState("");
+  const [heroHeight, setHeroHeight] = useState(300);
   const [working, setWorking] = useState(false),
     [error, setError] = useState(""),
-    [gpsAt, setGpsAt] = useState<number | null>(null);
+    [, setGpsAt] = useState<number | null>(null);
   const [editing, setEditing] = useState<"pickup" | "destination">(
       "destination",
     ),
@@ -278,21 +322,21 @@ export default function PassengerApp({
     [phone, setPhone] = useState(data.user.phone),
     [report, setReport] = useState("");
   const [paymentMethod] = useState("Cash");
+  const [rideType, setRideType] = useState<"regular" | "special">("regular");
   const submitting = useRef(false),
     scroll = useRef<React.ComponentRef<typeof ScrollView>>(null),
     previousStatuses = useRef(new Map(data.trips.map((t) => [t.id, t.status])));
-  const active = data.trips.find(
-    (t) => !["Completed", "Cancelled"].includes(t.status),
-  );
+  const active = data.trips.find((t) => !isFinished(t));
   const trip =
     data.trips.find((t) => t.id === params.trip) || active || data.trips[0];
-  const vehicle = data.vehicles.find((v) => v.id === trip?.driverId);
+  const vehicle = vehicleForDriver(data.vehicles, trip?.driverId, trip?.plate);
   const routes = data.routes.filter((r) => r.active),
     terminals = data.terminals.filter((t) => t.active);
   const selectedRoute =
     routes.find((route) => route.id === routeId) || routes[0];
   const terminal = terminals.find((t) => t.id === terminalId) || terminals[0];
   const locked = working || busy;
+  const unread = data.notifications.filter((n) => !n.read).length;
   const go = (next: string, id?: string) => {
     setError("");
     router.setParams({ screen: next, trip: id || "" });
@@ -314,11 +358,17 @@ export default function PassengerApp({
         previous !== value.status
       ) {
         if (value.status === "Completed") {
+          haptic.success();
           router.setParams({ screen: "Receipt", trip: value.id });
         } else if (value.status === "Arrived") {
+          haptic.tap();
           router.setParams({ screen: "Arrived", trip: value.id });
         } else if (value.status === "In progress") {
           router.setParams({ screen: "Track ride", trip: value.id });
+        } else if (value.status === "Accepted") {
+          haptic.success();
+        } else if (value.status === "Expired") {
+          haptic.warning();
         }
       }
       previousStatuses.current.set(value.id, value.status);
@@ -358,7 +408,8 @@ export default function PassengerApp({
   }
   const gps = () =>
     perform(async () => {
-      setPickup(data.landmarks[0] || null);
+      const here = await currentPoint();
+      setPickup(here);
       setGpsAt(Date.now());
       setQuote(null);
     });
@@ -381,6 +432,22 @@ export default function PassengerApp({
       setQuote(next);
       go("Choose ride");
     });
+  const rideAgain = (from: Trip) =>
+    perform(async () => {
+      if (active) {
+        go("Track ride", active.id);
+        return;
+      }
+      setPickup(from.pickupPoint);
+      setDestination(from.destinationPoint);
+      setGpsAt(null);
+      const next = await api<Quote>("/quote", {
+        pickup: from.pickupPoint,
+        destination: from.destinationPoint,
+      });
+      setQuote(next);
+      go("Choose ride");
+    });
   const confirm = () =>
     perform(async () => {
       if (!quote || quote.expires <= Date.now()) {
@@ -392,6 +459,7 @@ export default function PassengerApp({
       const created = await api<Trip>("/book", {
         quoteId: quote.id,
         pickupNote,
+        rideType,
         ...(paymentMethod !== "Cash" ? { demoMethod: paymentMethod } : {}),
       });
       setQuote(null);
@@ -399,7 +467,7 @@ export default function PassengerApp({
       go("Ride accepted", created.id);
     });
   const cancel = () => {
-    if (!trip || !["Requested", "Accepted"].includes(trip.status)) {
+    if (!trip || !["Requested", "Accepted", "Arrived"].includes(trip.status)) {
       return;
     }
     Alert.alert(
@@ -461,14 +529,12 @@ export default function PassengerApp({
           journey === "route"
             ? selectedRoute?.name
             : approaching
-              ? "Driver location"
+              ? "Meet here"
               : undefined
         }
-        destinationLabel={approaching ? "Your pickup location" : undefined}
+        landmarks={data.landmarks}
         pickup={
-          (approaching
-            ? vehicle?.location || selectedTrip.pickupPoint
-            : selectedTrip?.pickupPoint) ||
+          selectedTrip?.pickupPoint ||
           (journey === "route"
             ? selectedRoute?.stops[0]
             : journey === "terminal"
@@ -476,9 +542,7 @@ export default function PassengerApp({
               : pickup)
         }
         destination={
-          (approaching
-            ? selectedTrip.pickupPoint
-            : selectedTrip?.destinationPoint) ||
+          (approaching ? null : selectedTrip?.destinationPoint) ||
           (journey === "route"
             ? selectedRoute && selectedRoute.stops.length > 1
               ? selectedRoute.stops.at(-1)
@@ -491,11 +555,10 @@ export default function PassengerApp({
         }
         vehicles={
           journey === "trip"
-            ? data.vehicles.filter((v) => v.id === trip?.driverId)
+            ? vehicle ? [vehicle] : []
             : data.vehicles
         }
         terminals={journey === "terminal" ? terminals : []}
-        landmarks={[]}
         mode={journey === "select" ? editing : null}
         onSelect={choosePoint}
       />
@@ -503,48 +566,36 @@ export default function PassengerApp({
   }
   const disclaimer = data.sampleMode
     ? "Sample fares only · not an official LGU fares"
-    : "Cash payments go directly to your driver";
+    : "";
   const tabPages = ["Home", "Routes", "Terminals", "Trips", "Profile"];
-  const cityHour = Number(
-    new Date(data.serverTime).toLocaleTimeString("en-GB", {
-      timeZone: "Asia/Manila",
-      hour: "2-digit",
-      hourCycle: "h23",
-    }),
-  );
-  const greeting =
-    cityHour >= 5 && cityHour < 12
-      ? "Maupay nga aga"
-      : cityHour >= 12 && cityHour < 18
-        ? "Maupay nga kulop"
-        : "Maupay nga gab-i";
+  const greeting = greetingFor(data.serverTime);
   let title = "Where to today?",
     subtitle = `${greeting}, ${data.user.name.split(" ")[0]}`,
     back: string | null = null;
   let content: React.ReactNode,
-    footer: React.ReactNode = null;
+    footer: React.ReactNode = null,
+    hero: React.ReactNode = null,
+    live = false;
   function receiptDetails(value: Trip | Quote) {
     return (
       <View style={ps.card}>
         <Locations pickup={value.pickup} destination={value.destination} />
         <View style={ps.divider} />
         <SummaryRow
-          label="Distance & ride time"
-          value={`${value.distance} km · about ${value.minutes} min`}
-          strong
+          label="Ride"
+          value={`${value.distance} km · ${value.minutes} min`}
         />
         {"driver" in value && (
           <SummaryRow
-            label="Driver & vehicle"
+            label="Driver"
             value={`${value.driver || "—"} · ${value.plate || "—"}`}
-            strong
           />
         )}
         {pickupNote && !("passengerId" in value) ? (
-          <Text style={ps.small}>Pickup note: {pickupNote}</Text>
+          <Text style={ps.small}>Your note: “{pickupNote}”</Text>
         ) : null}
         {"pickupNote" in value && value.pickupNote ? (
-          <Text style={ps.small}>Pickup note: {value.pickupNote}</Text>
+          <Text style={ps.small}>Your note: “{value.pickupNote}”</Text>
         ) : null}
       </View>
     );
@@ -553,18 +604,30 @@ export default function PassengerApp({
     const demo = "demoPayment" in value ? value.demoPayment : undefined;
     return (
       <View style={ps.card}>
-        <Text style={ps.section}>Upfront fare</Text>
         <SummaryRow
-          label={`Fixed ride fare${value.sampleFare ? " (sample)" : ""}`}
+          label={`City fare matrix${value.sampleFare ? " (sample)" : ""}`}
           value={money(value.fare)}
-          strong
         />
         <SummaryRow label="Booking fee" value={money(0)} />
         <View style={ps.divider} />
         <View style={ps.between}>
-          <Text style={ps.body}>Total fare</Text>
-          <Text style={ps.total}>{money(value.fare)}</Text>
+          <Text style={ps.label}>Total</Text>
+          <Text style={ps.fare}>{money(value.fare)}</Text>
         </View>
+        {"paymentStatus" in value && value.paymentStatus ? (
+          <SummaryRow
+            label="Payment"
+            value={
+              value.paymentStatus === "paid"
+                ? demo
+                  ? "Paid"
+                  : "Paid in cash"
+                : value.paymentStatus === "pending"
+                  ? "Awaiting confirmation"
+                  : "Pay the driver in cash"
+            }
+          />
+        ) : null}
 
         {demo && (
           <Text style={ps.small}>
@@ -576,8 +639,8 @@ export default function PassengerApp({
     );
   }
   if (page === "Home") {
-    title = `${greeting}, ${data.user.name.split(" ")[0]}`;
-    subtitle = "Calbayog City";
+    title = "Calbayog";
+    subtitle = `${greeting}, ${data.user.name.split(" ")[0]}`;
     content = (
       <PassengerHomeScreen
         data={data}
@@ -585,7 +648,14 @@ export default function PassengerApp({
         onBook={() => go("Journey")}
         onRoutes={() => go("Routes")}
         onTerminals={() => go("Terminals")}
-        onTrack={() => go("Track ride", active?.id)}
+        onTrack={() =>
+          active?.status === "Requested"
+            ? go("Ride accepted", active.id)
+            : active?.serviceType === "PUJ/PUV"
+              ? go("PUJ arrived", active.id)
+              : go("Track ride", active?.id)
+        }
+        onRideAgain={rideAgain}
         onDestination={(point) => {
           setDestination(point);
           setQuote(null);
@@ -594,8 +664,8 @@ export default function PassengerApp({
       />
     );
   } else if (page === "Journey") {
-    title = "Set your journey";
-    subtitle = "Choose a place or pinpoint it on the map";
+    title = "Where to?";
+    subtitle = "";
     back = "Home";
     content = (
       <>
@@ -606,7 +676,7 @@ export default function PassengerApp({
           onDestination={() => pick("destination")}
         />
         <Action
-          title={working ? "Getting your location…" : "Use my current location"}
+          title={working ? "Getting your location…" : "Use my location for pickup"}
           icon="locate-outline"
           light
           disabled={locked}
@@ -618,24 +688,15 @@ export default function PassengerApp({
             onPress={() => setEditing((m) => (m === "pickup" ? "destination" : "pickup"))}
             style={[ps.pill, { alignSelf: "flex-start", flexDirection: "row", alignItems: "center", gap: 6 }]}
           >
-            <Icon name={editing === "pickup" ? "location-outline" : "flag-outline"} size={14} color={c.green} />
+            <Icon name={editing === "pickup" ? "location-outline" : "flag-outline"} size={14} color={c.ink} />
             <Text style={ps.pillText}>Tap map to set {editing}</Text>
           </Pressable>
           {map(240, "select")}
         </View>
-        <View>
-          <Text style={ps.section}>
-            Meet at {pickup?.name || "your pickup"}
-          </Text>
-          <Text style={ps.body}>
-            Calbayog City, Samar · Choose a safe roadside pickup.
-          </Text>
-        </View>
         <View style={ps.row}>
-          <Icon name="chatbox-outline" size={18} />
           <TextInput
             accessibilityLabel="Pickup note"
-            placeholder="Pickup note: by the park entrance"
+            placeholder="Note for your driver, e.g. by the park gate"
             placeholderTextColor={c.muted}
             value={pickupNote}
             maxLength={200}
@@ -661,7 +722,7 @@ export default function PassengerApp({
     );
   } else if (page === "Location search") {
     title = `Choose ${editing}`;
-    subtitle = "Search Calbayog or choose a landmark";
+    subtitle = "";
     back = "Journey";
     content = (
       <>
@@ -722,7 +783,7 @@ export default function PassengerApp({
     subtitle =
       page === "Choose ride"
         ? `${pickup?.name || "Pickup"} → ${destination?.name || "Destination"}`
-        : "Check your trip before sending a request";
+        : "Cash fare, paid to your driver";
     back = page === "Choose ride" ? "Journey" : "Choose ride";
     if (!quote) {
       content = (
@@ -732,22 +793,38 @@ export default function PassengerApp({
     } else if (page === "Choose ride") {
       content = (
         <>
-          {map(170, "quote")}
-          <View style={[ps.card, ps.selected]}>
-            <View style={ps.row}>
-              <View style={[ps.iconButton, { backgroundColor: c.green }]}>
-                <Icon name="bicycle-outline" size={26} color="white" />
+          {map(190, "quote")}
+          {[
+            {
+              key: "regular" as const,
+              title: "Regular",
+              sub: `Shared, pay per head · ${quote.minutes} min`,
+              fare: quote.fare,
+            },
+            {
+              key: "special" as const,
+              title: "Special (pakyaw)",
+              sub: "Whole tricycle, pay for all 3 seats",
+              fare: quote.fare * 3,
+            },
+          ].map((option) => (
+            <Pressable
+              key={option.key}
+              accessibilityRole="radio"
+              accessibilityState={{ selected: rideType === option.key }}
+              onPress={() => setRideType(option.key)}
+              style={[ps.card, rideType === option.key && ps.selected]}
+            >
+              <View style={ps.row}>
+                <Glyph name="tricycle" size={30} />
+                <View style={{ flex: 1, gap: 2 }}>
+                  <Text style={ps.label}>{option.title}</Text>
+                  <Text style={ps.small}>{option.sub}</Text>
+                </View>
+                <Text style={ps.fare}>{money(option.fare)}</Text>
               </View>
-              <View style={{ flex: 1 }}>
-                <Text style={ps.label}>Regular tricycle</Text>
-                <Text style={ps.tiny}>Direct ride · Registered driver</Text>
-              </View>
-              <Text style={ps.fare}>{money(quote.fare)}</Text>
-            </View>
-            <View style={ps.between}>
-              <Tag text="Selected · fixed total" />
-            </View>
-          </View>
+            </Pressable>
+          ))}
 
           {/* Jeepney / PUV card — opens the PUJ booking flow */}
           <Pressable
@@ -763,47 +840,31 @@ export default function PassengerApp({
             style={ps.card}
           >
             <View style={ps.row}>
-              <Icon name="bus-outline" size={25} />
-              <View style={{ flex: 1 }}>
-                <Text style={ps.label}>Jeepney / PUV</Text>
-                <Text style={ps.tiny}>Shared route · check departures</Text>
+              <Glyph name="jeepney" size={30} color={c.muted} />
+              <View style={{ flex: 1, gap: 2 }}>
+                <Text style={ps.label}>Jeepney</Text>
+                <Text style={ps.small}>Fixed routes, board at the terminal</Text>
               </View>
-              <Text style={ps.fare}>
+              <Text style={[ps.fare, { color: c.muted }]}>
                 {routes.length
-                  ? `From ${money(Math.min(...routes.map((r) => r.fare)))}`
+                  ? `from ${money(Math.min(...routes.map((r) => r.fare)))}`
                   : "—"}
               </Text>
             </View>
-            <Tag text="Per passenger" />
           </Pressable>
         </>
       );
       footer = (
         <Action
-          title={`Continue for ${money(quote.fare)}`}
+          title={`Continue · ${money(rideType === "special" ? quote.fare * 3 : quote.fare)} cash`}
           onPress={() => go("Review ride")}
         />
       );
     } else {
       content = (
         <>
-          <View style={ps.between}>
-            <Text style={ps.section}>Regular tricycle</Text>
-            <Tag text="1 booking" />
-          </View>
           {receiptDetails(quote)}
           {fares(quote)}
-
-          <Hint
-            info
-            icon="information-circle-outline"
-            text="A verified driver will be assigned after you confirm. Their name, license approval, and vehicle details appear next."
-          />
-          <View style={{ flex: 1 }} />
-          <Text style={ps.small}>
-            Confirming creates one unique ride request. Your fixed fare is saved
-            with the booking.
-          </Text>
         </>
       );
       footer = (
@@ -812,7 +873,7 @@ export default function PassengerApp({
             working
               ? "Sending your request…"
               : paymentMethod === "Cash"
-                ? `Confirm ride request · ${money(quote.fare)}`
+                ? `Request ${rideType === "special" ? "special" : "regular"} tricycle · ${money(rideType === "special" ? quote.fare * 3 : quote.fare)}`
                 : `Simulate ${paymentMethod} & request ride · ${money(quote.fare)}`
           }
           icon="checkmark-circle-outline"
@@ -852,7 +913,7 @@ export default function PassengerApp({
             />
             <SummaryRow
               label="Next departure"
-              value={nextDeparture(pujRoute, data.serverTime)}
+              value={`${nextDeparture(pujRoute, data.serverTime)}${minutesUntil(pujRoute, data.serverTime) !== null ? ` · ${waitLabel(pujRoute, data.serverTime).toLowerCase()}` : ""}`}
             />
           </View>
           <View style={ps.card}>
@@ -861,11 +922,9 @@ export default function PassengerApp({
               destination={destination?.name || pujRoute.destination || pujRoute.stops.at(-1)?.name}
             />
           </View>
-          <Hint
-            info
-            icon="information-circle-outline"
-            text="Booking a PUJ/PUV confirms your seat and the vehicle arrives at your pickup point."
-          />
+          <Text style={ps.small}>
+            We hold a seat on the next unit with room. Pay when you board.
+          </Text>
         </>
       );
       footer = (
@@ -890,21 +949,15 @@ export default function PassengerApp({
                 destination: to.name,
                 pickupPoint: from,
                 destinationPoint: to,
-                distance: 2.5,
+                distance: Math.round(distanceKm(from, to) * 10) / 10,
                 fare: pujRoute.fare,
                 minutes: pujRoute.interval || 15,
                 passengerId: data.user.id,
                 passenger: data.user.name,
-                driverId: `puj-driver-${pujRoute.id}`,
-                driver: "Limuel Rosino",
-                plate: "ABC 1234",
-                status: "Arrived", // walk-up PUJ trips are recorded as arrived
+                driverId: null,
+                status: "Requested",
                 createdAt: new Date().toISOString(),
-                timestamps: {
-                  Requested: Date.now(),
-                  Accepted: Date.now(),
-                  Arrived: Date.now(),
-                },
+                timestamps: { Requested: Date.now() },
                 rating: null,
                 sampleFare: false,
                 expires: Date.now() + 10 * 60 * 1000,
@@ -929,51 +982,59 @@ export default function PassengerApp({
       );
     }
   } else if (page === "PUJ arrived") {
-    title = "Your PUJ/PUV has arrived";
-    subtitle = "Board now — driver is at your pickup";
-    back = null;
     const pujTrip = data.trips.find((t) => t.id === params.trip);
+    const unit = data.vehicles.find((v) => v.id === pujTrip?.vehicleId);
+    const pujRouteInfo = data.routes.find((r) => r.id === pujTrip?.routeId);
+    const stand = data.terminals.find((t) => t.routeId === pujTrip?.routeId);
+    title =
+      pujTrip?.status === "Expired"
+        ? "Seat released"
+        : pujTrip?.status === "Requested"
+          ? "Seat requested"
+          : `Board at ${stand?.name || pujTrip?.pickup || "the terminal"}`;
+    subtitle =
+      pujRouteInfo && pujTrip?.status !== "Expired"
+        ? `Next departure ${nextDeparture(pujRouteInfo, data.serverTime)} · ${waitLabel(pujRouteInfo, data.serverTime).toLowerCase()}`
+        : "";
+    back = "Home";
     if (!pujTrip) {
-      content = <Hint text="Trip not found." />;
+      content = <Text style={ps.body}>This jeepney booking can’t be found.</Text>;
       footer = <Action title="Back to Home" onPress={() => go("Home")} />;
+    } else if (pujTrip.status === "Expired") {
+      content = (
+        <Text style={ps.body}>Nobody boarded on this booking, so the seat went back to the queue.</Text>
+      );
+      footer = <Action title="See jeepney routes" onPress={() => go("Routes")} />;
     } else {
       content = (
         <>
-          <View style={[ps.banner, { backgroundColor: "#0B5942" }]}>
-            <View style={ps.row}>
-              <Icon name="checkmark-circle-outline" size={33} color="white" />
-              <View style={{ flex: 1 }}>
-                <Text style={ps.bannerTitle}>Your ride is here!</Text>
-                <Text style={ps.bannerSub}>
-                  {pujTrip.driver} · {pujTrip.plate}
-                </Text>
-              </View>
+          <View style={[ps.row, { gap: 14 }]}>
+            <BodyNumber value={unit?.plate || pujTrip.plate} />
+            <View style={{ flex: 1, gap: 2 }}>
+              <Text style={ps.label}>{[unit?.name, pujTrip.driver].filter(Boolean).join(" · ")}</Text>
+              <Text style={ps.small}>{unit?.capacity ? `${unit.capacity}-seat jeepney` : "Jeepney"}</Text>
             </View>
           </View>
+          <RouteBoard from={pujTrip.pickup} to={pujTrip.destination} />
           <View style={ps.card}>
-            <Locations pickup={pujTrip.pickup} destination={pujTrip.destination} />
-            <View style={ps.divider} />
-            <SummaryRow label="Fare" value={money(pujTrip.fare)} strong />
-            <SummaryRow label="Driver" value={pujTrip.driver || "—"} />
-            <SummaryRow label="Plate" value={pujTrip.plate || "—"} />
+            <SummaryRow label="Fare, pay the driver or konduktor" value={money(pujTrip.fare)} strong />
+            <SummaryRow
+              label="Student, senior or PWD (show ID)"
+              value={money(Math.round(pujTrip.fare * 0.8 * 100) / 100)}
+            />
           </View>
-          <Hint
-            info
-            icon="bus-outline"
-            text="Board the vehicle at the marked pickup point. Pay your fare directly to the driver or conductor."
-          />
+          <Text style={ps.small}>Show this screen when you board. Tap PARA! when you get off.</Text>
         </>
       );
       footer = (
-        <Action
-          title={working ? "Completing…" : "Board & complete trip"}
-          icon="checkmark-done-outline"
+        <ParaButton
           disabled={locked}
           onPress={() =>
             perform(async () => {
-              await action(`/trips/${pujTrip.id}`, { status: "Completed" });
-              await refresh();
-              go("PUJ complete", pujTrip.id);
+              if (await action(`/trips/${pujTrip.id}`, { status: "Completed" })) {
+                haptic.success();
+                go("PUJ complete", pujTrip.id);
+              }
             })
           }
         />
@@ -981,598 +1042,238 @@ export default function PassengerApp({
     }
   } else if (page === "PUJ complete") {
     title = "Trip complete";
-    subtitle = "Salamat sa pagsakay!";
+    subtitle = "Salamat ha pagsakay!";
     back = "Home";
-    const pujTrip = data.trips.find((t) => t.id === params.trip);
+    const pujTrip = data.trips.find(
+      (t) => t.id === params.trip && t.status === "Completed",
+    );
     content = pujTrip ? (
       <>
         <View style={ps.banner}>
-          <View style={ps.between}>
-            <Text style={[ps.section, { color: "white", flex: 1 }]}>
-              Trip completed
-            </Text>
-            <View style={ps.check}>
-              <Icon name="checkmark" size={26} />
-            </View>
-          </View>
+          <Text style={ps.total}>{money(pujTrip.fare)}</Text>
           <Text style={ps.bannerSub}>
             {fullDate(pujTrip.createdAt)} · {stamp(pujTrip.createdAt)}
           </Text>
-          <Text style={ps.bannerSub}>Trip ID: {pujTrip.id}</Text>
         </View>
         {receiptDetails(pujTrip)}
         {fares(pujTrip)}
-        <Text style={[ps.label, { textAlign: "center" }]}>
-          How was your ride?
-        </Text>
-        <View style={[ps.row, { justifyContent: "space-around" }]}>
-          {[1, 2, 3, 4, 5].map((rating) => (
-            <Pressable
-              key={rating}
-              accessibilityRole="button"
-              accessibilityLabel={`Rate ${rating} out of 5`}
-              disabled={locked}
-              onPress={() =>
-                void action(`/trips/${pujTrip.id}/rating`, { rating })
-              }
-              style={ps.star}
-            >
-              <Icon
-                name={
-                  pujTrip.rating && rating <= pujTrip.rating
-                    ? "star"
-                    : "star-outline"
-                }
-                size={27}
-                color={c.amber}
-              />
-            </Pressable>
-          ))}
-        </View>
+        <RateTrip
+          rating={pujTrip.rating}
+          driver={pujTrip.driver}
+          disabled={locked}
+          onRate={(rating) => action(`/trips/${pujTrip.id}/rating`, { rating })}
+        />
       </>
     ) : (
       <Hint text="No trip found." />
     );
     footer = <Action title="Back to Home" onPress={() => go("Home")} />;
-  } else if (page === "Ride accepted") {
-    back = "Home";
-    subtitle = trip
-      ? `${trip.id.slice(0, 20)} · ${trip.status}`
-      : "Your current ride";
-    title =
-      trip?.status === "Cancelled"
-        ? "Ride cancelled"
-        : trip?.status === "Arrived"
-          ? "Your driver has arrived"
-          : trip?.driver
-            ? "Your ride is accepted"
-            : "Finding your driver";
-    if (!trip) {
-      content = (
-        <Hint text="You have no active ride. Choose a destination to start a new journey." />
-      );
+  } else if (page === "Ride accepted" || page === "Arrived" || page === "Track ride" || page === "Drop off" || page === "Pay cash") {
+    const driverName = trip?.driver?.split(" ")[0] || "Your driver";
+    const eta =
+      trip && vehicle && trip.status === "Accepted"
+        ? Math.max(1, Math.round((distanceKm(vehicle.location, trip.pickupPoint) / 18) * 60))
+        : null;
+    const view =
+      !trip
+        ? "missing"
+        : trip.status === "Expired"
+          ? "expired"
+          : trip.status === "Cancelled"
+            ? "cancelled"
+            : trip.status === "Completed"
+              ? "completed"
+              : page === "Pay cash"
+                ? "pay"
+                : page === "Drop off"
+                  ? "dropoff"
+                  : trip.status === "In progress"
+                    ? "riding"
+                    : trip.status === "Arrived"
+                      ? "arrived"
+                      : trip.status === "Accepted"
+                        ? "approaching"
+                        : "searching";
+    back = view === "dropoff" ? "Track ride" : view === "pay" ? "Drop off" : "Home";
+    live = ["searching", "approaching", "riding"].includes(view);
+    subtitle = "";
+    if (!trip || view === "missing") {
+      title = "No active ride";
+      content = <Text style={ps.body}>Choose a destination on Home to book one.</Text>;
       footer = <Action title="Back to Home" onPress={() => go("Home")} />;
-    } else {
-      const statuses = [
-        "Requested",
-        "Accepted",
-        "Arrived",
-        "In progress",
-        "Completed",
-      ] as const;
-      const driverName = trip.driver?.split(" ")[0];
+    } else if (view === "expired") {
+      title = "No driver accepted";
+      subtitle = "The request closed after 10 minutes. Nothing to pay.";
       content = (
         <>
-          <View style={ps.banner}>
-            <View style={ps.between}>
-              <Text style={[ps.bannerTitle, { flex: 1 }]}>
-                {trip.status === "Cancelled"
-                  ? "This request was cancelled"
-                  : trip.status === "Arrived"
-                    ? `${driverName || "Your driver"} has arrived`
-                    : driverName
-                      ? `${driverName} is on the way`
-                      : "Looking for an available driver"}
-              </Text>
-              <View style={ps.check}>
-                <Icon
-                  name={driverName ? "checkmark" : "time-outline"}
-                  size={25}
-                />
-              </View>
-            </View>
-            <Text style={ps.bannerSub}>
-              {trip.status === "Cancelled"
-                ? "You can start a new booking from Home."
-                : trip.status === "Arrived"
-                  ? "Meet your driver at the pickup point. Check the vehicle plate before boarding."
-                  : driverName
-                    ? "Your driver has accepted. Watch the map for location updates."
-                    : "Your request was sent to the nearest eligible driver. Keep the app open for updates."}
-            </Text>
-          </View>
-          <View style={ps.card}>
-            {statuses.slice(0, 3).map((status, i) => (
-              <View key={status} style={ps.step}>
-                <View
-                  style={[
-                    ps.stepMark,
-                    !trip.timestamps[status] && {
-                      backgroundColor: "#EDF1EE",
-                    },
-                  ]}
-                >
-                  <Icon
-                    name={
-                      trip.timestamps[status]
-                        ? "checkmark"
-                        : "ellipse-outline"
-                    }
-                    size={18}
-                    color={trip.timestamps[status] ? c.green : "#9AA99F"}
-                  />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={ps.label}>
-                    {
-                      [
-                        "Request sent",
-                        "Driver accepted your ride",
-                        "Driver arrived at pickup",
-                      ][i]
-                    }
-                  </Text>
-                  <Text style={ps.tiny}>
-                    {trip.timestamps[status]
-                      ? `${stamp(trip.timestamps[status]!)} · ${status}`
-                      : "Waiting for update"}
-                  </Text>
-                </View>
-              </View>
-            ))}
-          </View>
-
-          {trip.driver && (
-            <View style={ps.card}>
-              <View style={ps.row}>
-                <DriverAvatar
-                  photo={trip.driverPhoto}
-                  name={trip.driver}
-                  size={68}
-                />
-                <View style={{ flex: 1 }}>
-                  <Text style={ps.section}>{trip.driver}</Text>
-                  <Text style={ps.small}>Administrator-approved driver</Text>
-                </View>
-                <Icon name="shield-checkmark-outline" size={24} />
-              </View>
-              <Tag icon="checkmark" text="Driver approval recorded" />
-              <View style={[ps.location, { paddingVertical: 10 }]}>
-                <Icon name="bicycle-outline" size={25} />
-                <View style={{ flex: 1 }}>
-                  <Text style={ps.label}>Registered tricycle</Text>
-                  <Text style={ps.small}>
-                    {trip.plate || "Check the plate with your driver"}
-                  </Text>
-                </View>
-              </View>
-            </View>
-          )}
-
+          <RouteBoard from={trip.pickup} to={trip.destination} />
+          <SummaryRow label="Last fare" value={money(trip.fare)} />
           <SummaryRow
-            label="Confirmed cash fare"
-            value={money(trip.fare)}
-            strong
-          />
-
-          {trip.status === "Cancelled" && (
-            <Hint text="This ride was cancelled. You can start a new booking from Home." />
-          )}
-        </>
-      );
-      footer = (
-        <>
-          {["Requested", "Accepted"].includes(trip.status) && (
-            <Action
-              title={
-                working
-                  ? "Updating…"
-                  : trip.status === "Requested"
-                    ? "Simulate driver accepting"
-                    : "Driver has arrived at pickup"
-              }
-              icon="navigate-outline"
-              disabled={locked}
-              onPress={() => {
-                if (trip.status === "Requested") {
-                  void advance("Accepted", "Ride accepted");
-                } else {
-                  void advance("Arrived", "Arrived");
-                }
-              }}
-            />
-          )}
-          {trip.status === "Arrived" && (
-            <Action
-              title="See where your driver is"
-              icon="checkmark-circle-outline"
-              onPress={() => go("Arrived", trip.id)}
-            />
-          )}
-          {["Requested", "Accepted"].includes(trip.status) && (
-            <Pressable accessibilityRole="button" disabled={locked} onPress={cancel}>
-              <Text style={ps.textLink}>Need to change plans? Cancel request</Text>
-            </Pressable>
-          )}
-        </>
-      );
-    }
-  } else if (page === "Arrived") {
-    title = "Your driver has arrived";
-    subtitle = trip
-      ? `${trip.driver || "Driver"} · ${trip.plate || "—"}`
-      : "Meet your driver at the pickup point";
-    back = "Home";
-    if (!trip) {
-      content = <Hint text="No active ride found." />;
-      footer = <Action title="Back to Home" onPress={() => go("Home")} />;
-    } else if (trip.status !== "Arrived") {
-      content = (
-        <Hint
-          text={
-            trip.status === "In progress"
-              ? "Your trip has already started."
-              : trip.status === "Completed"
-                ? "This trip is already completed."
-                : "Your driver has not arrived yet."
-          }
-        />
-      );
-      footer = (
-        <Action
-          title={trip.status === "In progress" ? "Track your ride" : "Back"}
-          onPress={() =>
-            go(
-              trip.status === "In progress" ? "Track ride" : "Ride accepted",
-              trip.id,
-            )
-          }
-        />
-      );
-    } else {
-      content = (
-        <>
-          <View style={[ps.banner, { backgroundColor: "#0B5942" }]}>
-            <View style={ps.row}>
-              <Icon name="checkmark-circle-outline" size={33} color="white" />
-              <View style={{ flex: 1 }}>
-                <Text style={ps.bannerTitle}>
-                  {trip.driver || "Your driver"} is here
-                </Text>
-                <Text style={ps.bannerSub}>
-                  Plate {trip.plate || "—"} · Verify before boarding
-                </Text>
-              </View>
-            </View>
-          </View>
-
-          {map(210, "trip")}
-
-          <View style={ps.card}>
-            <Locations pickup={trip.pickup} destination={trip.destination} />
-            <View style={ps.divider} />
-            <SummaryRow
-              label="Distance & ride time"
-              value={`${trip.distance} km · about ${trip.minutes} min`}
-              strong
-            />
-            <SummaryRow
-              label="Fare (cash)"
-              value={money(trip.fare)}
-              strong
-            />
-          </View>
-
-          {Boolean(trip.pickupNote) && (
-            <Text style={ps.small}>Pickup note: {trip.pickupNote}</Text>
-          )}
-
-          <Hint
-            info
-            icon="shield-checkmark-outline"
-            text="Match the driver name and vehicle plate before you board. Once you board, tap Start trip."
+            label="Closed at"
+            value={trip.timestamps.Expired ? stamp(trip.timestamps.Expired) : "—"}
           />
         </>
       );
       footer = (
         <>
           <Action
-            title={working ? "Starting…" : "Board & start trip"}
-            icon="play-outline"
+            title={working ? "Getting a fresh fare…" : `Ask again · ${money(trip.fare)}`}
+            disabled={locked}
+            onPress={() => rideAgain(trip)}
+          />
+          <Secondary title="Back to Home" onPress={() => go("Home")} />
+        </>
+      );
+    } else if (view === "cancelled" || view === "completed") {
+      title = view === "cancelled" ? "Request cancelled" : "This ride is finished";
+      content = <RouteBoard from={trip.pickup} to={trip.destination} />;
+      footer =
+        view === "completed" ? (
+          <Action title="See receipt" onPress={() => go("Receipt", trip.id)} />
+        ) : (
+          <Action title="Back to Home" onPress={() => go("Home")} />
+        );
+    } else if (view === "searching") {
+      title = "Asking drivers nearby";
+      subtitle = `Closest first · ${money(trip.fare)} cash`;
+      hero = map(heroHeight, "trip");
+      content = (
+        <>
+          <RouteBoard from={trip.pickup} to={trip.destination} />
+          {Boolean(trip.pickupNote) && <Text style={ps.small}>Your note: “{trip.pickupNote}”</Text>}
+        </>
+      );
+      footer = (
+        <>
+          {trip.expires ? <SearchCountdown expires={trip.expires} /> : null}
+          <Secondary title="Cancel request" disabled={locked} onPress={cancel} />
+        </>
+      );
+    } else if (view === "approaching") {
+      title = eta ? `${driverName} is ${eta} min away` : `${driverName} is on the way`;
+      subtitle = `Meet at ${trip.pickup}`;
+      hero = map(heroHeight, "trip");
+      content = (
+        <>
+          <DriverLine trip={trip} />
+          <RouteBoard from={trip.pickup} to={trip.destination} compact />
+          {Boolean(trip.pickupNote) && <Text style={ps.small}>Your note: “{trip.pickupNote}”</Text>}
+          <SummaryRow label="Fare, in cash" value={money(trip.fare)} strong />
+        </>
+      );
+      footer = <Secondary title="Cancel request" disabled={locked} onPress={cancel} />;
+    } else if (view === "arrived") {
+      title = `${driverName} is here`;
+      subtitle = "Board only if the body number matches";
+      const readAloud = () =>
+        Speech.speak(
+          `${driverName} is here at ${trip.pickup}. ${trip.driverAssociation ? `${trip.driverAssociation}, ` : ""}body number ${trip.plate || "not set"}. Fare ${trip.fare} pesos, cash.`,
+          { language: "en-PH", rate: 0.9 },
+        );
+      content = (
+        <>
+          <View style={{ alignItems: "center", gap: 12, paddingVertical: 16, borderTopWidth: 1, borderBottomWidth: 1, borderColor: c.line }}>
+            <BodyNumber value={trip.plate} toda={trip.driverAssociation} align="center" />
+            <View style={{ alignItems: "center", gap: 2 }}>
+              <Text style={ps.label}>{trip.driver}</Text>
+              <Text style={[ps.small, { textAlign: "center" }]} numberOfLines={2}>
+                Waiting at {trip.pickup}
+              </Text>
+            </View>
+            <Pressable accessibilityRole="button" onPress={readAloud} hitSlop={8}>
+              <Text style={ps.textLink}>Read details aloud</Text>
+            </Pressable>
+          </View>
+          <RouteBoard from={trip.pickup} to={trip.destination} compact />
+          <SummaryRow label="Fare, in cash" value={money(trip.fare)} strong />
+          {Boolean(trip.pickupNote) && <Text style={ps.small}>Your note: “{trip.pickupNote}”</Text>}
+        </>
+      );
+      footer = (
+        <>
+          <Action
+            title={working ? "Starting…" : "I’m on board"}
             disabled={locked}
             onPress={() => void advance("In progress", "Track ride")}
           />
-          <Pressable
-            accessibilityRole="button"
-            disabled={locked}
-            onPress={cancel}
-          >
-            <Text style={ps.textLink}>
-              Need to change plans? Cancel request
-            </Text>
-          </Pressable>
-        </>
-      );
-    }
-  } else if (page === "Track ride") {
-    back = "Home";
-    subtitle = trip
-      ? `${trip.id.slice(0, 20)} · ${trip.status}`
-      : "Your current ride";
-    title =
-      trip?.status === "Cancelled"
-        ? "Ride cancelled"
-        : trip?.status === "In progress"
-          ? "On your way"
-          : trip?.status === "Arrived"
-            ? "Your driver has arrived"
-            : "Track your ride";
-    if (!trip) {
-      content = (
-        <Hint text="You have no active ride. Choose a destination to start a new journey." />
-      );
-      footer = <Action title="Back to Home" onPress={() => go("Home")} />;
-    } else if (trip.status === "Arrived") {
-      content = (
-        <Hint
-          info
-          icon="checkmark-circle-outline"
-          text="Your driver is waiting at the pickup point. Tap below to view arrival details."
-        />
-      );
-      footer = (
-        <Action
-          title="View arrival details"
-          onPress={() => go("Arrived", trip.id)}
-        />
-      );
-    } else if (trip.status === "Completed") {
-      content = (
-        <Hint
-          info
-          icon="checkmark-circle-outline"
-          text="This trip is already complete. View the receipt for details."
-        />
-      );
-      footer = (
-        <Action
-          title="View receipt"
-          onPress={() => go("Receipt", trip.id)}
-        />
-      );
-    } else {
-      content = (
-        <>
-          <View>
-            {map(310, "trip")}
-            <View style={ps.topMapBadge}>
-              <Icon name="git-network-outline" size={14} />
-              <Text style={[ps.small, { color: c.green }]}>
-                {trip.status}{" "}
-                {trip.timestamps[trip.status]
-                  ? `· ${stamp(trip.timestamps[trip.status]!)}`
-                  : ""}
-              </Text>
-            </View>
-          </View>
-          {vehicle?.stale ? (
-            <Hint
-              icon="eye-off-outline"
-              text={`Driver location is stale · last update ${stamp(vehicle.location.updatedAt)}. Showing the last known position; arrival time may change.`}
-            />
-          ) : vehicle ? (
-            <Hint
-              info
-              icon="navigate-outline"
-              text={`Driver GPS updated ${stamp(vehicle.location.updatedAt)}. Road time is an estimate, not a live traffic ETA.`}
-            />
-          ) : (
-            <Hint text="The driver’s live location is not available yet. Your trip status will update automatically." />
-          )}
-          <View style={ps.between}>
+          <View style={ps.row}>
             <View style={{ flex: 1 }}>
-              <Text style={ps.locationCaption}>To {trip.destination}</Text>
-              <Text style={ps.section}>
-                About {trip.minutes} min riding
-              </Text>
+              <Secondary
+                title="Wrong number"
+                onPress={() => {
+                  setReport(
+                    `The tricycle at pickup did not match body number ${trip.plate || "—"} (trip ${tripRef(trip.id)}).`,
+                  );
+                  go("Support", trip.id);
+                }}
+              />
             </View>
-            <View style={{ alignItems: "flex-end" }}>
-              <Text style={ps.locationCaption}>Cash fare</Text>
-              <Text style={ps.fare}>{money(trip.fare)}</Text>
+            <View style={{ flex: 1 }}>
+              <Secondary title="Cancel ride" disabled={locked} onPress={cancel} />
             </View>
           </View>
-
-          {trip.driver && (
-            <View style={ps.card}>
-              <View style={ps.row}>
-                <DriverAvatar
-                  photo={trip.driverPhoto}
-                  name={trip.driver}
-                  size={68}
-                />
-                <View style={{ flex: 1 }}>
-                  <Text style={ps.section}>{trip.driver}</Text>
-                  <Text style={ps.small}>Administrator-approved driver</Text>
-                </View>
-                <Icon name="shield-checkmark-outline" size={24} />
-              </View>
-              <Tag icon="checkmark" text="Driver approval recorded" />
-            </View>
-          )}
-
-          {gpsAt && (
-            <Hint
-              info
-              icon="navigate-outline"
-              text={`Your phone GPS was last checked ${stamp(gpsAt)}.`}
-            />
-          )}
         </>
       );
-      footer =
-        trip.status === "In progress" ? (
-          <Action
-            title={working ? "Confirming…" : "I’ve arrived at my destination"}
-            icon="flag-outline"
-            disabled={locked}
-            onPress={() => go("Drop off", trip.id)}
-          />
-        ) : (
-          <Action
-            title="Share trip status"
-            icon="share-social-outline"
-            light
-            disabled={locked}
-            onPress={() => share()}
-          />
-        );
-    }
-  } else if (page === "Drop off") {
-    title = "Confirm drop-off";
-    subtitle = "Check that you’ve reached the correct destination";
-    back = "Track ride";
-    if (!trip) {
-      content = <Hint text="No active ride found." />;
-      footer = <Action title="Back to Home" onPress={() => go("Home")} />;
-    } else if (trip.status === "Completed") {
-      content = (
-        <Hint
-          info
-          icon="checkmark-circle-outline"
-          text="This trip is already complete."
-        />
-      );
-      footer = (
-        <Action
-          title="View receipt"
-          onPress={() => go("Receipt", trip.id)}
-        />
-      );
-    } else {
+    } else if (view === "riding") {
+      title = `About ${trip.minutes} min to ${trip.destination}`;
+      subtitle =
+        vehicle && isStale(vehicle.location.updatedAt, data.serverTime)
+          ? `Driver’s GPS last seen ${lastSeen(vehicle.location.updatedAt, data.serverTime).toLowerCase()}`
+          : `${trip.distance} km trip · estimate`;
+      hero = map(heroHeight, "trip");
       content = (
         <>
-          <View style={ps.banner}>
-            <Text style={ps.bannerSub}>DESTINATION</Text>
-            <Text style={[ps.section, { color: "white" }]}>
-              {trip.destination}
-            </Text>
-            <Text style={ps.bannerSub}>
-              {trip.destinationPoint?.name || trip.destination}
-            </Text>
-          </View>
-
-          {map(200, "trip")}
-
-          <View style={ps.card}>
-            <Locations pickup={trip.pickup} destination={trip.destination} />
-            <View style={ps.divider} />
-            <SummaryRow
-              label="Fare (cash)"
-              value={money(trip.fare)}
-              strong
-            />
-            <SummaryRow
-              label="Driver"
-              value={`${trip.driver || "—"} · ${trip.plate || "—"}`}
-            />
-          </View>
-
-          <Hint
-            info
-            icon="checkmark-circle-outline"
-            text="Confirm that this is the correct drop-off location. If not, tell the driver before completing the trip."
-          />
+          <RouteBoard from={trip.pickup} to={trip.destination} compact />
+          <DriverLine trip={trip} small />
+          <SummaryRow label="Fare, in cash" value={money(trip.fare)} strong />
+          <Secondary title="Share trip status" disabled={locked} onPress={() => share()} />
         </>
       );
-      footer = (
-        <Action
-          title={working ? "Confirming…" : "Correct location · proceed to pay"}
-          icon="checkmark-outline"
-          disabled={locked}
-          onPress={() => go("Pay cash", trip.id)}
-        />
-      );
-    }
-  } else if (page === "Pay cash") {
-    title = "Pay your driver";
-    subtitle = "Hand the cash fare directly to the driver";
-    back = "Drop off";
-    if (!trip) {
-      content = <Hint text="No active ride found." />;
-      footer = <Action title="Back to Home" onPress={() => go("Home")} />;
-    } else if (trip.status === "Completed") {
-      content = (
-        <Hint
-          info
-          icon="checkmark-circle-outline"
-          text="This trip is already complete."
-        />
-      );
-      footer = (
-        <Action
-          title="View receipt"
-          onPress={() => go("Receipt", trip.id)}
-        />
-      );
-    } else {
+      footer = <ParaButton disabled={locked} onPress={() => go("Drop off", trip.id)} />;
+    } else if (view === "dropoff") {
+      title = `Is this ${trip.destination}?`;
+      subtitle = "If not, tell your driver before you pay.";
       content = (
         <>
-          <View style={[ps.banner, { backgroundColor: "#0B5942" }]}>
-            <Text style={ps.bannerSub}>CASH FARE</Text>
-            <Text style={[ps.bannerTitle, { fontSize: 40 }]}>
-              {money(trip.fare)}
-            </Text>
-            <Text style={ps.bannerSub}>
-              Pay directly to {trip.driver || "your driver"}
-            </Text>
+          {map(220, "trip")}
+          <DriverLine trip={trip} small />
+          <SummaryRow label="Fare, in cash" value={money(trip.fare)} strong />
+        </>
+      );
+      footer = (
+        <Action title={`Yes, pay ${money(trip.fare)}`} onPress={() => go("Pay cash", trip.id)} />
+      );
+    } else {
+      const bill = [20, 50, 100, 200, 500, 1000].find((b) => b >= trip.fare) || trip.fare;
+      title = `Pay ${driverName}`;
+      subtitle = "Cash, straight to your driver.";
+      content = (
+        <>
+          <View style={{ gap: 4, paddingVertical: 6 }}>
+            <Text style={[ps.total, { fontSize: 72, lineHeight: 72 }]}>{money(trip.fare)}</Text>
+            <Text style={ps.small}>City fare matrix · no booking or platform fee</Text>
           </View>
-
           <View style={ps.card}>
-            <Locations pickup={trip.pickup} destination={trip.destination} />
-            <View style={ps.divider} />
             <SummaryRow
-              label="Fixed cash fare"
-              value={money(trip.fare)}
+              label="Student, senior or PWD (show ID)"
+              value={money(Math.round(trip.fare * 0.8 * 100) / 100)}
               strong
             />
-            <SummaryRow label="Booking fee" value={money(0)} />
-            <SummaryRow label="Platform fee" value={money(0)} />
-            <View style={ps.divider} />
-            <View style={ps.between}>
-              <Text style={ps.body}>Total to pay driver</Text>
-              <Text style={ps.total}>{money(trip.fare)}</Text>
-            </View>
+            {bill > trip.fare && (
+              <SummaryRow label={`Paying with ${money(bill)}`} value={`${money(bill - trip.fare)} change`} />
+            )}
           </View>
-
-          <Hint
-            info
-            icon="cash-outline"
-            text="Hand the exact cash amount to the driver. No online payment is required. Tap below once you’ve paid."
-          />
+          <RouteBoard from={trip.pickup} to={trip.destination} compact />
         </>
       );
       footer = (
         <Action
-          title={
-            working
-              ? "Completing trip…"
-              : `I paid ${money(trip.fare)} in cash`
-          }
-          icon="cash-outline"
+          title={working ? "Completing trip…" : `Paid ${money(trip.fare)}`}
           disabled={locked}
           onPress={() =>
             perform(async () => {
               if (await action(`/trips/${trip.id}`, { status: "Completed" })) {
+                haptic.success();
                 await refresh();
                 go("Receipt", trip.id);
               }
@@ -1615,13 +1316,16 @@ export default function PassengerApp({
         {terminals.map((item) => {
           const route = routes.find((r) => r.id === item.routeId);
           return (
-            <Pressable
+            <View
               key={item.id}
-              accessibilityRole="button"
-              onPress={() => setTerminalId(item.id)}
               style={[ps.card, terminal?.id === item.id && ps.selected]}
             >
-              <View style={ps.row}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityState={{ expanded: terminal?.id === item.id }}
+                onPress={() => setTerminalId(item.id)}
+                style={({ pressed }) => [ps.row, pressed && { opacity: 0.7 }]}
+              >
                 <Icon name="business-outline" size={24} />
                 <View style={{ flex: 1 }}>
                   <Text style={ps.label}>{item.name}</Text>
@@ -1629,8 +1333,11 @@ export default function PassengerApp({
                     {route?.name || "Route not active"}
                   </Text>
                 </View>
-                <Icon name="chevron-forward" size={18} />
-              </View>
+                <Icon
+                  name={terminal?.id === item.id ? "chevron-up" : "chevron-down"}
+                  size={18}
+                />
+              </Pressable>
               {terminal?.id === item.id && (
                 <View style={ps.row}>
                   <View style={{ flex: 1 }}>
@@ -1647,7 +1354,8 @@ export default function PassengerApp({
                   </View>
                   <View style={{ flex: 1 }}>
                     <Action
-                      title="Directions ↗"
+                      title="Directions"
+                      icon="navigate-outline"
                       light
                       onPress={() => {
                         void perform(async () => {
@@ -1660,7 +1368,7 @@ export default function PassengerApp({
                   </View>
                 </View>
               )}
-            </Pressable>
+            </View>
           );
         })}
         {!terminals.length && (
@@ -1684,9 +1392,13 @@ export default function PassengerApp({
             >
               <View>
                 <Text style={ps.departTime}>
-                  {nextDeparture(route, data.serverTime)}
+                  {nextDeparture(route, data.serverTime).replace("Tomorrow ", "")}
                 </Text>
-                <Text style={ps.tiny}>ESTIMATED</Text>
+                <Text style={ps.tiny}>
+                  {nextDeparture(route, data.serverTime).startsWith("Tomorrow")
+                    ? "Tomorrow"
+                    : waitLabel(route, data.serverTime)}
+                </Text>
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={ps.label}>{route.name}</Text>
@@ -1702,84 +1414,46 @@ export default function PassengerApp({
           ))}
         <Hint
           icon="time-outline"
-          text="Estimated, not guaranteed. Departure may shift with loading; confirm at the terminal."
+          text="Times shift with loading. Confirm at the terminal."
         />
       </>
     );
   } else if (page === "Receipt") {
     title =
       trip?.status === "Completed"
-        ? "You’ve arrived!"
+        ? "Receipt"
         : trip?.status === "Cancelled"
           ? "Trip cancelled"
           : "Trip details";
-    subtitle = `Salamat sa pagsakay, ${data.user.name.split(" ")[0]}.`;
+    subtitle = `Salamat ha pagsakay, ${data.user.name.split(" ")[0]}.`;
     back = "Trips";
     content = trip ? (
       <>
-        <View style={ps.banner}>
-          <View style={ps.between}>
-            <Text style={[ps.section, { color: "white", flex: 1 }]}>
-              {trip.status === "Completed" ? "Trip completed" : trip.status}
-            </Text>
-            <View style={ps.check}>
-              <Icon
-                name={trip.status === "Completed" ? "checkmark" : "close"}
-                size={26}
-              />
-            </View>
-          </View>
-          <Text style={ps.bannerSub}>
-            {fullDate(trip.createdAt)} · {stamp(trip.createdAt)}
-            {trip.timestamps.Completed
-              ? `–${stamp(trip.timestamps.Completed)}`
-              : ""}
-          </Text>
-          <Text style={ps.bannerSub}>Trip ID: {trip.id}</Text>
-        </View>
-        {receiptDetails(trip)}
-        {trip.status === "Completed" && (
-          <>
-            {fares(trip)}
-            <Text style={[ps.label, { textAlign: "center" }]}>
-              How was your ride
-              {trip.driver ? ` with ${trip.driver.split(" ")[0]}` : ""}?
-            </Text>
-            <View style={[ps.row, { justifyContent: "space-around" }]}>
-              {[1, 2, 3, 4, 5].map((rating) => (
-                <Pressable
-                  key={rating}
-                  accessibilityRole="button"
-                  accessibilityLabel={`Rate ${rating} out of 5`}
-                  accessibilityState={{
-                    selected: trip.rating === rating,
-                    disabled: locked,
-                  }}
-                  disabled={locked}
-                  onPress={() => {
-                    void action(`/trips/${trip.id}/rating`, { rating });
-                  }}
-                  style={ps.star}
-                >
-                  <Icon
-                    name={
-                      trip.rating && rating <= trip.rating
-                        ? "star"
-                        : "star-outline"
-                    }
-                    size={27}
-                    color={c.amber}
-                  />
-                </Pressable>
-              ))}
-            </View>
-          </>
-        )}
-        <Pressable
-          accessibilityRole="button"
-          onPress={() => go("Support", trip.id)}
+        <Ticket
+          serial={tripRef(trip.id).replace("#", "")}
+          when={`${fullDate(trip.createdAt)} · ${stamp(trip.createdAt)}${trip.timestamps.Completed ? `–${stamp(trip.timestamps.Completed)}` : ""}`}
+          stamp={trip.status === "Completed" ? "Paid in cash" : trip.status === "Cancelled" ? "Cancelled" : undefined}
         >
-          <Text style={ps.textLink}>Need help with this trip?</Text>
+          <Text style={[ps.total, { fontSize: 56, lineHeight: 58 }]}>
+            {money(trip.status === "Completed" ? trip.fare : 0)}
+          </Text>
+          <RouteBoard from={trip.pickup} to={trip.destination} compact />
+          <SummaryRow label="Ride" value={`${trip.distance} km · ${trip.minutes} min`} />
+          {trip.driver ? (
+            <SummaryRow label="Driver" value={`${trip.driver} · ${trip.plate || "—"}`} />
+          ) : null}
+          <SummaryRow label="Fare source" value="City fare matrix" />
+        </Ticket>
+        {trip.status === "Completed" && (
+          <RateTrip
+            rating={trip.rating}
+            driver={trip.driver}
+            disabled={locked}
+            onRate={(rating) => action(`/trips/${trip.id}/rating`, { rating })}
+          />
+        )}
+        <Pressable accessibilityRole="button" onPress={() => go("Support", trip.id)} hitSlop={8}>
+          <Text style={ps.textLink}>Report a problem with this ride</Text>
         </Pressable>
       </>
     ) : (
@@ -1790,8 +1464,8 @@ export default function PassengerApp({
         {trip?.status === "Completed" && (
           <View style={{ flex: 1 }}>
             <Action
-              title="Done"
-              icon="download-outline"
+              title="Share receipt"
+              icon="share-outline"
               light
               disabled={locked}
               onPress={() => share(true)}
@@ -1799,7 +1473,7 @@ export default function PassengerApp({
           </View>
         )}
         <View style={{ flex: 1 }}>
-          <Action title="Back to Home" onPress={() => go("Home")} />
+          <Action title="Done" onPress={() => go("Home")} />
         </View>
       </View>
     );
@@ -1830,18 +1504,26 @@ export default function PassengerApp({
     );
   } else if (page === "Trips") {
     title = "Trips";
-    subtitle = `${data.trips.filter((trip) => trip.status === "Completed").length} completed`;
+    subtitle = `${data.trips.length} ${data.trips.length === 1 ? "trip" : "trips"}`;
     content = (
       <PassengerTripsScreen
         trips={data.trips}
         onBook={() => go("Journey")}
         onOpen={(trip) =>
           go(
-            ["Completed", "Cancelled"].includes(trip.status)
-              ? "Receipt"
-              : trip.status === "Arrived"
-                ? "Arrived"
-                : "Track ride",
+            trip.serviceType === "PUJ/PUV" && trip.status === "Expired"
+              ? "PUJ arrived"
+              : trip.status === "Expired" || trip.status === "Requested"
+              ? "Ride accepted"
+              : ["Completed", "Cancelled"].includes(trip.status)
+                ? trip.serviceType === "PUJ/PUV" && trip.status === "Completed"
+                  ? "PUJ complete"
+                  : "Receipt"
+                : trip.serviceType === "PUJ/PUV"
+                  ? "PUJ arrived"
+                  : trip.status === "Arrived"
+                    ? "Arrived"
+                    : "Track ride",
             trip.id,
           )
         }
@@ -1849,7 +1531,7 @@ export default function PassengerApp({
     );
   } else if (page === "Edit profile") {
     title = "Edit passenger profile";
-    subtitle = "Keep your contact details up to date";
+    subtitle = "";
     back = "Profile";
     content = (
       <>
@@ -1869,13 +1551,18 @@ export default function PassengerApp({
           onChangeText={setPhone}
           keyboardType="phone-pad"
         />
+        {!!phone.trim() && !isPhMobile(phone) && (
+          <Text accessibilityRole="alert" style={[ps.small, { color: "#B3411F" }]}>
+            Use a Philippine mobile number, like 0917 123 4567.
+          </Text>
+        )}
         <Text style={ps.small}>{data.user.email}</Text>
         <Action
           title="Save profile"
-          disabled={locked || !name.trim()}
+          disabled={locked || !name.trim() || (!!phone.trim() && !isPhMobile(phone))}
           onPress={() => {
             void perform(async () => {
-              if (await action("/profile", { name, phone }, "PATCH")) {
+              if (await action("/profile", { name: name.trim(), phone: normalizePhMobile(phone) }, "PATCH")) {
                 go("Profile");
               }
             });
@@ -1892,51 +1579,70 @@ export default function PassengerApp({
       </>
     );
   } else if (page === "Notifications") {
-    title = "Your notifications";
-    subtitle = "Updates about your rides and account";
+    title = "Updates";
+    subtitle = unread ? `${unread} new` : "";
     back = "Profile";
     content = (
       <>
-        <Action
-          title="Mark all as read"
-          light
-          disabled={locked}
-          onPress={() => {
-            void action("/notifications/read", {});
-          }}
-        />
-        {data.notifications.map((item) => (
-          <View key={item.id} style={ps.card}>
-            <Text
-              style={[
-                ps.body,
-                !item.read && { fontWeight: "600", color: c.ink },
-              ]}
-            >
-              {item.message}
-            </Text>
-            <Text style={ps.tiny}>
-              {fullDate(item.createdAt)} · {stamp(item.createdAt)}
-            </Text>
+        {unread > 0 && (
+          <Pressable
+            accessibilityRole="button"
+            disabled={locked}
+            onPress={() => {
+              void action("/notifications/read", {});
+            }}
+            style={{ alignSelf: "flex-end", minHeight: 32, justifyContent: "center" }}
+          >
+            <Text style={ps.textLink}>Mark all read</Text>
+          </Pressable>
+        )}
+        <View style={[ps.card, { paddingVertical: 2, gap: 0 }]}>
+        {data.notifications.map((item, index) => (
+          <View
+            key={item.id}
+            style={[
+              { flexDirection: "row", gap: 12, alignItems: "flex-start", paddingVertical: 14 },
+              index > 0 && { borderTopWidth: 1, borderTopColor: c.line },
+            ]}
+            accessibilityLabel={`${item.read ? "" : "Unread. "}${item.message}`}
+          >
+            <View
+              style={{
+                width: 8,
+                height: 8,
+                borderRadius: 4,
+                marginTop: 7,
+                backgroundColor: item.read ? "transparent" : c.amber,
+              }}
+            />
+            <View style={{ flex: 1, gap: 6 }}>
+              <Text
+                style={[
+                  ps.body,
+                  !item.read && { fontWeight: "600", color: c.ink },
+                ]}
+              >
+                {item.message}
+              </Text>
+              <Text style={ps.tiny}>
+                {fullDate(item.createdAt)} · {stamp(item.createdAt)}
+              </Text>
+            </View>
           </View>
         ))}
+        </View>
         {!data.notifications.length && (
-          <Text style={ps.body}>You’re all caught up.</Text>
+          <Text style={ps.body}>Nothing new.</Text>
         )}
       </>
     );
   } else {
-    title = "Passenger support";
-    subtitle = "Privacy, safety and help with a journey";
+    title = "Help";
+    subtitle = "";
     back = "Profile";
     content = (
       <>
-        <Hint
-          info
-          icon="shield-checkmark-outline"
-          text="Location access is optional. Driver positions are shown only when available, and stale positions are labeled. Share trip status only with people you choose."
-        />
-        {params.trip ? <Text style={ps.small}>Trip: {params.trip}</Text> : null}
+        {params.trip ? <Text style={ps.small}>About trip {tripRef(params.trip)}</Text> : null}
         <Text style={ps.label}>Tell us what happened</Text>
         <TextInput
           accessibilityLabel="Support report details"
@@ -1945,11 +1651,11 @@ export default function PassengerApp({
           onChangeText={setReport}
           multiline
           maxLength={2000}
-          placeholder="Describe the issue so the transport administrator can help…"
+          placeholder="What went wrong?"
           placeholderTextColor={c.muted}
         />
         <Action
-          title="Send report to administrator"
+          title="Send to the transport office"
           disabled={locked || report.trim().length < 5}
           onPress={() => {
             void perform(async () => {
@@ -1966,7 +1672,7 @@ export default function PassengerApp({
         />
         {data.reports.map((item) => (
           <View style={ps.card} key={item.id}>
-            <Tag text={item.status} />
+            <Tag text={statusLabel(item.status)} />
             <Text style={ps.body}>{item.details}</Text>
             <Text style={ps.tiny}>{fullDate(item.createdAt)}</Text>
           </View>
@@ -1990,38 +1696,65 @@ export default function PassengerApp({
   }, [back, params.trip]);
   return (
     <View style={ps.app}>
-      <View style={ps.header}>
-        {back && (
+      {live && hero ? (
+        <View
+          style={{ flex: 1, minHeight: 220 }}
+          onLayout={(event) => {
+            const next = Math.round(event.nativeEvent.layout.height);
+            if (Math.abs(next - heroHeight) > 1) {
+              setHeroHeight(next);
+            }
+          }}
+        >
+          {hero}
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Minimize ride, go to Home"
+            onPress={() => go("Home")}
+            style={ps.mapButton}
+          >
+            <Icon name="chevron-down" size={24} color={c.ink} />
+          </Pressable>
+        </View>
+      ) : null}
+      <View style={live && hero ? ps.sheetHeader : ps.header}>
+        {live && hero ? <View style={ps.grabber} /> : null}
+        {back && !(live && hero) && (
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Go back"
             onPress={() => go(back!, params.trip)}
             style={ps.iconButton}
           >
-            <Icon name="arrow-back" size={26} />
+            <Icon name="arrow-back" size={22} color={c.ink} />
           </Pressable>
         )}
         <View style={{ flex: 1 }}>
           <Text accessibilityRole="header" style={ps.heading}>
             {title}
           </Text>
-          <Text style={ps.subtitle}>{subtitle}</Text>
+          {subtitle ? (
+            <Text style={ps.subtitle} numberOfLines={2}>
+              {subtitle}
+            </Text>
+          ) : null}
         </View>
-        {!back && (
+        {!back && !live && (
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="Notifications"
+            accessibilityLabel={unread ? `Notifications, ${unread} unread` : "Notifications"}
             style={ps.iconButton}
             onPress={() => go("Notifications")}
           >
-            <Icon name="notifications-outline" size={22} />
+            <Glyph name="bell" size={22} />
+            {unread > 0 && <View style={ps.unreadDot} />}
           </Pressable>
         )}
       </View>
       <ScrollView
         ref={scroll}
-        style={ps.scroll}
-        contentContainerStyle={ps.content}
+        style={live && hero ? { flexGrow: 0, flexShrink: 1 } : ps.scroll}
+        contentContainerStyle={[ps.content, live && hero ? { flexGrow: 0 } : null]}
         keyboardShouldPersistTaps="handled"
       >
         {!connected && (
@@ -2042,16 +1775,16 @@ export default function PassengerApp({
       {footer && (
         <View style={ps.footer}>
           {footer}
-          <Text style={ps.disclaimer}>{disclaimer}</Text>
+          {disclaimer ? <Text style={ps.disclaimer}>{disclaimer}</Text> : null}
         </View>
       )}
       {tabPages.includes(page) && (
         <View style={[ps.nav, { marginBottom: navLift }]}>
           {[
-            { label: "Home", text: "Home", icon: "home-outline" as IconName },
-            { label: "Routes", text: "Routes", icon: "navigate-circle-outline" as IconName },
-            { label: "Trips", text: "Trips", icon: "time-outline" as IconName },
-            { label: "Profile", text: "Account", icon: "person-outline" as IconName },
+            { label: "Home", text: "Home", icon: "home" as GlyphName },
+            { label: "Routes", text: "Routes", icon: "routes" as GlyphName },
+            { label: "Trips", text: "Trips", icon: "ticket" as GlyphName },
+            { label: "Profile", text: "Account", icon: "account" as GlyphName },
           ].map((tab) => {
             const selected =
               page === tab.label ||
@@ -2069,17 +1802,8 @@ export default function PassengerApp({
                   pressed && ps.pressed,
                 ]}
               >
-                <Icon
-                  name={tab.icon}
-                  size={23}
-                  color={selected ? c.green : "#71877A"}
-                />
-                <Text
-                  style={[
-                    ps.navLabel,
-                    selected && { color: c.green, fontWeight: "700" },
-                  ]}
-                >
+                <Glyph name={tab.icon} size={24} color={selected ? c.brand : c.muted} />
+                <Text style={[ps.navLabel, selected && { color: c.brand }]}>
                   {tab.text}
                 </Text>
               </Pressable>

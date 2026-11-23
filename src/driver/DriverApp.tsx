@@ -1,4 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
+import { greeting, nextDeparture, waitLabel } from "../domain/schedule";
+import { statusLabel, isPhMobile, normalizePhMobile } from "../domain/format";
 import {
   View,
   Text,
@@ -16,9 +18,15 @@ import type { Snapshot, DriverRun } from "../types/types";
 import { api } from "../services/api";
 import { Icon, money } from "../common/ui";
 import CalbayogMap from "../map/CalbayogMap";
+import { RouteBoard } from "../common/RouteBoard";
+import { BodyNumber } from "../common/BodyNumber";
+import { Glyph, type GlyphName } from "../common/Glyph";
+import { distanceKm } from "../services/mapbox";
 import { ps, passengerColors as c } from "../passenger/passengerStyles";
-import DriverAvatar from "../common/DriverAvatar";
 import { pickDriverPhoto, Share, Linking } from "../services/previewActions";
+import { isFinished } from "../domain/roles";
+import { haptic } from "../common/haptics";
+import { useNow } from "../common/useNow";
 
 type Props = {
   data: Snapshot;
@@ -77,15 +85,16 @@ function Button({
         pressed && ps.pressed,
       ]}
     >
-      {icon && <Icon name={icon} color={light ? c.green : "white"} size={19} />}
-      <Text style={[ps.buttonText, light && { color: c.green }]}>{title}</Text>
+      {icon && <Icon name={icon} color={light ? c.brand : c.onBrand} size={19} />}
+      <Text style={[ps.buttonText, light && { color: c.brand }]}>{title}</Text>
     </Pressable>
   );
 }
 function Tag({ text, amber }: { text: string; amber?: boolean }) {
   return (
-    <View style={[ps.pill, amber && { backgroundColor: "#FFF0D6" }]}>
-      <Text style={[ps.pillText, amber && { color: "#B37A2A" }]}>{text}</Text>
+    <View style={ps.pill}>
+      <View style={[ps.square, { width: 9, height: 9 }, amber && { backgroundColor: c.amber }]} />
+      <Text style={[ps.pillText, amber && { color: c.amber }]}>{text}</Text>
     </View>
   );
 }
@@ -104,24 +113,50 @@ function Hint({
     <View style={[ps.hint, (info || !warning) && ps.info]}>
       <Icon
         name={icon || (warning ? "warning-outline" : "shield-checkmark-outline")}
-        color={warning ? "#B37A2A" : c.green}
-        size={19}
+        color={warning ? c.amber : c.muted}
+        size={16}
       />
-      <Text style={[ps.hintText, (info || !warning) && { color: c.green }]}>
+      <Text style={[ps.hintText, (info || !warning) && { color: c.muted }]}>
         {text}
       </Text>
     </View>
   );
 }
+function Locations({ pickup, destination }: { pickup: string; destination: string }) {
+  return <RouteBoard from={pickup} to={destination} compact />;
+}
+function Row({ title, detail, onPress, danger, last }: { title: string; detail?: string; onPress?: () => void; danger?: boolean; last?: boolean }) {
+  return (
+    <Pressable
+      accessibilityRole={onPress ? "button" : undefined}
+      disabled={!onPress}
+      onPress={onPress}
+      style={({ pressed }) => [
+        ps.between,
+        { minHeight: 54, paddingVertical: 12 },
+        !last && { borderBottomWidth: 1, borderBottomColor: "#D6D7D1" },
+        pressed && ps.pressed,
+      ]}
+    >
+      <Text style={[ps.label, { fontWeight: "500" }, danger && { color: c.red }]}>{title}</Text>
+      <View style={[ps.row, { gap: 6, flexShrink: 1 }]}>
+        {detail ? <Text style={[ps.small, { textAlign: "right", flexShrink: 1 }]} numberOfLines={1}>{detail}</Text> : null}
+        {onPress && !danger ? <Icon name="chevron-forward" size={18} color={c.muted} /> : null}
+      </View>
+    </Pressable>
+  );
+}
 function Stat({ value, label }: { value: string | number; label: string }) {
   return (
-    <View
-      style={[ps.card, { flex: 1, padding: 12, alignItems: "center", gap: 3, minWidth: 0 }]}
-    >
-      <Text style={[ps.section, { fontSize: 18, flexShrink: 1 }]} numberOfLines={1} adjustsFontSizeToFit>
+    <View style={{ flex: 1, paddingHorizontal: 4, gap: 2, minWidth: 0 }}>
+      <Text
+        style={[ps.section, { fontSize: 20, lineHeight: 26, flexShrink: 1, fontVariant: ["tabular-nums"] }]}
+        numberOfLines={1}
+        adjustsFontSizeToFit
+      >
         {value}
       </Text>
-      <Text style={[ps.tiny, { textAlign: "center" }]}>{label}</Text>
+      <Text style={ps.tiny}>{label}</Text>
     </View>
   );
 }
@@ -153,41 +188,21 @@ const time = (at: string | number) =>
     hour: "numeric",
     minute: "2-digit",
   });
-const date = (at: string | number) =>
+const dayKey = (at: string | number) =>
   new Date(at).toLocaleDateString("en-CA", { timeZone: "Asia/Manila" });
-function departure(route: Snapshot["routes"][number], now: number) {
-  if (
-    route.scheduled === false ||
-    !route.interval ||
-    !route.startsAt ||
-    !route.endsAt
-  ) {
-    return "No fixed schedule";
-  }
-  const minute = (s: string) => {
-    const [h, m] = s.split(":").map(Number);
-    return h * 60 + m;
-  };
-  const current = minute(
-      new Date(now).toLocaleTimeString("en-GB", {
-        timeZone: "Asia/Manila",
-        hour12: false,
-        hour: "2-digit",
-        minute: "2-digit",
-      }),
-    ),
-    start = minute(route.startsAt),
-    end = minute(route.endsAt),
-    next = Math.max(
-      start,
-      start +
-        Math.ceil((current - start) / Math.max(1, route.interval)) *
-          Math.max(1, route.interval),
-    );
-  return next > end
-    ? `Tomorrow ${route.startsAt}`
-    : `${String(Math.floor(next / 60)).padStart(2, "0")}:${String(next % 60).padStart(2, "0")}`;
-}
+const date = (at: string | number) =>
+  new Date(at).toLocaleDateString("en-PH", {
+    timeZone: "Asia/Manila",
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+const shortDate = (at: string | number) =>
+  new Date(at).toLocaleDateString("en-PH", {
+    timeZone: "Asia/Manila",
+    day: "numeric",
+    month: "short",
+  });
 export default function DriverApp({
   data,
   busy,
@@ -208,6 +223,8 @@ export default function DriverApp({
     trip?: string;
   }>();
   const puj = data.user.role === "PUJ / PUV driver";
+  const online = data.user.available && sharing;
+  const unread = data.notifications.filter((n) => !n.read).length;
   const aliases: Record<string, string> = {
     Home: "Dashboard",
     "My trips": "Records",
@@ -248,24 +265,39 @@ export default function DriverApp({
   const lock = useRef(false),
     scroll = useRef<React.ComponentRef<typeof ScrollView>>(null);
   const locked = busy || working;
+  const now = useNow(15_000);
   const runs = data.runs || [],
     activeRun = runs.find((r) => r.status === "In progress"),
     run = runs.find((r) => r.id === params.run) || activeRun || runs[0];
   const trips = data.trips.filter((t) => t.driverId === data.user.id),
     requests = data.trips
-      .filter((t) => t.status === "Requested" && data.user.available)
+      .filter(
+        (t) =>
+          t.status === "Requested" &&
+          data.user.available &&
+          (!t.expires || t.expires > now),
+      )
       .sort((a, b) =>
         data.user.location
           ? awayKm(data.user.location, a.pickupPoint) -
             awayKm(data.user.location, b.pickupPoint)
           : 0,
       ),
-    activeTrip = trips.find(
-      (t) => !["Completed", "Cancelled"].includes(t.status),
-    ),
+    activeTrip = trips.find((t) => !isFinished(t)),
     trip = trips.find((t) => t.id === params.trip) || activeTrip || trips[0];
   const assigned = data.routes.find((r) => r.id === data.user.routeId),
     stops = activeRun?.stops || assigned?.stops || [];
+  const corridorStops = stops.length ? stops : run?.stops || [];
+  const waiting = data.stopRequests.filter(
+    (request) => request.routeId === (activeRun?.routeId || assigned?.id),
+  );
+  const corridor =
+    puj && corridorStops.length > 1
+      ? {
+          type: "LineString" as const,
+          coordinates: corridorStops.map((p) => [p.longitude, p.latitude]),
+        }
+      : null;
   const fresh =
     !!data.user.location &&
     data.serverTime - data.user.location.updatedAt <= 60000;
@@ -300,7 +332,7 @@ export default function DriverApp({
           at: new Date(t.timestamps.Completed || t.createdAt).toISOString(),
           fare: t.fare,
         }));
-  const today = completed.filter((r) => date(r.at) === date(data.serverTime)),
+  const today = completed.filter((r) => dayKey(r.at) === dayKey(data.serverTime)),
     todayCash = today.reduce((s, r) => s + r.fare, 0),
     week = Array.from({ length: 7 }, (_, i) => {
       const at = data.serverTime - (6 - i) * 86400000;
@@ -311,7 +343,7 @@ export default function DriverApp({
           weekday: "short",
         }),
         fare: completed
-          .filter((r) => date(r.at) === date(at))
+          .filter((r) => dayKey(r.at) === dayKey(at))
           .reduce((s, r) => s + r.fare, 0),
       };
     }),
@@ -414,7 +446,6 @@ export default function DriverApp({
         onPress={() => go(activeRun ? "Route" : "Terminal", activeRun?.id)}
         style={ps.card}
       >
-        <Text style={ps.locationCaption}>Your assigned route</Text>
         <View style={ps.row}>
           <View style={ps.routeCode}>
             <Text style={ps.routeCodeText}>
@@ -426,16 +457,16 @@ export default function DriverApp({
               {activeRun?.routeName || assigned?.name || run?.routeName}
             </Text>
             <Text style={ps.small}>
-              Designated route · {stops.length || run?.stops.length} stops
+              {stops.length || run?.stops.length} stops
             </Text>
           </View>
-          <Icon name="chevron-forward" size={17} />
+          <Icon name="chevron-forward" size={17} color={c.muted} />
         </View>
       </Pressable>
     ) : (
       <Hint
         warning
-        text="The administrator has not assigned a route yet. Contact support before starting route service."
+        text="No route assigned yet. Ask the transport office."
       />
     );
   const map = (height = 260, forTrip = false) => (
@@ -450,12 +481,12 @@ export default function DriverApp({
       }
       pickupLabel={
         forTrip && ["Accepted", "Arrived"].includes(trip?.status || "")
-          ? "Driver location"
+          ? "You"
           : undefined
       }
       destinationLabel={
         forTrip && ["Accepted", "Arrived"].includes(trip?.status || "")
-          ? "Passenger pickup location"
+          ? `Pickup · ${trip?.pickup ?? ""}`
           : undefined
       }
       destination={
@@ -466,9 +497,11 @@ export default function DriverApp({
           : stops[stops.length - 1] || run?.stops[(run?.stops.length || 1) - 1]
       }
       geometry={
-        forTrip && !["Accepted", "Arrived"].includes(trip?.status || "")
-          ? trip?.geometry
-          : null
+        forTrip
+          ? !["Accepted", "Arrived"].includes(trip?.status || "")
+            ? trip?.geometry
+            : null
+          : corridor
       }
       vehicles={ownVehicle}
       stops={puj ? data.stopRequests : []}
@@ -482,13 +515,13 @@ export default function DriverApp({
           <Pressable
             key={r.id}
             accessibilityRole="button"
+            accessibilityLabel={`${r.routeName}, ${date(r.startedAt)}, ${money(r.cashFares)}, ${r.status}`}
             onPress={() =>
               go(r.status === "Completed" ? "Run complete" : "Route", r.id)
             }
-            style={ps.card}
+            style={({ pressed }) => [ps.card, pressed && ps.pressed]}
           >
             <View style={ps.row}>
-              <Icon name="bus-outline" size={26} />
               <View style={{ flex: 1 }}>
                 <Text style={ps.label} numberOfLines={2}>{r.routeName}</Text>
                 <Text style={ps.small}>
@@ -496,23 +529,15 @@ export default function DriverApp({
                 </Text>
               </View>
               <View style={{ alignItems: "flex-end", flexShrink: 0, maxWidth: "38%" }}>
-                <Text style={[ps.label, { color: c.green }]} numberOfLines={1} adjustsFontSizeToFit>
+                <Text style={ps.price} numberOfLines={1} adjustsFontSizeToFit>
                   {money(r.cashFares)}
                 </Text>
-                <Tag text={r.status === "Completed" ? "Completed" : "In progress"} />
+                {r.status !== "Completed" && <Tag text="In progress" />}
               </View>
             </View>
             <Text style={ps.tiny} numberOfLines={2}>
-              {r.id.slice(0, 20)} · {r.totalBoarded} passenger boardings ·{" "}
-              {r.stops.length} stops
+              {r.totalBoarded} boarded · {r.stops.length} stops
             </Text>
-            <Button
-              title="View trip record"
-              light
-              onPress={() =>
-                go(r.status === "Completed" ? "Run complete" : "Route", r.id)
-              }
-            />
           </Pressable>
         ))}
         {!runs.length && (
@@ -524,12 +549,12 @@ export default function DriverApp({
         {trips.map((t) => (
           <Pressable
             accessibilityRole="button"
+            accessibilityLabel={`${t.pickup} to ${t.destination}, ${date(t.createdAt)}, ${money(t.fare)}, ${t.status}`}
             key={t.id}
             onPress={() => go("Trip", t.id)}
-            style={ps.card}
+            style={({ pressed }) => [ps.card, pressed && ps.pressed]}
           >
             <View style={ps.row}>
-              <Icon name="bicycle-outline" size={26} />
               <View style={{ flex: 1 }}>
                 <Text style={ps.label}>
                   {t.pickup} → {t.destination}
@@ -539,20 +564,15 @@ export default function DriverApp({
                 </Text>
               </View>
               <View style={{ alignItems: "flex-end" }}>
-                <Text style={[ps.label, { color: c.green }]}>
+                <Text style={ps.price}>
                   {money(t.fare)}
                 </Text>
-                <Tag text={t.status} />
+                {t.status !== "Completed" && <Tag text={t.status} />}
               </View>
             </View>
             <Text style={ps.tiny}>
-              {t.id.slice(0, 20)} · {t.distance} km · {t.minutes} min
+              {t.distance} km · {t.minutes} min
             </Text>
-            <Button
-              title="View trip record"
-              light
-              onPress={() => go("Trip", t.id)}
-            />
           </Pressable>
         ))}
         {!trips.length && (
@@ -560,57 +580,68 @@ export default function DriverApp({
         )}
       </>
     );
-  let title = "Driver dashboard",
-    subtitle = `${puj ? "PUJ/PUV" : "Tricycle"} driver${data.user.plate ? `, ${data.user.plate}` : ""}`,
+  let title = "Dashboard",
+    subtitle = "",
     content: React.ReactNode,
     footer: React.ReactNode = null,
     back: string | null = null;
   if (page === "Dashboard") {
-    const hour = Number(
-      new Date(data.serverTime).toLocaleTimeString("en-GB", {
-        timeZone: "Asia/Manila",
-        hour: "2-digit",
-        hourCycle: "h23",
-      }),
-    );
-    title = `${hour >= 5 && hour < 12 ? "Maupay nga aga" : hour < 18 && hour >= 12 ? "Maupay nga kulop" : "Maupay nga gab-i"}, ${data.user.name.split(" ")[0]}`;
+    title = "Today";
+    subtitle = `${greeting(data.serverTime)}, ${data.user.name.split(" ")[0]}`;
     content = (
       <>
-        <View style={ps.banner}>
-          <Text style={ps.bannerSub}>
-            {data.user.capacity} {data.user.capacity === 1 ? "seat" : "seats"}
-          </Text>
-          <View style={[ps.card, { padding: 14 }]}>
-            <View style={ps.between}>
-              <View style={{ flex: 1 }}>
-                <Text style={[ps.section, { color: c.green }]}>
-                  {!data.user.verified
-                    ? "Awaiting approval"
-                    : data.user.available
-                      ? "You’re available"
-                      : "You’re offline"}
-                </Text>
-                <Text style={ps.small}>
-                  {data.user.verified
-                    ? puj
-                      ? "Ready for assigned route service"
-                      : "Ready for nearby ride requests"
-                    : "Administrator review is required"}
-                </Text>
-              </View>
-              <Switch
-                accessibilityLabel="Driver availability"
-                value={data.user.available}
-                disabled={locked || !data.user.verified || !sharing}
-                onValueChange={(available) => {
-                  void action("/availability", { available });
-                }}
-                trackColor={{ false: "#D9E6DE", true: c.green }}
-                thumbColor="white"
-              />
-            </View>
+        <Pressable
+          accessibilityRole="switch"
+          accessibilityLabel="Driver availability"
+          accessibilityState={{ checked: online, disabled: locked || !data.user.verified || !sharing }}
+          disabled={locked || !data.user.verified || !sharing}
+          onPress={() => {
+            haptic.warning();
+            void action("/availability", { available: !online });
+          }}
+          style={({ pressed }) => [
+            {
+              borderRadius: 12,
+              padding: 18,
+              gap: 6,
+              backgroundColor: online ? c.brand : "#34413B",
+              minHeight: 132,
+              justifyContent: "space-between",
+            },
+            pressed && ps.pressed,
+          ]}
+        >
+          <View style={ps.between}>
+            <Text style={[ps.bannerTitle, { fontSize: 30, lineHeight: 34, color: "#FFFFFF", flex: 1 }]}>
+              {!data.user.verified
+                ? "Awaiting approval"
+                : online
+                  ? "You’re online"
+                  : data.user.available
+                    ? "Reconnecting GPS…"
+                    : "You’re offline"}
+            </Text>
+            <Switch
+              accessibilityElementsHidden
+              importantForAccessibility="no-hide-descendants"
+              value={online}
+              disabled={locked || !data.user.verified || !sharing}
+              onValueChange={(available) => {
+                haptic.warning();
+                void action("/availability", { available });
+              }}
+              trackColor={{ false: "#5E6B64", true: c.leaf }}
+              thumbColor="#FFFFFF"
+              {...({ activeThumbColor: "#FFFFFF", activeTrackColor: c.leaf } as object)}
+            />
           </View>
-        </View>
+          <View style={ps.between}>
+            <Text style={[ps.small, { color: "#D5EADF", flex: 1 }]}>
+              {online ? "Riders nearby can book you. Tap to go offline." : "Tap to go online and take rides."}
+            </Text>
+            <BodyNumber value={data.user.plate} size="sm" />
+          </View>
+        </Pressable>
         {!sharing && (
           <Button
             title="Enable GPS to go online"
@@ -630,10 +661,12 @@ export default function DriverApp({
             <Button
               title={
                 activeTrip
-                  ? "Continue your active trip"
+                  ? "Back to your trip"
                   : requests.length === 1
-                    ? "1 nearby ride request"
-                    : `${requests.length} nearby ride requests`
+                    ? "See 1 ride request"
+                    : requests.length
+                      ? `See ${requests.length} ride requests`
+                      : "No ride requests yet"
               }
               icon="bicycle-outline"
               onPress={() =>
@@ -644,51 +677,25 @@ export default function DriverApp({
         )}
         {puj && assigned && (
           <View style={ps.banner}>
-            <View style={ps.between}>
-              <Text style={ps.bannerSub}>NEXT DEPARTURE</Text>
-              <Tag
-                text={
-                  activeRun
-                    ? "Run active"
-                    : assigned.approved
-                      ? "Scheduled"
-                      : "Pending approval schedule"
-                }
-                amber
-              />
-            </View>
-            <Text style={[ps.bannerTitle, { fontSize: 34 }]}>
-              {activeRun ? "In progress" : departure(assigned, data.serverTime)}
+            <Text style={[ps.bannerTitle, { fontSize: 44, lineHeight: 48 }]}>
+              {activeRun ? "On the road" : nextDeparture(assigned, data.serverTime)}
             </Text>
             <Text style={ps.bannerSub}>
+              {activeRun ? "" : `${waitLabel(assigned, data.serverTime)} · `}
               {data.terminals.find((t) => t.routeId === assigned.id)?.name ||
                 assigned.stops[0]?.name}
             </Text>
           </View>
         )}
-        <Text style={ps.section}>
-          {puj ? "Today's trip records" : "Today's trip records"}
+        <Text style={[ps.small, { color: c.ink }]}>
+          {today.length} {today.length === 1 ? "trip" : "trips"} today · {money(todayCash)} cash
+          {puj ? ` · ${activeRun?.onboard || 0} of ${data.user.capacity} on board` : ""}
         </Text>
-        <View style={ps.row}>
-          <Stat
-            value={today.length}
-            label={puj ? "Completed trips" : "Completed trips"}
-          />
-          <Stat value={money(todayCash)} label="Cash fares logged" />
-          <Stat
-            value={
-              puj
-                ? `${activeRun?.onboard || 0}/${data.user.capacity}`
-                : requests.length
-            }
-            label={puj ? "On board" : "New requests"}
-          />
-        </View>
       </>
     );
     footer = puj ? (
       <Button
-        title={activeRun ? "Continue trip" : "View departure details"}
+        title={activeRun ? "Continue trip" : "Go to terminal"}
         icon="bus-outline"
         disabled={!assigned && !activeRun}
         onPress={() => go(activeRun ? "Route" : "Terminal", activeRun?.id)}
@@ -705,7 +712,7 @@ export default function DriverApp({
             <View style={ps.card}>
               <Text style={ps.locationCaption}>Scheduled departure</Text>
               <Text style={[ps.fare, { flexShrink: 1, fontSize: 22, lineHeight: 28 }]} numberOfLines={1} adjustsFontSizeToFit>
-                {departure(assigned, data.serverTime)}
+                {nextDeparture(assigned, data.serverTime)}
               </Text>
               <Text style={ps.body}>
                 {data.terminals.find((t) => t.routeId === assigned.id)?.name ||
@@ -731,7 +738,7 @@ export default function DriverApp({
                 <View key={r.id} style={ps.card}>
                   <View style={ps.between}>
                     <Text style={ps.label}>{r.name}</Text>
-                    <Tag text={departure(r, data.serverTime)} />
+                    <Tag text={nextDeparture(r, data.serverTime)} />
                   </View>
                   <Text style={ps.small}>
                     {r.scheduled === false
@@ -770,18 +777,55 @@ export default function DriverApp({
   } else if (page === "Route" || page === "Pickup") {
     title =
       page === "Pickup"
-        ? "Passengers at the next stop"
+        ? "Passengers"
         : activeRun
-          ? `Following route ${activeRun.routeId}`
-          : "Your assigned route";
+          ? activeRun.routeName
+          : "Your route";
     back = page === "Pickup" ? "Route" : "Dashboard";
     if (!activeRun) {
       content = (
         <>
           {routeCard()}
           {map()}
+          {stops.length > 0 && (
+            <View style={ps.card}>
+              {stops.map((point, i) => (
+                <View style={ps.stopRow} key={`${point.name}-${i}`}>
+                  <View style={ps.stopLine} />
+                  <View
+                    style={[
+                      ps.dot,
+                      i === stops.length - 1 && { backgroundColor: c.amber, borderRadius: 2 },
+                    ]}
+                  />
+                  <View style={{ flex: 1 }}>
+                    <Text style={ps.label}>{point.name}</Text>
+                  </View>
+                </View>
+              ))}
+            </View>
+          )}
+          {waiting.length > 0 && (
+            <View style={ps.card}>
+              <View style={ps.between}>
+                <Text style={ps.section}>Waiting for pickup</Text>
+                <Tag text={`${waiting.length} ${waiting.length === 1 ? "request" : "requests"}`} amber />
+              </View>
+              {waiting.map((request) => (
+                <View key={request.id} style={ps.row}>
+                  <Icon name="person-outline" size={18} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={ps.label}>{request.point.name}</Text>
+                    <Text style={ps.tiny}>
+                      {request.passenger} · {time(request.createdAt)}
+                    </Text>
+                  </View>
+                </View>
+              ))}
+            </View>
+          )}
           <Button
-            title="Browse routes & terminals"
+            title="All routes"
             light
             onPress={() => go("Routes")}
           />
@@ -789,7 +833,7 @@ export default function DriverApp({
       );
       footer = (
         <Button
-          title="View departure details"
+          title="Go to terminal"
           disabled={!assigned}
           onPress={() => go("Terminal")}
         />
@@ -800,48 +844,61 @@ export default function DriverApp({
         <>
           {routeCard()}
           {map(page === "Pickup" ? 220 : 280)}
-          <View style={ps.between}>
-            <Text style={ps.section}>
-              {activeRun.onboard} / {activeRun.capacity} on board
-            </Text>
-            <Tag
-              text={`${activeRun.capacity - activeRun.onboard} seats free`}
-            />
+          <View style={{ gap: 10 }}>
+            <View style={[ps.between, { alignItems: "flex-end" }]}>
+              <Text style={[ps.bannerTitle, { fontVariant: ["tabular-nums"] }]}>
+                {activeRun.onboard}
+                <Text style={[ps.bannerSub, { fontSize: 18 }]}> / {activeRun.capacity} aboard</Text>
+              </Text>
+              <Text style={[ps.label, { color: c.ink }]}>
+                {activeRun.capacity - activeRun.onboard} free
+              </Text>
+            </View>
+            <View style={{ flexDirection: "row", gap: 3 }} accessibilityElementsHidden>
+              {Array.from({ length: activeRun.capacity }, (_, i) => (
+                <View
+                  key={i}
+                  style={{
+                    flex: 1,
+                    height: 10,
+                    borderRadius: 2,
+                    backgroundColor: i < activeRun.onboard ? c.ink : c.line,
+                  }}
+                />
+              ))}
+            </View>
           </View>
           {(!sharing || !fresh || !connected) && (
-            <Hint
-              warning
-              text={`GPS stale or connection unavailable${data.user.location ? ` · last update ${time(data.user.location.updatedAt)}` : ""}. Showing your last known position. No live arrival time is promised.`}
-            />
+            <>
+              <Hint
+                warning
+                text={`GPS signal lost${data.user.location ? ` at ${time(data.user.location.updatedAt)}` : ""}. Passengers see your last position.`}
+              />
+              <Button
+                title="Retry GPS & connection"
+                icon="refresh-outline"
+                light
+                disabled={locked}
+                onPress={() => {
+                  void perform(async () => {
+                    if (!sharing) {
+                      await toggleSharing();
+                    }
+                    await refresh();
+                  });
+                }}
+              />
+            </>
           )}
-          <Button
-            title="Retry GPS & connection"
-            icon="refresh-outline"
-            light
-            disabled={locked}
-            onPress={() => {
-              void perform(async () => {
-                if (!sharing) {
-                  await toggleSharing();
-                }
-                await refresh();
-              });
-            }}
-          />
 
           {/* ROUTE PAGE — drive to next stop, then confirm arrival */}
           {page === "Route" && next && (
             <>
-              <View style={ps.card}>
-                <Text style={ps.locationCaption}>Next stop</Text>
-                <Text style={ps.section}>{next.name}</Text>
-                <Text style={ps.small}>
-                  Drive to this stop, then confirm arrival to record boarding
-                  and alighting passengers.
-                </Text>
+              <View style={ps.banner}>
+                <Text style={ps.bannerSub}>Next stop</Text>
+                <Text style={ps.bannerTitle}>{next.name}</Text>
               </View>
               <View style={ps.card}>
-                <Text style={ps.section}>Route stops</Text>
                 {activeRun.stops.map((point, i) => (
                   <View style={ps.stopRow} key={`${point.name}-${i}`}>
                     <View style={ps.stopLine} />
@@ -852,13 +909,13 @@ export default function DriverApp({
                       ]}
                     />
                     <View style={{ flex: 1 }}>
-                      <Text style={ps.label}>{point.name}</Text>
-                      <Text style={ps.tiny}>
-                        {i < activeRun.stopIndex
-                          ? "Stop confirmed"
-                          : i === activeRun.stopIndex
-                            ? "Current confirmed stop"
-                            : "Upcoming stop · no live ETA"}
+                      <Text
+                        style={[
+                          ps.label,
+                          i < activeRun.stopIndex && { color: c.muted, fontWeight: "500" },
+                        ]}
+                      >
+                        {point.name}
                       </Text>
                     </View>
                   </View>
@@ -871,55 +928,44 @@ export default function DriverApp({
           {page === "Pickup" && next && (
             <>
               <View style={ps.banner}>
-                <Text style={ps.bannerSub}>NEXT STOP</Text>
-                <Text style={[ps.section, { color: "white" }]}>
-                  {next.name}
-                </Text>
-                <Text style={ps.bannerSub}>
-                  You have arrived at this stop. Pickup is based on arriving
-                  here and finding waiting passengers.
-                </Text>
+                <Text style={ps.bannerSub}>At the stop</Text>
+                <Text style={ps.bannerTitle}>{next.name}</Text>
               </View>
-              <Hint
-                info
-                icon="people-outline"
-                text="Record passengers boarding and alighting at this stop, then confirm."
-              />
               <View style={ps.row}>
                 <Count
-                  label="Passengers boarding"
+                  label="Boarding"
                   value={boarded}
                   onChange={setBoarded}
                 />
                 <Count
-                  label="Passengers alighting"
+                  label="Getting off"
                   value={alighted}
                   onChange={setAlighted}
                 />
               </View>
-              <View style={ps.row}>
+              <View style={[ps.card, ps.row, { paddingVertical: 14, gap: 0 }]}>
                 <Stat
                   value={`${activeRun.onboard} / ${activeRun.capacity}`}
-                  label="On board now"
+                  label="on board now"
                 />
                 <Stat
                   value={activeRun.onboard - Number(alighted) + Number(boarded)}
-                  label="After boarding"
+                  label="after this stop"
                 />
               </View>
-              <Hint
-                warning
-                text={`Recorded flat fare: ${money(activeRun.fare)} per passenger${activeRun.sampleFare ? " · sample, not an official tariff" : ""}. Confirm actual counts before saving.`}
-              />
+              <Text style={ps.small}>
+                {money(activeRun.fare)} per passenger
+                {activeRun.sampleFare ? " · sample fare" : ""}
+              </Text>
               {data.stopRequests.length > 0 && (
                 <>
-                  <Text style={ps.section}>Passenger pickup requests</Text>
+                  <Text style={ps.section}>Waiting at this stop</Text>
                   {data.stopRequests.map((request) => (
                     <View style={ps.card} key={request.id}>
                       <Text style={ps.label}>{request.passenger}</Text>
                       <Text style={ps.body}>{request.point.name}</Text>
                       <Button
-                        title="Mark request picked up"
+                        title="Picked up"
                         light
                         disabled={locked}
                         onPress={() => {
@@ -953,7 +999,7 @@ export default function DriverApp({
       footer = next ? (
         page === "Pickup" ? (
           <Button
-            title="Confirm stop & passenger counts"
+            title="Save and drive on"
             icon="checkmark-outline"
             disabled={locked}
             onPress={() => {
@@ -962,7 +1008,7 @@ export default function DriverApp({
           />
         ) : (
           <Button
-            title="Record passengers at this stop"
+            title="I’m at this stop"
             icon="people-outline"
             onPress={() => {
               setBoarded("0");
@@ -986,38 +1032,24 @@ export default function DriverApp({
     content = run ? (
       <>
         <View style={ps.banner}>
-          <View style={ps.row}>
-            <Icon name="checkmark-circle-outline" size={33} color="white" />
-            <View style={{ flex: 1 }}>
-              <Text style={ps.bannerTitle}>
-                {run.status === "Completed"
-                  ? "Arrived at the final stop"
-                  : "Trip record"}
-              </Text>
-              <Text style={ps.bannerSub}>
-                {run.routeId} · {run.routeName}
-              </Text>
-              <Text style={ps.bannerSub}>
-                {date(run.startedAt)} · {time(run.startedAt)}
-                {run.endedAt ? `–${time(run.endedAt)}` : ""}
-              </Text>
-            </View>
-          </View>
+          <Text style={ps.total}>{money(run.cashFares)}</Text>
+          <Text style={ps.bannerSub}>
+            {run.totalBoarded} passengers × {money(run.fare)}
+            {run.sampleFare ? " (sample fare)" : ""}
+          </Text>
         </View>
         <View style={ps.card}>
-          <View style={ps.between}>
-            <Text style={ps.section}>Cash fares recorded</Text>
-            <Text style={[ps.fare, { flexShrink: 1 }]} numberOfLines={1} adjustsFontSizeToFit>{money(run.cashFares)}</Text>
+          <View style={ps.row}>
+            <View style={ps.routeCode}>
+              <Text style={ps.routeCodeText}>{run.routeId}</Text>
+            </View>
+            <Text style={[ps.label, { flex: 1 }]} numberOfLines={2}>
+              {run.routeName}
+            </Text>
           </View>
           <Text style={ps.small}>
-            {run.totalBoarded} passenger boardings × {money(run.fare)} ·{" "}
-            {run.sampleFare
-              ? "sample fare, not an official tariff"
-              : run.reference}
-          </Text>
-          <View style={ps.divider} />
-          <Text style={ps.body}>
-            {run.driver} · {run.plate} · {run.capacity} registered seats
+            {date(run.startedAt)} · {time(run.startedAt)}
+            {run.endedAt ? `–${time(run.endedAt)}` : ""} · {run.plate}
           </Text>
         </View>
         <Text style={ps.section}>Trip log</Text>
@@ -1041,65 +1073,101 @@ export default function DriverApp({
     );
     footer = (
       <Button
-        title="Back to dashboard"
-        icon="speedometer-outline"
+        title="Done"
         onPress={() => go("Dashboard")}
       />
     );
   } else if (page === "Requests") {
-    title = "Nearby ride requests";
-    subtitle = "Nearest-driver matching";
+    title = "Riders nearby";
+    subtitle = "Nearest driver gets asked first";
     back = "Dashboard";
     content = (
       <>
         {requests.map((t) => (
-          <View style={ps.card} key={t.id}>
-            <View style={ps.between}>
-              <Tag text="New request" />
-              <Text style={[ps.fare, { flexShrink: 1 }]} numberOfLines={1} adjustsFontSizeToFit>{money(t.fare)}</Text>
+          <View style={[ps.card, { gap: 14 }]} key={t.id}>
+            <View style={{ gap: 2 }}>
+              <Text style={ps.locationCaption}>Pick up</Text>
+              <Text style={ps.heading}>{t.pickup}</Text>
+              <Text style={ps.small}>
+                {data.user.location
+                  ? `${distanceKm(data.user.location, t.pickupPoint).toFixed(1)} km from you · `
+                  : ""}
+                {t.passenger}
+                {t.pickupNote ? ` · “${t.pickupNote}”` : ""}
+              </Text>
             </View>
-            <Text style={ps.section}>
-              {t.pickup} → {t.destination}
-            </Text>
-            <Text style={ps.body}>
-              {t.passenger} · {t.distance} km · about {t.minutes} min
-            </Text>
-            {Boolean(t.pickupNote) && (
-              <Text style={ps.body}>Pickup note: {t.pickupNote}</Text>
-            )}
-            <Button
-              title="Accept ride request"
-              disabled={
-                locked || !data.user.available || !sharing || !!activeTrip
-              }
-              onPress={() => {
-                void perform(async () => {
-                  if (await action(`/trips/${t.id}`, { status: "Accepted" })) {
-                    go("Trip", t.id);
-                  }
-                });
-              }}
-            />
-            <Button
-              title="Pass to next driver"
-              light
-              disabled={locked}
-              onPress={() => {
-                void action(`/trips/${t.id}/decline`, {});
-              }}
-            />
+            <View style={[ps.between, { alignItems: "flex-end" }]}>
+              <View style={{ flex: 1 }}>
+                <Text style={ps.locationCaption}>Drop off · {t.distance} km</Text>
+                <Text style={ps.label}>{t.destination}</Text>
+              </View>
+              <Text style={ps.total}>{money(t.fare)}</Text>
+            </View>
+            {t.expires ? (
+              <Text style={[ps.small, { fontWeight: "700" }, t.expires - now < 120_000 && { color: c.amber }]}>
+                {t.expires - now < 60_000
+                  ? "Offer closes in under a minute"
+                  : `Offer closes in ${Math.ceil((t.expires - now) / 60_000)} min`}
+              </Text>
+            ) : null}
+            <View style={[ps.row, { gap: 10 }]}>
+              <Pressable
+                accessibilityRole="button"
+                disabled={locked}
+                onPress={() => {
+                  haptic.tap();
+                  void action(`/trips/${t.id}/decline`, {});
+                }}
+                style={({ pressed }) => [ps.secondaryButton, { flex: 1, minHeight: 58, backgroundColor: "#FFFFFF" }, pressed && ps.pressed]}
+              >
+                <Text style={ps.secondaryText}>Pass</Text>
+              </Pressable>
+              <View style={{ flex: 2 }}>
+                <Button
+                  title="Accept"
+                  disabled={locked || !data.user.available || !sharing || !!activeTrip}
+                  onPress={() => {
+                    void perform(async () => {
+                      if (await action(`/trips/${t.id}`, { status: "Accepted" })) {
+                        haptic.success();
+                        go("Trip", t.id);
+                      }
+                    });
+                  }}
+                />
+              </View>
+            </View>
           </View>
         ))}
+        {requests.length > 0 && (!data.user.available || !sharing) && (
+          <Hint text="Go online and share your location to accept these rides." />
+        )}
+        {requests.length > 0 && !!activeTrip && (
+          <Hint text="Finish your current ride before accepting another." />
+        )}
         {!requests.length && (
-          <Hint text="No rides are offered to you right now. Approved, available drivers with recent GPS receive nearby offers." />
+          <Hint info text="No riders near you right now." />
         )}
       </>
     );
   } else if (page === "Trip") {
     title =
       trip?.status === "In progress"
-        ? "Trip in progress"
-        : "Your tricycle trip";
+        ? `Drop off at ${trip.destination}`
+        : trip?.status === "Arrived"
+          ? `Waiting for ${trip.passenger?.split(" ")[0] || "your rider"}`
+          : trip?.status === "Accepted"
+            ? `Pick up at ${trip.pickup}`
+            : "Trip";
+    subtitle =
+      trip && trip.status === "Accepted"
+        ? [
+            data.user.location ? `${distanceKm(data.user.location, trip.pickupPoint).toFixed(1)} km away` : "",
+            trip.pickupNote ? `“${trip.pickupNote}”` : "",
+          ]
+            .filter(Boolean)
+            .join(" · ")
+        : "";
     back = "Records";
     content = trip ? (
       <>
@@ -1121,26 +1189,20 @@ export default function DriverApp({
         )}
         <View style={ps.card}>
           <View style={ps.between}>
-            <Tag text={trip.status} />
-            <Text style={[ps.fare, { flexShrink: 1 }]} numberOfLines={1} adjustsFontSizeToFit>{money(trip.fare)}</Text>
+            <Text style={ps.section}>{trip.passenger}</Text>
+            <Text style={ps.fare} numberOfLines={1} adjustsFontSizeToFit>{money(trip.fare)}</Text>
           </View>
-          <Text style={ps.section}>{trip.passenger}</Text>
-          <Text style={ps.label}>Pickup · {trip.pickup}</Text>
-          <Text style={ps.label}>Destination · {trip.destination}</Text>
+          <Locations pickup={trip.pickup} destination={trip.destination} />
           {Boolean(trip.pickupNote) && (
-            <Text style={ps.body}>Pickup note: {trip.pickupNote}</Text>
+            <Text style={ps.small}>“{trip.pickupNote}”</Text>
           )}
           <Text style={ps.small}>
-            {trip.distance} km · about {trip.minutes} min ·{" "}
-            {trip.demoPayment
-              ? `${trip.demoPayment.method} · Test payment only — no money received. Actual fare remains payable.`
-              : trip.sampleFare
-                ? "Fixed fare"
-                : "Configured fixed fare"}
+            {trip.distance} km · {trip.minutes} min · cash
+            {trip.demoPayment ? ` · ${trip.demoPayment.method} test only` : ""}
           </Text>
         </View>
         <Button
-          title="Report a trip issue"
+          title="Report a problem"
           light
           onPress={() => go("Support", trip.id)}
         />
@@ -1155,11 +1217,11 @@ export default function DriverApp({
         "In progress": "Completed",
       } as const;
       const labels = {
-        Accepted: "Mark arrived at pickup",
-        Arrived: "Start passenger trip",
+        Accepted: "I’m at the pickup",
+        Arrived: "Start ride",
         "In progress": trip.demoPayment
           ? "Complete trip"
-          : "Complete trip, cash received",
+          : `Got ${money(trip.fare)} cash · finish`,
       };
       footer = (
         <Button
@@ -1167,8 +1229,15 @@ export default function DriverApp({
           icon="checkmark-outline"
           disabled={locked}
           onPress={() => {
-            void action(`/trips/${trip.id}`, {
-              status: next[trip.status as keyof typeof next],
+            const status = next[trip.status as keyof typeof next];
+            void action(`/trips/${trip.id}`, { status }).then((saved) => {
+              if (saved) {
+                if (status === "Completed") {
+                  haptic.success();
+                } else {
+                  haptic.tap();
+                }
+              }
             });
           }}
         />
@@ -1184,7 +1253,7 @@ export default function DriverApp({
     }
   } else if (page === "Routes") {
     title = "Routes & terminals";
-    subtitle = "Configured local departure information";
+    subtitle = "";
     back = "Route";
     content = (
       <>
@@ -1231,7 +1300,7 @@ export default function DriverApp({
                   text={
                     r.scheduled === false
                       ? "Live driver location"
-                      : `Departs ${departure(r, data.serverTime)}`
+                      : `Departs ${nextDeparture(r, data.serverTime)}`
                   }
                 />
                 <Tag
@@ -1259,39 +1328,30 @@ export default function DriverApp({
               </View>
             </View>
           ))}
-        <Hint text="Route assignments are managed by the administrator. Schedules may shift with loading; confirm at the terminal." />
+        <Hint info text="Times shift with loading. The transport office assigns routes." />
       </>
     );
   } else if (page === "Records") {
     title = puj ? "Your trip records" : "Your trips";
-    subtitle = "Cash records, routes, and driver details";
+    subtitle = "";
     content = <>{recordList()}</>;
   } else if (page === "Earnings") {
     title = "Earnings";
-    subtitle = "Transparent trip and cash fare records";
+    subtitle = `${shortDate(week[0].at)} – ${shortDate(data.serverTime)}`;
     const max = Math.max(1, ...week.map((d) => d.fare));
+    const weekTrips = completed.filter((r) => week.some((d) => dayKey(d.at) === dayKey(r.at))).length;
     const dayLabel = (d: Date) => ["Su","M","Tu","W","Th","F","Sa"][d.getDay()];
     content = (
       <>
         <View style={ps.banner}>
-          <View style={ps.between}>
-            <Text style={ps.bannerSub}>LAST 7 DAYS</Text>
-            <Tag
-              text={`${date(week[0].at).slice(5)}–${date(data.serverTime).slice(5)}`}
-            />
-          </View>
-          <Text style={[ps.bannerTitle, { fontSize: 35 }]} numberOfLines={1} adjustsFontSizeToFit>
+          <Text style={[ps.total, { fontSize: 52, lineHeight: 58 }]} numberOfLines={1} adjustsFontSizeToFit>
             {money(weekCash)}
           </Text>
           <Text style={ps.bannerSub}>
-            {completed.filter((r) => week.some((d) => date(d.at) === date(r.at))).length} completed {puj ? "trips" : "trips"} · recorded cash fares
+            {weekTrips} {weekTrips === 1 ? "trip" : "trips"} this week · {money(todayCash)} today · cash fares, no commission
           </Text>
         </View>
-        <View style={ps.card}>
-          <View style={ps.between}>
-            <Text style={ps.section}>Daily earnings</Text>
-            <Text style={ps.tiny}>Avg {money(weekCash / 7)}/day</Text>
-          </View>
+        <View style={{ paddingVertical: 4 }}>
           <View
             style={{
               height: 150,
@@ -1300,10 +1360,10 @@ export default function DriverApp({
               alignItems: "flex-end",
             }}
           >
-            {week.map((day) => {
+            {week.map((day, index) => {
               const d = new Date(day.at);
               const label = dayLabel(d);
-              const isThu = d.getDay() === 4;
+              const isToday = index === week.length - 1;
               return (
                 <View
                   key={day.at}
@@ -1319,49 +1379,52 @@ export default function DriverApp({
                     style={{
                       width: "100%",
                       height: Math.max(2, (day.fare / max) * 110),
-                      borderRadius: 6,
-                      backgroundColor: isThu ? c.amber : c.green,
+                      borderRadius: 3,
+                      backgroundColor: isToday ? c.brand : day.fare ? "#AFC6B9" : c.line,
                     }}
                   />
-                  <Text style={[ps.tiny, isThu && { color: c.amber, fontWeight: "700" }]}>{label}</Text>
+                  <Text style={[ps.tiny, isToday && { color: c.brand, fontWeight: "800" }]}>{label}</Text>
                 </View>
               );
             })}
           </View>
         </View>
-        <View style={ps.row}>
-          <Stat value={money(todayCash)} label="Today" />
-          <Stat value="₱0" label="Platform fees" />
-          <Stat value={money(weekCash)} label="Recorded cash" />
-        </View>
         <View style={ps.between}>
-          <Text style={ps.section}>Recent earnings</Text>
+          <Text style={ps.section}>Recent</Text>
           <Pressable accessibilityRole="button" onPress={() => go("Records")}>
             <Text style={ps.textLink}>See all</Text>
           </Pressable>
         </View>
-        {completed.slice(0, 8).map((record) => (
-          <View key={record.id} style={ps.location}>
-            <Icon name={puj ? "bus-outline" : "bicycle-outline"} />
-            <View style={{ flex: 1 }}>
-              <Text style={ps.label} numberOfLines={2}>{record.name}</Text>
-              <Text style={ps.tiny}>
-                {date(record.at)} · {time(record.at)}
-              </Text>
-            </View>
-            <Text style={[ps.label, { color: c.green, flexShrink: 0 }]} numberOfLines={1} adjustsFontSizeToFit>
-              {money(record.fare)}
-            </Text>
+        {completed.length > 0 && (
+          <View style={{ borderTopWidth: 1, borderTopColor: c.line }}>
+            {completed.slice(0, 8).map((record, index) => (
+              <View
+                key={record.id}
+                style={[
+                  ps.row,
+                  { paddingVertical: 12 },
+                  index > 0 && { borderTopWidth: 1, borderTopColor: c.line },
+                ]}
+              >
+                <View style={{ flex: 1, gap: 2 }}>
+                  <Text style={ps.label} numberOfLines={2}>{record.name}</Text>
+                  <Text style={ps.tiny}>
+                    {date(record.at)} · {time(record.at)}
+                  </Text>
+                </View>
+                <Text style={[ps.price, { flexShrink: 0 }]}>{money(record.fare)}</Text>
+              </View>
+            ))}
           </View>
-        ))}
+        )}
         {!completed.length && (
-          <Hint text="Earnings appear when you complete actual trips. No simulated amounts are added." />
+          <Hint info text="Finish a trip and its fare shows up here." />
         )}
       </>
     );
     footer = (
       <Button
-        title="Export / share cash records"
+        title="Share records"
         icon="download-outline"
         light
         disabled={locked}
@@ -1371,28 +1434,22 @@ export default function DriverApp({
       />
     );
   } else if (page === "Profile" || page === "Documents") {
-    title = page === "Documents" ? "Driver account records" : "Driver profile";
+    title = page === "Documents" ? "Records" : "Profile";
     back = page === "Documents" ? "Profile" : null;
     content = (
       <>
-        <View style={[ps.banner, { backgroundColor: "#0B5942", paddingVertical: 30 }]}>
-          <View style={[ps.row, { gap: 16 }]}>
-            <DriverAvatar photo={data.user.photo} name={data.user.name} />
-            <View style={{ flex: 1 }}>
-              <Text style={[ps.section, { color: "white", fontSize: 21, lineHeight: 29 }]}>
-                {data.user.name}
-              </Text>
-              <Text style={ps.bannerSub}>{data.user.role}</Text>
-              <Text style={ps.bannerSub}>
-                {data.user.verified
-                  ? "Approved driver"
-                  : "Awaiting administrator approval"}
-              </Text>
-            </View>
+        <View style={[ps.row, { gap: 16 }]}>
+          <BodyNumber value={data.user.plate} toda={puj ? null : data.user.association} />
+          <View style={{ flex: 1, gap: 2 }}>
+            <Text style={ps.heading}>{data.user.name}</Text>
+            <Text style={ps.small}>
+              {puj ? "Jeepney driver" : "Tricycle driver"}
+              {data.user.verified ? " · approved" : " · awaiting approval"}
+            </Text>
           </View>
         </View>
         <Button
-          title={data.user.photo ? "Update driver photo" : "Add driver photo"}
+          title={data.user.photo ? "Change your photo" : "Add your photo for riders"}
           icon="camera-outline"
           disabled={locked}
           onPress={() => {
@@ -1404,100 +1461,28 @@ export default function DriverApp({
             });
           }}
         />
-        {Boolean(data.user.photo) && (
-          <Button
-            title="Remove driver photo"
-            light
-            disabled={locked}
-            onPress={() => {
-              void perform(async () => {
-                await action("/profile/photo", { photo: "" }, "PATCH");
-              });
-            }}
-          />
-        )}
-        <View style={ps.card}>
-          <Text style={ps.section}>Professional license & cooperative</Text>
-          <View style={ps.between}>
-            <Text style={ps.body}>License</Text>
-            <Text style={ps.label}>{data.user.license || "None"}</Text>
-          </View>
-          <Text style={ps.small}>Expiry date not recorded</Text>
-          <View style={ps.divider} />
-          <Text style={ps.label}>
-            {data.user.association || "No Association"}
-          </Text>
-        </View>
-        <View style={ps.card}>
-          <View style={ps.between}>
-            <Text style={ps.section}>
-              {puj ? "Registered PUJ / PUV" : "Registered tricycle"}
-            </Text>
-            <Tag
-              text={data.user.verified ? "Approved" : "Pending"}
-              amber={!data.user.verified}
-            />
-          </View>
-          <View style={ps.between}>
-            <Text style={ps.body}>Plate / body</Text>
-            <Text style={ps.label}>{data.user.plate || "—"}</Text>
-          </View>
-          <View style={ps.between}>
-            <Text style={ps.body}>Capacity</Text>
-            <Text style={ps.label}>{data.user.capacity} passengers</Text>
-          </View>
+        <View style={[ps.card, { paddingVertical: 2, gap: 0 }]}>
+          <Row title="License" detail={data.user.license || "None"} />
+          <Row title={puj ? "Franchise" : "TODA"} detail={(puj ? data.user.franchiseName : data.user.association) || "None"} />
+          <Row title={puj ? "Plate" : "Body number"} detail={data.user.plate || "—"} />
+          <Row title="Seats" detail={`${data.user.capacity}`} last />
         </View>
         {puj && routeCard()}
-        <View style={ps.banner}>
-          <View style={ps.between}>
-            <Text style={ps.bannerSub}>
-              TODAY  {today.length} COMPLETED {puj ? "RUNS" : "TRIPS"}
-            </Text>
-            <Text
-              style={[ps.fare, { color: "white", fontSize: 17, lineHeight: 22 }]}
-              numberOfLines={1}
-              adjustsFontSizeToFit
-            >
-              {money(todayCash)}</Text>
-          </View>
-          <Text style={ps.bannerSub}>
-            Cash fare records only · not a wallet or payout balance
-          </Text>
+        <View style={[ps.card, { paddingVertical: 2, gap: 0 }]}>
+          <Row title="Account and security" onPress={() => go("Account")} />
+          <Row title="Report a change to your vehicle" onPress={() => go("Support")} />
+          {Boolean(data.user.photo) && (
+            <Row
+              title="Remove your photo"
+              onPress={() => {
+                void perform(async () => {
+                  await action("/profile/photo", { photo: null }, "PATCH");
+                });
+              }}
+            />
+          )}
+          <Row title="Log out" danger last onPress={() => void perform(logout)} />
         </View>
-        <Button
-          title="Account & security"
-          icon="shield-checkmark-outline"
-          light
-          onPress={() => go("Account")}
-        />
-        <Button
-          title="Report account or vehicle changes"
-          light
-          onPress={() => go("Support")}
-        />
-        <Button
-          title="Log out"
-          icon="log-out-outline"
-          disabled={locked}
-          onPress={() => {
-            void perform(logout);
-          }}
-        />
-        <Button
-          title="Delete account"
-          icon="trash-outline"
-          light
-          disabled={locked}
-          onPress={() =>
-            confirmAccountDeletion(() => {
-              void perform(async () => {
-                if (await action("/account/delete", {})) {
-                  await logout();
-                }
-              });
-            })
-          }
-        />
       </>
     );
   } else if (page === "Account") {
@@ -1520,14 +1505,35 @@ export default function DriverApp({
           onChangeText={setPhone}
           keyboardType="phone-pad"
         />
+        {!!phone.trim() && !isPhMobile(phone) && (
+          <Text accessibilityRole="alert" style={[ps.small, { color: "#B3411F" }]}>
+            Use a Philippine mobile number, like 0917 123 4567.
+          </Text>
+        )}
         <Text style={ps.body}>{data.user.email}</Text>
         <Button
           title="Save account details"
-          disabled={locked || !name.trim()}
+          disabled={locked || !name.trim() || (!!phone.trim() && !isPhMobile(phone))}
           onPress={() => {
-            void action("/profile", { name, phone }, "PATCH");
+            void action("/profile", { name: name.trim(), phone: normalizePhMobile(phone) }, "PATCH");
           }}
         />
+        <Pressable
+          accessibilityRole="button"
+          disabled={locked}
+          onPress={() =>
+            confirmAccountDeletion(() => {
+              void perform(async () => {
+                if (await action("/account/delete", {})) {
+                  await logout();
+                }
+              });
+            })
+          }
+          style={({ pressed }) => [ps.secondaryButton, pressed && ps.pressed]}
+        >
+          <Text style={[ps.secondaryText, { color: c.red }]}>Delete account</Text>
+        </Pressable>
         {sharing && (
           <Button
             title="Stop GPS sharing & go offline"
@@ -1541,26 +1547,46 @@ export default function DriverApp({
       </>
     );
   } else if (page === "Notifications") {
-    title = "Your notifications";
+    title = "Updates";
     back = "Dashboard";
     content = (
       <>
-        <Button
-          title="Mark all as read"
-          light
-          onPress={() => {
-            void action("/notifications/read", {});
-          }}
-        />
+        {unread > 0 && (
+          <Pressable
+            accessibilityRole="button"
+            disabled={locked}
+            onPress={() => {
+              void action("/notifications/read", {});
+            }}
+            style={{ alignSelf: "flex-end", minHeight: 32, justifyContent: "center" }}
+          >
+            <Text style={ps.textLink}>Mark all read</Text>
+          </Pressable>
+        )}
         {data.notifications.map((n) => (
-          <View key={n.id} style={ps.card}>
-            <Text style={ps.label}>{n.message}</Text>
-            <Text style={ps.small}>
-              {date(n.createdAt)} · {time(n.createdAt)}
-            </Text>
+          <View
+            key={n.id}
+            style={[ps.card, { flexDirection: "row", gap: 12, alignItems: "flex-start" }]}
+            accessibilityLabel={`${n.read ? "" : "Unread. "}${n.message}`}
+          >
+            <View
+              style={{
+                width: 8,
+                height: 8,
+                borderRadius: 4,
+                marginTop: 7,
+                backgroundColor: n.read ? "transparent" : c.amber,
+              }}
+            />
+            <View style={{ flex: 1, gap: 6 }}>
+              <Text style={[ps.label, n.read && { fontWeight: "500" }]}>{n.message}</Text>
+              <Text style={ps.small}>
+                {date(n.createdAt)} · {time(n.createdAt)}
+              </Text>
+            </View>
           </View>
         ))}
-        {!data.notifications.length && <Hint text="You’re all caught up." />}
+        {!data.notifications.length && <Hint info text="Nothing new." />}
       </>
     );
   } else {
@@ -1568,7 +1594,7 @@ export default function DriverApp({
     back = "Profile";
     content = (
       <>
-        <Hint text="Report account, route, passenger, or vehicle issues to the transport administrator." />
+
         <TextInput
           accessibilityLabel="Driver support details"
           value={report}
@@ -1586,7 +1612,7 @@ export default function DriverApp({
             void perform(async () => {
               if (
                 await action("/report", {
-                  details: report,
+                  details: report.trim(),
                   tripId: params.trip || null,
                 })
               ) {
@@ -1597,7 +1623,7 @@ export default function DriverApp({
         />
         {data.reports.map((r) => (
           <View key={r.id} style={ps.card}>
-            <Tag text={r.status} />
+            <Tag text={statusLabel(r.status)} />
             <Text style={ps.body}>{r.details}</Text>
           </View>
         ))}
@@ -1619,17 +1645,16 @@ export default function DriverApp({
   }, [back]);
   const tabs = puj
     ? [
-        { label: "Dashboard", text: "Home", icon: "speedometer-outline" },
-        { label: "Route", text: "Route", icon: "navigate-circle-outline" },
-        { label: "Records", text: "Records", icon: "time-outline" },
-        { label: "Earnings", text: "Earnings", icon: "wallet-outline" },
-        { label: "Profile", text: "Account", icon: "person-outline" },
+        { label: "Dashboard", text: "Home", icon: "home" },
+        { label: "Records", text: "Runs", icon: "records" },
+        { label: "Earnings", text: "Earnings", icon: "cash" },
+        { label: "Profile", text: "Account", icon: "account" },
       ]
     : [
-        { label: "Dashboard", text: "Home", icon: "speedometer-outline" },
-        { label: "Records", text: "Trips", icon: "map-outline" },
-        { label: "Earnings", text: "Earnings", icon: "wallet-outline" },
-        { label: "Profile", text: "Account", icon: "person-outline" },
+        { label: "Dashboard", text: "Home", icon: "home" },
+        { label: "Records", text: "Trips", icon: "ticket" },
+        { label: "Earnings", text: "Earnings", icon: "cash" },
+        { label: "Profile", text: "Account", icon: "account" },
       ];
   return (
     <View style={ps.app}>
@@ -1641,37 +1666,42 @@ export default function DriverApp({
             style={ps.iconButton}
             onPress={() => go(back!)}
           >
-            <Icon name="arrow-back" size={25} />
+            <Icon name="arrow-back" size={22} color={c.ink} />
           </Pressable>
         )}
         <View style={{ flex: 1 }}>
-          <Text style={[ps.tiny, { color: c.green, fontWeight: "700" }]}>
-            {subtitle}
-          </Text>
-          <Text
-            accessibilityRole="header"
-            style={[ps.heading, { fontSize: 22 }]}
-          >
+          <Text accessibilityRole="header" style={ps.heading} numberOfLines={2}>
             {title}
           </Text>
+          {subtitle ? (
+            <Text style={ps.subtitle} numberOfLines={2}>
+              {subtitle}
+            </Text>
+          ) : null}
         </View>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={
-            page === "Earnings" ? "Share cash records" : "Notifications"
-          }
-          style={ps.iconButton}
-          onPress={() =>
-            page === "Earnings" ? void shareRecords() : go("Notifications")
-          }
-        >
-          <Icon
-            name={
-              page === "Earnings" ? "download-outline" : "notifications-outline"
+        {!back && (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={
+              page === "Earnings"
+                ? "Share cash records"
+                : unread
+                  ? `Notifications, ${unread} unread`
+                  : "Notifications"
             }
-            size={22}
-          />
-        </Pressable>
+            style={ps.iconButton}
+            onPress={() =>
+              page === "Earnings" ? void shareRecords() : go("Notifications")
+            }
+          >
+            {page === "Earnings" ? (
+              <Icon name="share-outline" size={21} color={c.ink} />
+            ) : (
+              <Glyph name="bell" size={22} />
+            )}
+            {page !== "Earnings" && unread > 0 && <View style={ps.unreadDot} />}
+          </Pressable>
+        )}
       </View>
       <ScrollView
         ref={scroll}
@@ -1714,17 +1744,8 @@ export default function DriverApp({
                 pressed && ps.pressed,
               ]}
             >
-              <Icon
-                name={tab.icon as IconName}
-                size={23}
-                color={page === tab.label ? c.green : "#71877A"}
-              />
-              <Text
-                style={[
-                  ps.navLabel,
-                  page === tab.label && { color: c.green, fontWeight: "700" },
-                ]}
-              >
+              <Glyph name={tab.icon as GlyphName} size={24} color={page === tab.label ? c.brand : c.muted} />
+              <Text style={[ps.navLabel, page === tab.label && { color: c.brand }]}>
                 {tab.text}
               </Text>
             </Pressable>
