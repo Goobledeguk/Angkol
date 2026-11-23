@@ -1563,11 +1563,20 @@ export default function DriverApp({
             <Text style={ps.textLink}>Mark all read</Text>
           </Pressable>
         )}
-        {data.notifications.map((n) => (
-          <View
+        {data.notifications.map((n) => {
+          const about = n.tripId ? data.trips.find((t) => t.id === n.tripId) : undefined;
+          return (
+          <Pressable
             key={n.id}
-            style={[ps.card, { flexDirection: "row", gap: 12, alignItems: "flex-start" }]}
-            accessibilityLabel={`${n.read ? "" : "Unread. "}${n.message}`}
+            accessibilityRole="button"
+            disabled={!about}
+            onPress={() => about && go("Trip", about.id)}
+            style={({ pressed }) => [
+              ps.card,
+              { flexDirection: "row", gap: 12, alignItems: "flex-start" },
+              pressed && { opacity: 0.7 },
+            ]}
+            accessibilityLabel={`${n.read ? "" : "Unread. "}${n.message}${about ? ". Opens the trip" : ""}`}
           >
             <View
               style={{
@@ -1582,10 +1591,13 @@ export default function DriverApp({
               <Text style={[ps.label, n.read && { fontWeight: "500" }]}>{n.message}</Text>
               <Text style={ps.small}>
                 {date(n.createdAt)} · {time(n.createdAt)}
+                {about ? ` · ${about.pickup} → ${about.destination}` : ""}
               </Text>
             </View>
-          </View>
-        ))}
+            {about ? <Icon name="chevron-forward" size={17} color={c.muted} /> : null}
+          </Pressable>
+          );
+        })}
         {!data.notifications.length && <Hint info text="Nothing new." />}
       </>
     );

@@ -19,6 +19,8 @@ import AdminDashboard from "./admin/AdminDashboard";
 const LIVE_POLL_MS = 10_000;
 const ONLINE_POLL_MS = 20_000;
 const APPROVAL_POLL_MS = 30_000;
+/** Passengers browsing keep nearby units and running jeepneys fresh on the map. */
+const PASSENGER_POLL_MS = 15_000;
 
 export default function AngkolApp() {
   const [data, setData] = useState<Snapshot | null>(null);
@@ -108,7 +110,9 @@ export default function AngkolApp() {
         ? ONLINE_POLL_MS
         : awaitingApproval
           ? APPROVAL_POLL_MS
-          : 0;
+          : data?.user.role === "Passenger"
+            ? PASSENGER_POLL_MS
+            : 0;
   useEffect(() => {
     if (!pollEvery) {
       return;
