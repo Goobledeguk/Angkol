@@ -29,7 +29,13 @@ The web portal opens administrator sign-in directly, with the Calbayog photo beh
 
 ## Driver emulator
 
-`npm run emulate:drivers` signs in as one or more tricycle driver **test** accounts (set `EMULATOR_DRIVERS=email:password,…` in `.env`) and works rides like a real driver: it accepts a requested tricycle ride, drives to your pickup on real roads, marks Arrived, starts the trip when you board (or after `EMULATOR_BOARD_WAIT` seconds), drives the booked route, and calls PARA at the destination. Its GPS position goes to Supabase, so the passenger map and ETA follow it. Tapping PARA! or cancelling in the app ends the ride early. `EMULATOR_SPEED` speeds up driving (default ×4). Add `-- --once` to stop after one ride each. Ctrl+C takes the drivers offline.
+`npm run emulate:drivers` signs in as one or more tricycle driver **test** accounts (set `EMULATOR_DRIVERS=email:password,…` in `.env`) and works rides like a real driver: it accepts a requested tricycle ride, drives to your pickup on real roads, marks Arrived, starts the trip when you board (or after `EMULATOR_BOARD_WAIT` seconds), drives the booked route, and calls PARA at the destination. Its GPS position goes to Supabase, so the passenger map and ETA follow it. Tapping PARA! or cancelling in the app ends the ride early. `EMULATOR_SPEED` speeds up driving (default ×4). Add `-- --once` to stop after one ride each. Ctrl+C takes the drivers offline. If it restarts mid-ride, each driver carries on with the ride it already accepted. Run only one copy at a time: two copies signed in as the same drivers compete for rides.
+
+`npm run emulate:pujs` does the same for jeepneys (`EMULATOR_PUJS=driver3@angkol.test:Driver3!`). Each unit waits at its terminal (hidden from the passenger map), departs on its route, stops at each stop to board and drop passengers, picks up seat bookings at their stop and completes them at the drop-off, then drives back to the terminal. Flags: `--dwell=<seconds at the terminal>`, `--loops=<n>`. More detail in `scripts/emulator/README.md`.
+
+## Database changes to apply
+
+`supabase/migrations/20261123090000_notification_links_and_puj_seats.sql` links each notification to its ride and only lets passengers hold a jeepney seat while a unit is running the route. Paste it into the Supabase SQL editor (or run `supabase db push`). The app works before it is applied: it matches notifications to rides by time, and the seat rule is also checked in the app.
 
 ## Test seed data
 
