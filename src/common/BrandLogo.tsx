@@ -47,7 +47,7 @@ export default function BrandLogo({
         }}
       >
         <Image
-          source={require("../../assets/angkol-title.png")}
+          source={require("../../assets/angkol-icon.png")}
           accessibilityLabel="Angkol"
           style={{
             position: "absolute",
