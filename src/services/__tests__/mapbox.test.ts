@@ -247,7 +247,7 @@ describe("directions", () => {
       { distanceKm: 2.7, minutes: 8, geometry },
     );
     expect(fetchMock).toHaveBeenCalledWith(
-      `https://api.mapbox.com/directions/v5/mapbox/driving/124.59,12.07;124.61,12.09?geometries=geojson&overview=full&access_token=${encodeURIComponent(token)}`,
+      `https://api.mapbox.com/directions/v5/mapbox/driving/124.59,12.07;124.61,12.09?geometries=geojson&overview=full&continue_straight=false&access_token=${encodeURIComponent(token)}`,
     );
   });
 

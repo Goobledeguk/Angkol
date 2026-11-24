@@ -1,7 +1,7 @@
 import { api } from "../api";
 import type { Snapshot } from "../../types/types";
 import { driverColumns, setupApiHarness, userColumns } from "./apiHarness";
-import { booking, now, pickup, timestamp } from "./fixtures";
+import { booking, destination, now, pickup, timestamp } from "./fixtures";
 
 jest.mock("../supabase", () => ({ db: jest.fn() }));
 jest.mock("../mapbox", () => ({ directions: jest.fn() }));
@@ -32,6 +32,8 @@ const driver = {
   capacity: "3",
   routes_id: "r1",
   association: "Co-op",
+  operational_classification: "Tricycle",
+  availability_status: "available",
   location_updated_at: timestamp,
 };
 const fleet = [
@@ -41,9 +43,18 @@ const fleet = [
   { vehicle_id: "broken", plate_number: "BUS 3", active: true, status: "Broken / Inactive" },
 ];
 
+function notificationQuery(columns: string): [string, ...unknown[]][] {
+  return [
+    ["select", columns],
+    ["eq", "user_id", "rider"],
+    ["order", "created_at", descending],
+    ["limit", 30],
+  ];
+}
+
 function snapshotTables(
   data: Record<string, unknown> = {},
-  errors: Record<string, string> = {},
+  errors: Record<string, string | { message: string; code?: string }> = {},
 ) {
   const { table } = harness.fake;
   table(
@@ -113,12 +124,7 @@ function snapshotTables(
   );
   table(
     "notifications",
-    [
-      ["select", "*"],
-      ["eq", "user_id", "rider"],
-      ["order", "created_at", descending],
-      ["limit", 30],
-    ],
+    notificationQuery("notification_id,message,created_at,read,booking_id"),
     data.notifications,
     errors.notifications,
   );
@@ -228,6 +234,7 @@ describe("the state snapshot", () => {
           message: "Trip accepted",
           read: true,
           created_at: booking.expires_at,
+          booking_id: "booking-1",
         },
       ],
       landmarks: [{ name: "Market", latitude: "12.07", longitude: "124.59" }],
@@ -276,6 +283,7 @@ describe("the state snapshot", () => {
           capacity: 3,
           routeId: "r1",
           status: "In transit",
+          online: true,
           stale: false,
           location: {
             name: "Ana",
@@ -322,6 +330,7 @@ describe("the state snapshot", () => {
           message: "Trip accepted",
           read: true,
           createdAt: booking.expires_at,
+          tripId: "booking-1",
         },
       ],
       landmarks: [pickup],
@@ -362,18 +371,75 @@ describe("the state snapshot", () => {
     const { vehicles } = await api<Snapshot>("/state");
     expect(
       vehicles.map(({ id, plate, stale }) => ({ id, plate, stale })),
-    ).toEqual([
-      { id: "existing", plate: "TRI 1", stale: true },
-      { id: "driver-present", plate: "NO TIME", stale: true },
-    ]);
-    expect(vehicles[1].location.updatedAt).toBe(0);
+    ).toEqual([{ id: "existing", plate: "TRI 1", stale: true }]);
   });
 
   it("omits inactive, retired and broken vehicles from the passenger fleet", async () => {
-    passengerProfile([ana], [driver]);
+    passengerProfile();
     snapshotTables({ vehicles: fleet });
     const { vehicles } = await api<Snapshot>("/state");
     expect(vehicles.map(({ id }) => id)).toEqual(["active"]);
+  });
+
+  it("shows travelling and terminal fleet vehicles when run rows are hidden", async () => {
+    passengerProfile([ana], [{ ...driver, operational_classification: "PUJ" }]);
+    snapshotTables({
+      vehicles: [
+        fleet[0],
+        { ...fleet[1], active: true },
+      ],
+    });
+    const { vehicles } = await api<Snapshot>("/state");
+    expect(vehicles).toMatchObject([
+      { id: "active", onRun: true, runId: null, nextStop: null },
+      { id: "inactive", onRun: false, runId: null, nextStop: null },
+    ]);
+  });
+
+  test.each(["Accepted", "Arrived", "In progress"])(
+    "keeps an offline, stale tricycle assigned to the passenger's %s trip",
+    async (status) => {
+      const additionalDrivers = [
+        { ...driver, user_id: "offline", availability_status: "offline" },
+        { ...driver, user_id: "stale", location_updated_at: null },
+      ];
+      passengerProfile(
+        [ana, ...additionalDrivers.map((row) => ({ user_id: row.user_id, name: row.user_id }))],
+        [
+          { ...driver, availability_status: "offline", location_updated_at: null },
+          ...additionalDrivers.map((row) => ({ ...row, plate_number: row.user_id })),
+        ],
+      );
+      snapshotTables({
+        bookings: [
+          { ...booking, booking_id: "other-trip", user_id: "someone-else", driver_id: "offline", request_status: status },
+          { ...booking, request_status: status },
+        ],
+      });
+      const { vehicles } = await api<Snapshot>("/state");
+      expect(vehicles).toMatchObject([
+        { id: "driver-driver-1", online: false, stale: true },
+      ]);
+    },
+  );
+
+  test.each([
+    { code: "42703", message: "column notifications.booking_id does not exist" },
+    { code: "PGRST204", message: "Could not find the 'booking_id' column of 'notifications'" },
+    { message: "Could not find the 'booking_id' column of 'notifications' in the schema cache" },
+  ])("links legacy notifications after a missing-column response ($code)", async (error) => {
+    passengerProfile();
+    snapshotTables({
+      bookings: [
+        { ...booking, booking_id: "unrelated", user_id: "someone-else", timestamps: { Accepted: now + 1000 } },
+        { ...booking, timestamps: { Accepted: now + 1001 } },
+      ],
+    }, { notifications: error });
+    harness.fake.table("notifications", notificationQuery("*"), [
+      { notification_id: "legacy", message: "A driver accepted your ride request and is on the way.", created_at: new Date(now + 1000).toISOString() },
+    ]);
+    const { notifications } = await api<Snapshot>("/state");
+    expect(notifications).toMatchObject([{ id: "legacy", tripId: "booking-1" }]);
   });
 
   it("fills defaults for empty collections and nullable snapshot rows", async () => {
@@ -428,16 +494,16 @@ describe("the state snapshot", () => {
   test.each([
     [300_000, false],
     [300_001, true],
-  ])("marks driver fixes %i ms old stale=%p", async (age, stale) => {
+  ])("filters driver fixes %i ms old with stale=%p", async (age, stale) => {
     const updatedAt = now - age;
     passengerProfile([ana], [
       { ...driver, location_updated_at: new Date(updatedAt).toISOString() },
     ]);
     snapshotTables();
     const { vehicles } = await api<Snapshot>("/state");
-    expect(vehicles).toMatchObject([
-      { id: "driver-driver-1", stale, location: { updatedAt } },
-    ]);
+    expect(vehicles).toMatchObject(
+      stale ? [] : [{ id: "driver-driver-1", online: true, stale, location: { updatedAt } }],
+    );
   });
 
   test.each(["Administrator", "Vehicle Owner / Operator"])(
@@ -457,7 +523,20 @@ describe("the state snapshot", () => {
       });
       harness.fake.rpc("admin_users", [], [ana]);
       harness.fake.rpc("admin_drivers", [], [driver]);
-      snapshotTables({ vehicles: fleet });
+      snapshotTables({
+        vehicles: [
+          { ...fleet[0], driver_id: "driver-1" },
+          { ...fleet[1], driver_id: "driver-1" },
+          ...fleet.slice(2),
+        ],
+        runs: [{
+          run_id: "run-1",
+          driver_id: "driver-1",
+          status: "In progress",
+          stops: [pickup, destination],
+          stop_index: 0,
+        }],
+      });
       const snapshot = await api<Snapshot>("/state");
       expect(snapshot).toMatchObject({
         user: {
@@ -473,6 +552,10 @@ describe("the state snapshot", () => {
         ],
       });
       expect(snapshot.vehicles.map(({ id }) => id)).toEqual(fleet.map((row) => row.vehicle_id));
+      expect(snapshot.vehicles.slice(0, 2)).toMatchObject([
+        { onRun: true, runId: "run-1", nextStop: destination.name },
+        { onRun: false, runId: null, nextStop: null },
+      ]);
       expect(harness.fake.client.rpc.mock.calls).toEqual([
         ["my_profile"],
         ["admin_users"],

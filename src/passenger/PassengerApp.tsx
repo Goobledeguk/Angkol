@@ -20,7 +20,8 @@ import { confirmAccountDeletion } from "../common/confirmAccountDeletion";
 import { Share, Linking } from "../services/previewActions";
 import { api } from "../services/api";
 import { currentPoint } from "../services/location";
-import { distanceKm } from "../services/mapbox";
+import { distanceKm, reverseGeocode } from "../services/mapbox";
+import { useMyLocation } from "../map/useMyLocation";
 import { isStale, lastSeen, tripRef, vehicleForDriver } from "../domain/vehicles";
 import { statusLabel, isPhMobile, normalizePhMobile } from "../domain/format";
 import { greeting as greetingFor, minutesUntil, nextDeparture, waitLabel } from "../domain/schedule";
@@ -309,7 +310,7 @@ export default function PassengerApp({
   const [heroHeight, setHeroHeight] = useState(300);
   const [working, setWorking] = useState(false),
     [error, setError] = useState(""),
-    [, setGpsAt] = useState<number | null>(null);
+    [gpsAt, setGpsAt] = useState<number | null>(null);
   const [editing, setEditing] = useState<"pickup" | "destination">(
       "destination",
     ),
@@ -318,6 +319,8 @@ export default function PassengerApp({
   const [routeId, setRouteId] = useState<string | null>(null),
     [terminalId, setTerminalId] = useState<string | null>(null);
   const [pujRoute, setPujRoute] = useState<Route | null>(null);
+  // Boarding and alighting stops for a jeepney seat, as indexes into the route's stops.
+  const [pujStops, setPujStops] = useState<{ from: number; to: number } | null>(null);
   const [name, setName] = useState(data.user.name),
     [phone, setPhone] = useState(data.user.phone),
     [report, setReport] = useState("");
@@ -326,6 +329,11 @@ export default function PassengerApp({
   const submitting = useRef(false),
     scroll = useRef<React.ComponentRef<typeof ScrollView>>(null),
     previousStatuses = useRef(new Map(data.trips.map((t) => [t.id, t.status])));
+  const me = useMyLocation(true, gpsAt ?? 0);
+  const pinRequest = useRef(0);
+  const shownTrip = useRef<string | undefined>(undefined);
+  // Bumped when a spot is set from outside the map, so the pin map moves to it.
+  const [placed, setPlaced] = useState(0);
   const active = data.trips.find((t) => !isFinished(t));
   const trip =
     data.trips.find((t) => t.id === params.trip) || active || data.trips[0];
@@ -341,6 +349,20 @@ export default function PassengerApp({
     setError("");
     router.setParams({ screen: next, trip: id || "" });
   };
+  /** Opens the screen that best shows a ride: live tracking, the seat ticket or the receipt. */
+  const openTrip = (value: Trip) => {
+    if (value.serviceType === "PUJ/PUV") {
+      go(value.status === "Completed" ? "PUJ complete" : "PUJ arrived", value.id);
+    } else if (value.status === "Completed" || value.status === "Cancelled") {
+      go("Receipt", value.id);
+    } else if (value.status === "Arrived") {
+      go("Arrived", value.id);
+    } else if (value.status === "In progress") {
+      go("Track ride", value.id);
+    } else {
+      go("Ride accepted", value.id);
+    }
+  };
   useEffect(() => {
     scroll.current?.scrollTo({ y: 0, animated: false });
   }, [page]);
@@ -350,10 +372,22 @@ export default function PassengerApp({
     }
   }, [error]);
   useEffect(() => {
+    // The ride on screen; remembered so it still counts after it finishes and stops being active.
+    const shown = params.trip || active?.id || shownTrip.current;
+    shownTrip.current = shown;
     for (const value of data.trips) {
       const previous = previousStatuses.current.get(value.id);
-      if (
-        (page === "Track ride" || page === "Ride accepted") &&
+      if (value.id !== shown) {
+        // Another ride changed; record it but leave this screen alone.
+      } else if (page === "PUJ arrived" && previous && previous !== value.status) {
+        if (value.status === "Completed") {
+          haptic.success();
+          router.setParams({ screen: "PUJ complete", trip: value.id });
+        } else if (value.status === "In progress") {
+          haptic.tap();
+        }
+      } else if (
+        (page === "Track ride" || page === "Ride accepted" || page === "Arrived") &&
         previous &&
         previous !== value.status
       ) {
@@ -373,7 +407,7 @@ export default function PassengerApp({
       }
       previousStatuses.current.set(value.id, value.status);
     }
-  }, [data.trips, page]);
+  }, [data.trips, page, params.trip, active?.id]);
   async function perform(task: () => Promise<void>) {
     if (submitting.current) {
       return;
@@ -391,6 +425,8 @@ export default function PassengerApp({
     }
   }
   function choosePoint(point: Point) {
+    pinRequest.current++;
+    setPlaced((n) => n + 1);
     if (editing === "pickup") {
       setPickup(point);
       setGpsAt(null);
@@ -399,6 +435,47 @@ export default function PassengerApp({
     }
     setQuote(null);
     go("Journey");
+  }
+  /** The map settled under the pin: use that spot and name it after the street or a nearby landmark. */
+  function pinPoint(point: Point) {
+    const kind = editing;
+    const request = ++pinRequest.current;
+    const landmark = data.landmarks
+      .map((l) => ({ l, d: distanceKm(l, point) }))
+      .sort((a, b) => a.d - b.d)[0];
+    const near = landmark && landmark.d <= 0.12 ? landmark.l.name : "";
+    const named = (name: string) => ({ ...point, name });
+    const place = (value: Point) => {
+      if (kind === "pickup") {
+        setPickup(value);
+        setGpsAt(null);
+      } else {
+        setDestination(value);
+      }
+    };
+    place(named(near || "Pinned spot"));
+    setQuote(null);
+    if (near) {
+      return;
+    }
+    void reverseGeocode(point.latitude, point.longitude)
+      .then((street) => {
+        if (request !== pinRequest.current || !street) {
+          return;
+        }
+        const label = landmark && landmark.d <= 0.4 ? `${street}, near ${landmark.l.name}` : street;
+        // Only rename the field if it still holds the exact spot that was looked up.
+        const rename = (current: Point | null) =>
+          current && current.latitude === point.latitude && current.longitude === point.longitude
+            ? { ...current, name: label }
+            : current;
+        if (kind === "pickup") {
+          setPickup(rename);
+        } else {
+          setDestination(rename);
+        }
+      })
+      .catch(() => undefined);
   }
   function pick(kind: "pickup" | "destination") {
     setEditing(kind);
@@ -409,7 +486,10 @@ export default function PassengerApp({
   const gps = () =>
     perform(async () => {
       const here = await currentPoint();
+      pinRequest.current++;
       setPickup(here);
+      setEditing("pickup");
+      setPlaced((n) => n + 1);
       setGpsAt(Date.now());
       setQuote(null);
     });
@@ -515,6 +595,8 @@ export default function PassengerApp({
               : "\nLive driver location is not currently available."),
       });
     });
+  // Units that are actually out working: online tricycles and jeepneys running a route.
+  const liveUnits = data.vehicles.filter((v) => (v.online || v.onRun) && !v.stale);
   function map(
     height: number,
     journey?: "quote" | "trip" | "route" | "terminal" | "select",
@@ -542,8 +624,11 @@ export default function PassengerApp({
               : pickup)
         }
         destination={
-          (approaching ? null : selectedTrip?.destinationPoint) ||
-          (journey === "route"
+          selectedTrip
+            ? approaching
+              ? null
+              : selectedTrip.destinationPoint
+            : (journey === "route"
             ? selectedRoute && selectedRoute.stops.length > 1
               ? selectedRoute.stops.at(-1)
               : null
@@ -555,12 +640,24 @@ export default function PassengerApp({
         }
         vehicles={
           journey === "trip"
-            ? vehicle ? [vehicle] : []
-            : data.vehicles
+            ? // Once a driver accepts, only that unit is shown, tracked to the pickup.
+              vehicle && selectedTrip && !["Requested", "Expired", "Cancelled"].includes(selectedTrip.status)
+              ? [vehicle]
+              : []
+            : journey === "select" || journey === "quote"
+              ? []
+              : liveUnits
         }
         terminals={journey === "terminal" ? terminals : []}
+        me={me}
+        recenterKey={
+          journey === "select"
+            ? `${placed}:${editing === "destination" && !destination ? `${pickup?.latitude},${pickup?.longitude}` : ""}`
+            : undefined
+        }
+        track={journey === "trip"}
         mode={journey === "select" ? editing : null}
-        onSelect={choosePoint}
+        onSelect={pinPoint}
       />
     );
   }
@@ -644,6 +741,7 @@ export default function PassengerApp({
     content = (
       <PassengerHomeScreen
         data={data}
+        me={me}
         active={active}
         onBook={() => go("Journey")}
         onRoutes={() => go("Routes")}
@@ -664,7 +762,7 @@ export default function PassengerApp({
       />
     );
   } else if (page === "Journey") {
-    title = "Where to?";
+    title = "Diin kit?";
     subtitle = "";
     back = "Home";
     content = (
@@ -682,16 +780,29 @@ export default function PassengerApp({
           disabled={locked}
           onPress={gps}
         />
-        <View style={{ gap: 8 }}>
-          <Pressable
-            accessibilityRole="button"
-            onPress={() => setEditing((m) => (m === "pickup" ? "destination" : "pickup"))}
-            style={[ps.pill, { alignSelf: "flex-start", flexDirection: "row", alignItems: "center", gap: 6 }]}
-          >
-            <Icon name={editing === "pickup" ? "location-outline" : "flag-outline"} size={14} color={c.ink} />
-            <Text style={ps.pillText}>Tap map to set {editing}</Text>
-          </Pressable>
-          {map(240, "select")}
+        <View style={{ gap: 10 }}>
+          <View style={ps.segment} accessibilityRole="tablist">
+            {(["pickup", "destination"] as const).map((kind) => (
+              <Pressable
+                key={kind}
+                accessibilityRole="tab"
+                accessibilityState={{ selected: editing === kind }}
+                onPress={() => setEditing(kind)}
+                style={[ps.segmentItem, editing === kind && ps.segmentSelected]}
+              >
+                <Icon
+                  name={kind === "pickup" ? "person-outline" : "flag-outline"}
+                  size={15}
+                  color={editing === kind ? c.onBrand : c.ink}
+                />
+                <Text style={[ps.segmentText, editing === kind && { color: c.onBrand }]}>
+                  {kind === "pickup" ? "Pin pickup" : "Pin destination"}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+          {map(300, "select")}
+          <Text style={ps.small}>Drag the map to put the pin on the exact spot, or tap where you want it.</Text>
         </View>
         <View style={ps.row}>
           <TextInput
@@ -835,6 +946,7 @@ export default function PassengerApp({
                 return;
               }
               setPujRoute(routes[0]);
+              setPujStops(null);
               go("PUJ review");
             }}
             style={ps.card}
@@ -891,7 +1003,51 @@ export default function PassengerApp({
         <Hint text="No route selected. Go back and choose a PUJ/PUV route." />
       );
       footer = <Action title="Back" onPress={() => go("Choose ride")} />;
+    } else if (!data.vehicles.some((v) => v.routeId === pujRoute.id && v.onRun && !v.stale)) {
+      // Every unit is still queued at the terminal: walk up and ride, no booking needed.
+      const stand = data.terminals.find((t) => t.routeId === pujRoute.id);
+      const queued = data.vehicles.filter((v) => v.routeId === pujRoute.id && !(v.onRun && !v.stale)).length;
+      title = "Waiting at the terminal";
+      subtitle = pujRoute.name;
+      content = (
+        <>
+          <View style={ps.card}>
+            <View style={ps.row}>
+              <Glyph name="terminal" size={26} />
+              <View style={{ flex: 1, gap: 4 }}>
+                <Text style={ps.label}>{stand?.name || pujRoute.stops[0]?.name || "Route terminal"}</Text>
+                <Text style={ps.small}>
+                  {queued
+                    ? `${queued} ${queued === 1 ? "jeepney is" : "jeepneys are"} loading here. Go to the terminal and ride the one leaving next.`
+                    : "No jeepney is running this route right now. Go to the terminal and ride the next one."}
+                </Text>
+              </View>
+            </View>
+            <View style={ps.divider} />
+            <SummaryRow label="Fare per passenger" value={money(pujRoute.fare)} strong />
+            <SummaryRow
+              label="Next departure"
+              value={`${nextDeparture(pujRoute, data.serverTime)}${minutesUntil(pujRoute, data.serverTime) !== null ? ` · ${waitLabel(pujRoute, data.serverTime).toLowerCase()}` : ""}`}
+            />
+          </View>
+          {stand ? (
+            <CalbayogMap height={220} pickup={stand.point} pickupIsPerson={false} terminals={[stand]} me={me} />
+          ) : null}
+          <Text style={ps.small}>
+            You can hold a seat once a jeepney leaves the terminal and is on the route.
+          </Text>
+        </>
+      );
+      footer = <Action title="See all terminals" icon="arrow-forward" onPress={() => go("Terminals")} />;
     } else {
+      const running = data.vehicles.filter((v) => v.routeId === pujRoute.id && v.onRun && !v.stale);
+      // Default to the stop nearest the passenger and the end of the line.
+      const nearest = pujRoute.stops
+        .slice(0, -1)
+        .map((stop, index) => ({ index, d: distanceKm(stop, me ?? pickup ?? stop) }))
+        .sort((a, b) => a.d - b.d)[0]?.index ?? 0;
+      const board = Math.min(pujStops?.from ?? nearest, Math.max(0, pujRoute.stops.length - 2));
+      const alight = Math.max(board + 1, Math.min(pujStops?.to ?? pujRoute.stops.length - 1, pujRoute.stops.length - 1));
       content = (
         <>
           <View style={ps.card}>
@@ -899,6 +1055,10 @@ export default function PassengerApp({
               <Text style={ps.section}>{pujRoute.name}</Text>
               <Tag text={pujRoute.id} />
             </View>
+            <Text style={ps.small}>
+              {running.length} {running.length === 1 ? "jeepney is" : "jeepneys are"} on the route now
+              {running[0]?.nextStop ? `, next stop ${running[0].nextStop}` : ""}.
+            </Text>
             {pujRoute.destination ? (
               <Text style={ps.small}>Destination: {pujRoute.destination}</Text>
             ) : null}
@@ -911,19 +1071,45 @@ export default function PassengerApp({
               value={money(pujRoute.fare)}
               strong
             />
-            <SummaryRow
-              label="Next departure"
-              value={`${nextDeparture(pujRoute, data.serverTime)}${minutesUntil(pujRoute, data.serverTime) !== null ? ` · ${waitLabel(pujRoute, data.serverTime).toLowerCase()}` : ""}`}
-            />
           </View>
-          <View style={ps.card}>
-            <Locations
-              pickup={pickup?.name || pujRoute.stops[0]?.name}
-              destination={destination?.name || pujRoute.destination || pujRoute.stops.at(-1)?.name}
-            />
-          </View>
+          {(["from", "to"] as const).map((end) => (
+            <View key={end} style={{ gap: 8 }}>
+              <Text style={ps.label}>{end === "from" ? "Board at" : "Get off at"}</Text>
+              <View style={[ps.row, { flexWrap: "wrap", gap: 8 }]}>
+                {pujRoute.stops.map((stop, index) => {
+                  const selected = (end === "from" ? board : alight) === index;
+                  const allowed = end === "from" ? index < pujRoute.stops.length - 1 : index > board;
+                  return (
+                    <Pressable
+                      key={`${end}-${index}`}
+                      accessibilityRole="button"
+                      accessibilityState={{ selected, disabled: !allowed }}
+                      disabled={!allowed}
+                      onPress={() =>
+                        setPujStops(
+                          end === "from"
+                            ? { from: index, to: Math.max(alight, index + 1) }
+                            : { from: board, to: index },
+                        )
+                      }
+                      style={[ps.chip, selected && ps.chipSelected, !allowed && { opacity: 0.35 }]}
+                    >
+                      <Text style={[ps.chipText, selected && { color: c.onBrand }]}>{stop.name}</Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </View>
+          ))}
+          <CalbayogMap
+            height={220}
+            pickup={pujRoute.stops[board]}
+            destination={pujRoute.stops[alight]}
+            vehicles={running}
+            me={me}
+          />
           <Text style={ps.small}>
-            We hold a seat on the next unit with room. Pay when you board.
+            We hold a seat on the jeepney already on the route with room. Pay when you board.
           </Text>
         </>
       );
@@ -938,11 +1124,8 @@ export default function PassengerApp({
           disabled={locked}
           onPress={() =>
             perform(async () => {
-              const from = pickup || pujRoute.stops[0] || data.landmarks[0];
-              const to =
-                destination ||
-                pujRoute.stops.at(-1) ||
-                data.landmarks[2];
+              const from = pujRoute.stops[board] || data.landmarks[0];
+              const to = pujRoute.stops[alight] || pujRoute.stops.at(-1) || data.landmarks[2];
               const pujTrip: Trip = {
                 id: `puj-trip-${Date.now()}`,
                 pickup: from.name,
@@ -991,11 +1174,21 @@ export default function PassengerApp({
         ? "Seat released"
         : pujTrip?.status === "Requested"
           ? "Seat requested"
-          : `Board at ${stand?.name || pujTrip?.pickup || "the terminal"}`;
+          : pujTrip?.status === "Completed"
+            ? "Trip complete"
+            : pujTrip?.status === "In progress"
+            ? "On board"
+            : unit?.onRun
+              ? `Wait at ${pujTrip?.pickup || "your stop"}`
+              : `Board at ${stand?.name || pujTrip?.pickup || "the terminal"}`;
     subtitle =
-      pujRouteInfo && pujTrip?.status !== "Expired"
-        ? `Next departure ${nextDeparture(pujRouteInfo, data.serverTime)} · ${waitLabel(pujRouteInfo, data.serverTime).toLowerCase()}`
-        : "";
+      pujTrip?.status === "In progress"
+        ? `Tap PARA! when you reach ${pujTrip.destination}`
+        : unit?.onRun && pujTrip?.status !== "Expired"
+          ? `${unit.plate || "Your jeepney"} is on the way${unit.nextStop ? `, next stop ${unit.nextStop}` : ""}`
+          : pujRouteInfo && pujTrip?.status !== "Expired"
+            ? `Next departure ${nextDeparture(pujRouteInfo, data.serverTime)} · ${waitLabel(pujRouteInfo, data.serverTime).toLowerCase()}`
+            : "";
     back = "Home";
     if (!pujTrip) {
       content = <Text style={ps.body}>This jeepney booking can’t be found.</Text>;
@@ -1005,6 +1198,9 @@ export default function PassengerApp({
         <Text style={ps.body}>Nobody boarded on this booking, so the seat went back to the queue.</Text>
       );
       footer = <Action title="See jeepney routes" onPress={() => go("Routes")} />;
+    } else if (pujTrip.status === "Completed") {
+      content = <Text style={ps.body}>You got off at {pujTrip.destination}. Salamat ha pagsakay!</Text>;
+      footer = <Action title="See trip summary" onPress={() => go("PUJ complete", pujTrip.id)} />;
     } else {
       content = (
         <>
@@ -1015,6 +1211,14 @@ export default function PassengerApp({
               <Text style={ps.small}>{unit?.capacity ? `${unit.capacity}-seat jeepney` : "Jeepney"}</Text>
             </View>
           </View>
+          <CalbayogMap
+            height={240}
+            pickup={pujTrip.pickupPoint}
+            destination={pujTrip.destinationPoint}
+            vehicles={unit ? [unit] : []}
+            me={me}
+            track
+          />
           <RouteBoard from={pujTrip.pickup} to={pujTrip.destination} />
           <View style={ps.card}>
             <SummaryRow label="Fare, pay the driver or konduktor" value={money(pujTrip.fare)} strong />
@@ -1134,8 +1338,8 @@ export default function PassengerApp({
           <Action title="Back to Home" onPress={() => go("Home")} />
         );
     } else if (view === "searching") {
-      title = "Asking drivers nearby";
-      subtitle = `Closest first · ${money(trip.fare)} cash`;
+      title = "Hulat la anay…";
+      subtitle = `Asking drivers nearby, closest first · ${money(trip.fare)} cash`;
       hero = map(heroHeight, "trip");
       content = (
         <>
@@ -1288,6 +1492,7 @@ export default function PassengerApp({
     content = (
       <PassengerRoutesScreen
         data={data}
+        me={me}
         selectedId={routeId}
         onSelect={setRouteId}
         busy={locked}
@@ -1303,6 +1508,7 @@ export default function PassengerApp({
           }
           // For PUJ/PUV routes, send the passenger into the PUJ booking flow.
           setPujRoute(route);
+          setPujStops(null);
           go("PUJ review");
         }}
       />
@@ -1312,7 +1518,7 @@ export default function PassengerApp({
     subtitle = "Estimated departures";
     content = (
       <>
-        {map(160, "terminal")}
+        {map(220, "terminal")}
         {terminals.map((item) => {
           const route = routes.find((r) => r.id === item.routeId);
           return (
@@ -1597,14 +1803,20 @@ export default function PassengerApp({
           </Pressable>
         )}
         <View style={[ps.card, { paddingVertical: 2, gap: 0 }]}>
-        {data.notifications.map((item, index) => (
-          <View
+        {data.notifications.map((item, index) => {
+          const about = item.tripId ? data.trips.find((t) => t.id === item.tripId) : undefined;
+          return (
+          <Pressable
             key={item.id}
-            style={[
+            accessibilityRole="button"
+            disabled={!about}
+            onPress={() => about && openTrip(about)}
+            style={({ pressed }) => [
               { flexDirection: "row", gap: 12, alignItems: "flex-start", paddingVertical: 14 },
               index > 0 && { borderTopWidth: 1, borderTopColor: c.line },
+              pressed && ps.pressed,
             ]}
-            accessibilityLabel={`${item.read ? "" : "Unread. "}${item.message}`}
+            accessibilityLabel={`${item.read ? "" : "Unread. "}${item.message}${about ? `. Opens trip ${tripRef(about.id)}` : ""}`}
           >
             <View
               style={{
@@ -1626,10 +1838,13 @@ export default function PassengerApp({
               </Text>
               <Text style={ps.tiny}>
                 {fullDate(item.createdAt)} · {stamp(item.createdAt)}
+                {about ? ` · ${about.pickup} → ${about.destination}` : ""}
               </Text>
             </View>
-          </View>
-        ))}
+            {about ? <Icon name="chevron-forward" size={17} color={c.muted} /> : null}
+          </Pressable>
+          );
+        })}
         </View>
         {!data.notifications.length && (
           <Text style={ps.body}>Nothing new.</Text>
@@ -1764,10 +1979,17 @@ export default function PassengerApp({
         {Boolean(notice) && (
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="Dismiss notification"
-            onPress={dismissNotice}
+            accessibilityLabel={`${notice}. Open`}
+            onPress={() => {
+              dismissNotice();
+              if (active) {
+                openTrip(active);
+              } else {
+                go("Notifications");
+              }
+            }}
           >
-            <Hint info text={`${notice}  ×`} />
+            <Hint info text={notice} />
           </Pressable>
         )}
         {content}

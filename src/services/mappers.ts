@@ -3,6 +3,7 @@ import type {
   Point,
   Role,
   Route,
+  Snapshot,
   Trip,
   User,
   Vehicle,
@@ -184,6 +185,46 @@ export function mapTrip(
     rating: booking.rating ?? null,
     pickupNote: booking.pickup_note || undefined,
   };
+}
+
+/** The booking trigger's messages (see notify_booking_change). */
+const RIDE_MESSAGE =
+  /ride request|driver|trip (has started|completed)|seat|ride was cancelled|accepted your ride/i;
+
+export function linkNotifications(
+  notifications: Snapshot["notifications"],
+  trips: readonly Pick<Trip, "id" | "createdAt" | "timestamps">[],
+): Snapshot["notifications"] {
+  return notifications.map((notification) => {
+    if (notification.tripId != null) {
+      return notification;
+    }
+
+    // Only messages written by the booking trigger are about a ride.
+    if (!RIDE_MESSAGE.test(notification.message)) {
+      return { ...notification, tripId: null };
+    }
+    const createdAt = Date.parse(notification.createdAt);
+    let closest = Infinity;
+    let tripId: string | null = null;
+    let ties = 0;
+    for (const trip of trips) {
+      const timestamps = [Date.parse(trip.createdAt), ...Object.values(trip.timestamps)];
+      for (const timestamp of timestamps) {
+        const distance = Math.abs(createdAt - timestamp);
+        if (distance <= 10_000 && distance < closest) {
+          closest = distance;
+          tripId = trip.id;
+          ties = 0;
+        } else if (distance === closest && tripId !== trip.id) {
+          ties++;
+        }
+      }
+    }
+
+    // Two rides changing in the same instant cannot be told apart; leave it unlinked.
+    return { ...notification, tripId: ties ? null : tripId };
+  });
 }
 
 export function mapRun(row: any, users: Map<string, any>): DriverRun {

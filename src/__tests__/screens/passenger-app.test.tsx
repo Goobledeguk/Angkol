@@ -67,7 +67,7 @@ describe("Passenger home and notifications", () => {
 
   it("opens the journey from the destination prompt", async () => {
     await openPassenger();
-    await press("Where to? Book a tricycle");
+    await press("Diin kit? Where to? Book a tricycle");
     expect(setParams).toHaveBeenCalledWith({ screen: "Journey", trip: "" });
   });
 

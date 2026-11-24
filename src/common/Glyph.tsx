@@ -16,9 +16,17 @@ export type GlyphName =
   | "cash"
   | "records"
   | "bell"
-  | "close";
+  | "close"
+  | "person";
 
 const shapes: Record<GlyphName, React.ReactNode> = {
+  person: (
+    <>
+      <Circle cx="12" cy="5" r="2.6" />
+      <Path d="M8.2 21.5V15l-1.4-.2V10.6c0-1.3 1-2.3 2.3-2.3h5.8c1.3 0 2.3 1 2.3 2.3v4.2l-1.4.2v6.5" />
+      <Path d="M12 15v6.5" />
+    </>
+  ),
   tricycle: (
     <>
       <Path d="M2.5 8.2c2.6-2.3 6.4-2.3 9 0" />

@@ -1,4 +1,5 @@
 import type { Geometry, Point } from "../types/types";
+import { cleanRoute } from "./routeGeometry";
 
 const TOKEN = (process.env.EXPO_PUBLIC_MAPBOX_ACCESS_TOKEN ?? "").trim();
 const STYLE = "mapbox/streets-v12";
@@ -231,7 +232,7 @@ export async function directions(
   const url =
     `${ORIGIN}/directions/v5/mapbox/driving/` +
     `${from.longitude},${from.latitude};${to.longitude},${to.latitude}` +
-    `?geometries=geojson&overview=full&access_token=${encodeURIComponent(TOKEN)}`;
+    `?geometries=geojson&overview=full&continue_straight=false&access_token=${encodeURIComponent(TOKEN)}`;
   const response = await fetch(url);
   if (!response.ok) {
     throw new Error("Could not calculate a route. Check your Mapbox token.");
@@ -248,7 +249,10 @@ export async function directions(
   return {
     distanceKm: Math.max(0.1, (route.distance ?? 0) / 1000),
     minutes: Math.max(1, Math.round((route.duration ?? 0) / 60)),
-    geometry: route.geometry ?? {
+    geometry: route.geometry ? {
+      ...route.geometry,
+      coordinates: cleanRoute(route.geometry.coordinates),
+    } : {
       type: "LineString",
       coordinates: [
         [from.longitude, from.latitude],

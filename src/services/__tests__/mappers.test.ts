@@ -1,5 +1,6 @@
 import {
   FALLBACK,
+  linkNotifications,
   mapRoute,
   mapRun,
   mapTrip,
@@ -642,4 +643,54 @@ describe("mapRun", () => {
       });
     },
   );
+});
+
+const notification = {
+  id: "notification-1",
+  message: "Your ride request was sent.",
+  createdAt: timestamp,
+  read: false,
+};
+const older = new Date(now - 60_000).toISOString();
+
+describe("linkNotifications", () => {
+  it("leaves non-ride messages unlinked even when a ride changed at the same time", () => {
+    const at = "2026-11-21T08:00:00.000Z";
+    const [linked] = linkNotifications(
+      [{ id: "n1", message: "Welcome to Angkol. Your account is ready.", createdAt: at, read: false }],
+      [{ id: "t1", createdAt: at, timestamps: { Requested: Date.parse(at) } }],
+    );
+    expect(linked.tripId).toBeNull();
+  });
+
+  it("keeps an explicit booking link even when a closer trip is in the snapshot", () => {
+    const linked = { ...notification, tripId: "explicit" };
+    expect(linkNotifications([linked], [
+      { id: "other", createdAt: timestamp, timestamps: {} },
+    ])).toEqual([linked]);
+  });
+
+  it("finds the closest timestamp across trips and statuses", () => {
+    expect(linkNotifications([{ ...notification, tripId: null }], [
+      { id: "first", createdAt: older, timestamps: { Accepted: now + 1000 } },
+      { id: "closest", createdAt: older, timestamps: { Arrived: now - 500, Completed: now + 100 } },
+      { id: "last", createdAt: older, timestamps: { "In progress": now - 200 } },
+    ])).toEqual([{ ...notification, tripId: "closest" }]);
+  });
+
+  it("uses creation time for a legacy request with no Requested timestamp", () => {
+    expect(linkNotifications([notification], [
+      { id: "legacy", createdAt: timestamp, timestamps: {} },
+      { id: "recent", createdAt: older, timestamps: { Requested: now - 100 } },
+    ])).toEqual([{ ...notification, tripId: "legacy" }]);
+  });
+
+  test.each([
+    [10_000, "trip"],
+    [10_001, null],
+  ])("matches a Requested timestamp %i ms away to %p", (offset, tripId) => {
+    expect(linkNotifications([notification], [
+      { id: "trip", createdAt: older, timestamps: { Requested: now + offset } },
+    ])).toEqual([{ ...notification, tripId }]);
+  });
 });

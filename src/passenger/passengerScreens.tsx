@@ -7,12 +7,13 @@ import {
   TextInput,
   View,
 } from "react-native";
-import type { Point, Route, Snapshot, Trip } from "../types/types";
+import type { Point, Route, Snapshot, Trip, Vehicle } from "../types/types";
 import CalbayogMap from "../map/CalbayogMap";
 import { Icon, money } from "../common/ui";
 import { Glyph } from "../common/Glyph";
 import { ps, passengerColors as c } from "./passengerStyles";
 import { isFinished } from "../domain/roles";
+import { vehicleForDriver } from "../domain/vehicles";
 
 type IconName = React.ComponentProps<typeof Icon>["name"];
 function Tile({ icon, dark = false }: { icon: IconName; dark?: boolean }) {
@@ -131,8 +132,10 @@ export function PassengerHomeScreen({
   onDestination,
   onTrack,
   onRideAgain,
+  me,
 }: {
   data: Snapshot;
+  me?: Point | null;
   active?: Trip;
   onBook: () => void;
   onRoutes: () => void;
@@ -163,24 +166,39 @@ export function PassengerHomeScreen({
       data.trips.map((trip) => [trip.destinationPoint.name, trip.destinationPoint]),
     ).values(),
   ].slice(0, 3);
-  const onRoad = data.vehicles.filter((x) => x.status !== "Broken / Inactive").length;
+  // Before booking: every unit out working. After a driver accepts: only that unit.
+  const assigned: Vehicle | undefined =
+    active && !["Requested", "Expired", "Cancelled"].includes(active.status)
+      ? puv
+        ? data.vehicles.find((x) => x.id === active.vehicleId)
+        : vehicleForDriver(data.vehicles, active.driverId, active.plate)
+      : undefined;
+  const live = data.vehicles.filter((x) => (x.online || x.onRun) && !x.stale);
+  const tricycles = live.filter((x) => x.online).length;
+  const jeepneys = live.filter((x) => x.onRun).length;
+  const units = active ? (assigned ? [assigned] : []) : live;
+  const unitsLabel = active
+    ? assigned
+      ? `${assigned.plate ? `Unit ${assigned.plate}` : "Your unit"}, live`
+      : "Waiting for a driver to accept"
+    : `${tricycles} ${tricycles === 1 ? "tricycle" : "tricycles"} online · ${jeepneys} ${jeepneys === 1 ? "jeepney" : "jeepneys"} on the road`;
   const jeepneyRoutes = data.routes.filter((r) => r.active && r.transportType !== "Tricycle").length;
   const recent = places.length ? places : data.landmarks.slice(0, 2);
   return (
     <View style={v.stack}>
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel="Where to? Book a tricycle"
+        accessibilityLabel="Diin kit? Where to? Book a tricycle"
         onPress={onBook}
         style={({ pressed }) => [v.destination, pressed && ps.pressed]}
       >
         <View style={{ flex: 1, gap: 2 }}>
-          <Text style={[v.heroTitle, { color: c.onBrand }]} numberOfLines={1}>
-            Where to?
+          <Text style={[v.ctaTitle, { color: c.onBrand }]} numberOfLines={1}>
+            Diin kit?
           </Text>
-          <Text style={[v.small, { color: "#D5EADF" }]}>Tricycle, regular or special</Text>
+          <Text style={[v.small, { color: "#D5EADF" }]}>Book a tricycle, regular or special</Text>
         </View>
-        <Icon name="arrow-forward" size={28} color={c.onBrand} />
+        <Icon name="arrow-forward" size={26} color={c.onBrand} />
       </Pressable>
       {active && (
         <Pressable
@@ -216,16 +234,19 @@ export function PassengerHomeScreen({
       </Pressable>
       <View style={{ gap: 10 }}>
         <Section
-          title="Around you"
-          detail={`${onRoad} ${onRoad === 1 ? "unit" : "units"} on the road`}
-          action="Terminals"
-          onPress={onTerminals}
+          title={active ? "Your ride" : "Hirani ha imo"}
+          detail={unitsLabel}
+          action={active ? "Track" : "Terminals"}
+          onPress={active ? onTrack : onTerminals}
         />
         <CalbayogMap
-          height={200}
-          vehicles={data.vehicles}
-          terminals={data.terminals}
+          height={240}
+          vehicles={units}
+          terminals={active ? [] : data.terminals}
           landmarks={data.landmarks}
+          pickup={active && !puv ? active.pickupPoint : null}
+          me={me}
+          track={Boolean(assigned)}
         />
       </View>
       <View>
@@ -273,8 +294,10 @@ export function PassengerRoutesScreen({
   onCancel,
   onTerminals,
   busy,
+  me,
 }: {
   data: Snapshot;
+  me?: Point | null;
   selectedId: string | null;
   onSelect: (id: string) => void;
   onPickup: (route: Route) => void;
@@ -294,6 +317,9 @@ export function PassengerRoutesScreen({
         .includes(query.toLowerCase()),
   );
   const selected = routes.find((route) => route.id === selectedId) || routes[0];
+  // Jeepneys running a route are shown moving; ones queued at the terminal are not.
+  const runningOn = (id?: string) => data.vehicles.filter((x) => x.routeId === id && x.onRun && !x.stale);
+  const queuedOn = (id?: string) => data.vehicles.filter((x) => x.routeId === id && !x.onRun && x.vehicleType !== "Tricycle");
   return (
     <View style={v.stack}>
       <View style={v.search}>
@@ -348,11 +374,13 @@ export function PassengerRoutesScreen({
       </View>
       <View style={{ borderRadius: 14, overflow: "hidden", borderWidth: 1, borderColor: c.line }}>
         <CalbayogMap
-          height={210}
+          height={240}
           pickup={selected?.stops[0]}
+          pickupIsPerson={false}
           destination={selected?.stops.at(-1)}
-          vehicles={data.vehicles}
-          terminals={data.terminals}
+          vehicles={runningOn(selected?.id)}
+          terminals={data.terminals.filter((t) => t.routeId === selected?.id)}
+          me={me}
         />
       </View>
       {routes.map((route) => {
@@ -422,8 +450,24 @@ export function PassengerRoutesScreen({
                     </View>
                   ))}
                 </View>
+                {runningOn(route.id).map((unit) => (
+                  <View key={unit.id} style={[ps.row, { gap: 10 }]}>
+                    <Glyph name="jeepney" size={22} />
+                    <Text style={[v.small, { flex: 1 }]}>
+                      <Text style={{ fontWeight: "700", color: c.ink }}>{unit.plate || unit.name}</Text>
+                      {unit.nextStop ? ` on the way to ${unit.nextStop}` : " on the route now"}
+                    </Text>
+                  </View>
+                ))}
+                {!runningOn(route.id).length && (
+                  <Text style={v.small}>
+                    {queuedOn(route.id).length
+                      ? `${queuedOn(route.id).length} waiting at the terminal. Go there and ride the next one out.`
+                      : "No jeepney on this route right now."}
+                  </Text>
+                )}
                 <Button
-                  title="Hold a seat"
+                  title={runningOn(route.id).length ? "Hold a seat" : "Go to the terminal"}
                   onPress={() => onPickup(route)}
                   disabled={busy || (!route.approved && !data.sampleMode)}
                 />
@@ -798,11 +842,18 @@ const v = StyleSheet.create({
     letterSpacing: -0.8,
     color: c.ink,
   },
+  ctaTitle: {
+    fontFamily: "Archivo",
+    fontSize: 30,
+    lineHeight: 34,
+    fontWeight: "700",
+    letterSpacing: -0.6,
+  },
   destination: {
     flexDirection: "row",
     gap: 14,
     alignItems: "center",
-    minHeight: 96,
+    paddingVertical: 16,
     paddingHorizontal: 20,
     backgroundColor: c.brand,
     borderRadius: 12,

@@ -26,3 +26,17 @@ The welcome screen uses the bundled Calbayog photo. Get started opens the restor
 Visual style: clean and premium, using deep green, white surfaces, subtle borders, and the locally bundled Manrope font (license in assets/fonts). The welcome photo uses an AI-enhanced portrait version to reduce enlargement on phones; assets/calbayog-welcome.jpg retains the original supplied image.
 
 The web portal opens administrator sign-in directly, with the Calbayog photo behind a transparent form; the dashboard keeps its white background. The mobile welcome screen is unchanged. Passenger home, routes, trips, and profile use the cohesive premium components in src/passengerScreens.tsx. All interactions still use the local sample adapter.
+
+## Driver emulator
+
+`npm run emulate:drivers` signs in as one or more tricycle driver **test** accounts (set `EMULATOR_DRIVERS=email:password,…` in `.env`) and works rides like a real driver: it accepts a requested tricycle ride, drives to your pickup on real roads, marks Arrived, starts the trip when you board (or after `EMULATOR_BOARD_WAIT` seconds), drives the booked route, and calls PARA at the destination. Its GPS position goes to Supabase, so the passenger map and ETA follow it. Tapping PARA! or cancelling in the app ends the ride early. `EMULATOR_SPEED` speeds up driving (default ×4). Add `-- --once` to stop after one ride each. Ctrl+C takes the drivers offline. If it restarts mid-ride, each driver carries on with the ride it already accepted. Run only one copy at a time: two copies signed in as the same drivers compete for rides.
+
+`npm run emulate:pujs` does the same for jeepneys (`EMULATOR_PUJS=driver3@angkol.test:Driver3!`). Each unit waits at its terminal (hidden from the passenger map), departs on its route, stops at each stop to board and drop passengers, picks up seat bookings at their stop and completes them at the drop-off, then drives back to the terminal. Flags: `--dwell=<seconds at the terminal>`, `--loops=<n>`. More detail in `scripts/emulator/README.md`.
+
+## Database changes to apply
+
+`supabase/migrations/20261123090000_notification_links_and_puj_seats.sql` links each notification to its ride and only lets passengers hold a jeepney seat while a unit is running the route. Paste it into the Supabase SQL editor (or run `supabase db push`). The app works before it is applied: it matches notifications to rides by time, and the seat rule is also checked in the app.
+
+## Test seed data
+
+`supabase/seed.sql` adds fictional test accounts, vehicles, past rides, a PUJ run, a stop request, reports and notifications. Run it once in the Supabase SQL editor after the migrations; it is safe to re-run. Accounts (all confirmed and approved): `driver1@angkol.test` / `Driver1!` and `driver2@angkol.test` / `Driver2!` (tricycle, used by the emulator), `driver3@angkol.test` / `Driver3!` (PUJ on CB01), `passenger1@angkol.test` / `Passenger1!`, `passenger2@angkol.test` / `Passenger2!`, `admin@angkol.test` / `Admin1!`, `owner@angkol.test` / `Owner1!`. Do not run it on a production project.

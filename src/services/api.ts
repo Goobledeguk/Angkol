@@ -5,6 +5,7 @@ import { inServiceArea } from "../domain/serviceArea";
 import { driverVehicleId, isStale } from "../domain/vehicles";
 import {
   FALLBACK,
+  linkNotifications,
   mapLocation,
   mapRoute,
   mapRun,
@@ -14,7 +15,7 @@ import {
   num,
   str,
 } from "./mappers";
-import type { Point, Quote, Snapshot, Trip } from "../types/types";
+import type { DriverRun, Point, Quote, Snapshot, Trip } from "../types/types";
 
 /**
  * Live data adapter.
@@ -40,6 +41,7 @@ const USER_COLUMNS =
 const DRIVER_COLUMNS =
   "driver_id,user_id,operational_classification,availability_status,association,plate_number,capacity,franchise_name,routes_id,verified,current_lat,current_lng,location_updated_at";
 const BOOKING_COLUMNS = "*, trip_records(payment_status)";
+const NOTIFICATION_COLUMNS = "notification_id,message,created_at,read,booking_id";
 const ADMIN_ROLES = ["Administrator", "Vehicle Owner / Operator"];
 const MAX_PHOTO_URL_LENGTH = 1_500_000;
 const TRICYCLE_FARE_ID = "a34fd128-1707-4dc4-bb11-aedf9782c494";
@@ -107,6 +109,28 @@ function passengerCount(value: unknown) {
 
 /* ------------------------------------------------------------------ snapshot */
 
+async function loadNotifications(client: ReturnType<typeof db>, userId: string) {
+  const select = (columns: string) =>
+    client
+      .from("notifications")
+      .select(columns)
+      .eq("user_id", userId)
+      .order("created_at", { ascending: false })
+      .limit(30);
+
+  const result = await select(NOTIFICATION_COLUMNS);
+  const { error } = result;
+  if (
+    error &&
+    (error.code === "42703" ||
+      error.code === "PGRST204" ||
+      /booking_id.*does not exist|could not find.*booking_id.*column/i.test(error.message))
+  ) {
+    return select("*");
+  }
+  return result;
+}
+
 async function loadSnapshot(): Promise<Snapshot> {
   const client = db();
   const userId = await currentUserId();
@@ -145,12 +169,7 @@ async function loadSnapshot(): Promise<Snapshot> {
       .limit(40),
     client.from("stop_requests").select("*").order("created_at"),
     client.from("reports").select("*").order("created_at", { ascending: false }),
-    client
-      .from("notifications")
-      .select("*")
-      .eq("user_id", userId)
-      .order("created_at", { ascending: false })
-      .limit(30),
+    loadNotifications(client, userId),
     client.from("landmarks").select("*").order("name"),
     client.from("fare_matrices").select("*").eq("active", true),
     client
@@ -191,8 +210,19 @@ async function loadSnapshot(): Promise<Snapshot> {
     active: !!row.active,
   }));
 
+  const trips = ((bookingsResult.data ?? []) as any[]).map((row) =>
+    mapTrip(row, userMap, driverMap),
+  );
+  const activeRuns = new Map<string, DriverRun>();
+  const runs = ((runsResult.data ?? []) as any[]).map((row) => {
+    const run = mapRun(row, userMap);
+    if (row.status === "In progress") {
+      activeRuns.set(run.driverId, run);
+    }
+    return run;
+  });
   const fleet = vehiclesResult.data ?? [];
-  const vehicles = (user.role === "Passenger"
+  const vehicles: Snapshot["vehicles"] = (user.role === "Passenger"
     ? fleet.filter(
         (row) =>
           row.active &&
@@ -200,18 +230,59 @@ async function loadSnapshot(): Promise<Snapshot> {
           row.status !== "Broken / Inactive",
       )
     : fleet
-  ).map(mapVehicle);
+  ).map((row) => {
+    const vehicle = mapVehicle(row);
+    const run = activeRuns.get(row.driver_id);
+    if (vehicle.vehicleType === "Tricycle") {
+      // A registered tricycle is out working when its driver is online.
+      const driverRow = driverMap.get(row.driver_id);
+      return {
+        ...vehicle,
+        online: driverRow?.availability_status === "available" && !vehicle.stale,
+        onRun: false,
+        runId: null,
+        nextStop: null,
+      };
+    }
+    // RLS hides other drivers' runs from passengers, so use the fleet status there.
+    const onRun =
+      vehicle.status !== "In Terminal" &&
+      (!!run || (user.role === "Passenger" && vehicle.status === "In transit"));
+    return {
+      ...vehicle,
+      onRun,
+      runId: onRun ? run?.id ?? null : null,
+      nextStop: onRun ? run?.stops[run.stopIndex + 1]?.name ?? null : null,
+    };
+  });
   if (user.role === "Passenger") {
+    const assignedTrip = trips.find(
+      (trip) =>
+        trip.passengerId === userId &&
+        (trip.status === "Accepted" || trip.status === "Arrived" || trip.status === "In progress"),
+    );
+    const now = Date.now();
     const registeredPlates = new Set(fleet.map((row) => str(row.plate_number)));
     for (const row of drivers) {
       const driverUser = userMap.get(row.user_id);
-      if (!driverUser) {continue;}
+      if (!driverUser || (row.operational_classification ?? "Tricycle") !== "Tricycle") {
+        continue;
+      }
       const name = str(driverUser.name);
       const location = mapLocation(row, name);
+      if (!location) {
+        continue;
+      }
+      const assigned = row.user_id === assignedTrip?.driverId;
+      const online = row.availability_status === "available";
+      const stale = isStale(location.updatedAt, now);
       const plate = str(row.plate_number);
-      if (!location) {continue;}
-      if (registeredPlates.has(plate)) {continue;}
-      registeredPlates.add(plate);
+      if (!assigned && (!online || stale || (plate && registeredPlates.has(plate)))) {
+        continue;
+      }
+      if (plate) {
+        registeredPlates.add(plate);
+      }
       vehicles.push({
         id: driverVehicleId(row.user_id),
         name,
@@ -221,18 +292,12 @@ async function loadSnapshot(): Promise<Snapshot> {
         routeId: row.routes_id ?? null,
         capacity: num(row.capacity, 3),
         location,
-        stale: isStale(location.updatedAt, Date.now()),
+        online,
+        stale,
         status: "In transit",
       });
     }
   }
-
-  const trips = ((bookingsResult.data ?? []) as any[]).map((row) =>
-    mapTrip(row, userMap, driverMap),
-  );
-  const runs = ((runsResult.data ?? []) as any[]).map((row) =>
-    mapRun(row, userMap),
-  );
 
   const stopRequests = ((stopsResult.data ?? []) as any[]).map((row) => ({
     id: row.request_id,
@@ -258,6 +323,7 @@ async function loadSnapshot(): Promise<Snapshot> {
       message: str(row.message),
       createdAt: row.created_at || new Date().toISOString(),
       read: !!row.read,
+      tripId: row.booking_id ?? null,
     }),
   );
 
@@ -284,7 +350,10 @@ async function loadSnapshot(): Promise<Snapshot> {
     landmarks: landmarks.length ? landmarks : [FALLBACK],
     stopRequests,
     reports,
-    notifications,
+    notifications: linkNotifications(
+      notifications,
+      trips.filter((trip) => trip.passengerId === userId || trip.driverId === userId),
+    ),
     logs: ((logsResult.data ?? []) as any[]).map((row) => ({
       id: num(row.log_id),
       action: str(row.event_type),
@@ -325,6 +394,19 @@ async function mapBookingRow(
 ): Promise<Trip> {
   const maps = await namesFor([currentUserIdValue, row.driver_id]);
   return mapTrip(row, maps.users, maps.drivers);
+}
+
+/** Best effort: the run itself already succeeded if this fails. */
+async function setFleetStatus(driverId: string, status: "In transit" | "In Terminal") {
+  try {
+    await db()
+      .from("vehicles")
+      .update({ status })
+      .eq("driver_id", driverId)
+      .not("status", "in", '("Broken / Inactive","Decommissioned")');
+  } catch {
+    // Ignore: the passenger map refreshes on the next status change.
+  }
 }
 
 /* ------------------------------------------------------------------ adapter */
@@ -846,6 +928,8 @@ export async function api<T = { ok: boolean }>(
         p_boarded: boarded,
       });
       raise(error);
+      // Passengers see a jeepney as running from its fleet status (run rows are private).
+      await setFleetStatus(userId, "In transit");
       const profile = await client
         .from("users")
         .select("name")
@@ -897,6 +981,9 @@ export async function api<T = { ok: boolean }>(
         p_complete: complete,
       });
       raise(error);
+      if (complete) {
+        await setFleetStatus(userId, "In Terminal");
+      }
       const profile = await client
         .from("users")
         .select("name")

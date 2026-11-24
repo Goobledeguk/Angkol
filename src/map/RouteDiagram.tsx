@@ -1,12 +1,37 @@
-import React, { useState } from "react";
-import { Image, Pressable, StyleSheet, Text, View, useWindowDimensions, type GestureResponderEvent } from "react-native";
-import Svg, { Circle, G, Line, Polyline, Rect, Text as SvgText } from "react-native-svg";
+import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { MapGestures } from "./mapGestures";
+import {
+  Animated,
+  Image,
+  Platform,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+  useWindowDimensions,
+} from "react-native";
+import Svg, { Circle, G, Line, Path, Polyline, Rect, Text as SvgText } from "react-native-svg";
+import Ionicons from "@expo/vector-icons/Ionicons";
 import type { MapProps } from "./mapTypes";
-import type { Point } from "../types/types";
-import { DEFAULT_CENTER, basemapUrl, distanceKm, hasMapbox } from "../services/mapbox";
+import type { Point, Vehicle } from "../types/types";
+import { DEFAULT_CENTER, distanceKm } from "../services/mapbox";
 import { glyphShapes } from "../common/Glyph";
 import roads from "./roads.json";
 import { roadKey } from "./roadKey";
+import { cleanRoute, joinEnds } from "../services/routeGeometry";
+import {
+  EARTH_M,
+  cameraAt,
+  fitCamera,
+  hasTiles,
+  mercX,
+  mercY,
+  pointAtScreen,
+  scaleOf,
+  tilesFor,
+  zoomAbout,
+  type Camera,
+} from "./geo";
 
 /** Sample lines snapped to real roads ahead of time (scripts/capture/roads.mjs). */
 const onRoads = (coords: number[][]) => (roads as Record<string, number[][]>)[roadKey(coords)];
@@ -16,32 +41,10 @@ const PAPER = "#EDF2EE";
 const GRID = "#E0E8E2";
 const BRAND = "#0F5D45";
 const MUTED = "#66726B";
-const TILE = 512;
-const EARTH_M = 40075016;
-
-const mercX = (lng: number) => (lng + 180) / 360;
-const mercY = (lat: number) => {
-  const s = Math.sin((Math.max(-85, Math.min(85, lat)) * Math.PI) / 180);
-  return 0.5 - Math.log((1 + s) / (1 - s)) / (4 * Math.PI);
-};
-const latFromY = (y: number) => (180 / Math.PI) * Math.atan(Math.sinh(Math.PI - 2 * Math.PI * y));
-
-type View2D = { cx: number; cy: number; scale: number };
-
-function fit(points: Point[], width: number, height: number, pad: number): View2D {
-  const valid = points.filter((p) => Number.isFinite(p.latitude) && Number.isFinite(p.longitude));
-  const base = valid.length ? valid : [{ name: "", ...DEFAULT_CENTER }];
-  const xs = base.map((p) => mercX(p.longitude));
-  const ys = base.map((p) => mercY(p.latitude));
-  const [minX, maxX, minY, maxY] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)];
-  const spanX = Math.max(maxX - minX, 1e-7);
-  const spanY = Math.max(maxY - minY, 1e-7);
-  const fitScale = Math.min((width - pad * 2) / spanX, (height - pad * 2) / spanY);
-  // Zoom is kept to two decimals so a Mapbox basemap at the same zoom lines up pixel for pixel.
-  const zoom = Math.round(Math.log2(Math.max(TILE * 2 ** 12.5, Math.min(TILE * 2 ** 16.4, fitScale)) / TILE) * 100) / 100;
-  const scale = TILE * 2 ** zoom;
-  return { cx: (minX + maxX) / 2, cy: (minY + maxY) / 2, scale };
-}
+const ME = "#1C6FD1";
+const FALLBACK: Point = { name: "", ...DEFAULT_CENTER };
+/** Overlay drawn this far past each edge so panning never reveals a blank border. */
+const BLEED = 0.6;
 
 type Box = { x: number; y: number; w: number; h: number };
 const overlaps = (a: Box, b: Box) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
@@ -94,30 +97,44 @@ function placeLabels(
 }
 
 function niceDistance(maxMeters: number) {
-  const steps = [50, 100, 200, 250, 500, 1000, 2000, 5000];
-  return [...steps].reverse().find((m) => m <= maxMeters) ?? 50;
+  const steps = [20, 50, 100, 200, 250, 500, 1000, 2000, 5000];
+  return [...steps].reverse().find((m) => m <= maxMeters) ?? 20;
 }
 
-/** A label with a paper-coloured halo so it reads over the route line. */
+/** A label with a white halo so it reads over the route line and streets. */
 function Label({ x, y, text, color = INK, anchor = "middle", size = 11 }: { x: number; y: number; text: string; color?: string; anchor?: "start" | "middle" | "end"; size?: number }) {
   const common = { x, y, fontFamily: "ArchivoCond", fontSize: size, letterSpacing: 0.6, textAnchor: anchor } as const;
-  const label = text;
   return (
     <G>
       <SvgText {...common} stroke="#FFFFFF" strokeWidth={4} strokeLinejoin="round" fill="#FFFFFF">
-        {label}
+        {text}
       </SvgText>
       <SvgText {...common} fill={color}>
-        {label}
+        {text}
       </SvgText>
     </G>
   );
 }
 
+/** A standing person in a round badge: the passenger, or the phone's own position. */
+function PersonMark({ x, y, color, halo }: { x: number; y: number; color: string; halo?: boolean }) {
+  return (
+    <G>
+      {halo ? <Circle cx={x} cy={y} r={24} fill={color} opacity={0.16} /> : null}
+      <Circle cx={x} cy={y} r={14} fill={color} stroke="#FFFFFF" strokeWidth={3} />
+      <G transform={`translate(${x - 8.4} ${y - 8.6}) scale(0.7)`} fill="none" stroke="#FFFFFF" strokeWidth={2.8} strokeLinecap="round" strokeLinejoin="round">
+        {glyphShapes("person")}
+      </G>
+    </G>
+  );
+}
+
+
 /**
- * Angkol's map: our own route, stops and vehicles, drawn over Mapbox streets when a token is set.
- * Each screen frames its own subject: the approaching driver, the ride,
- * the corridor, or the spot being picked.
+ * Angkol's map. Mapbox street tiles (or plain paper without a token) with our
+ * own route, stops, vehicles and people drawn on top. Drag to move, pinch or
+ * double-tap to zoom, mouse wheel on the web. In pinpoint mode the pin stays
+ * in the middle and the map moves under it.
  */
 export default function RouteDiagram({
   height = 300,
@@ -131,11 +148,17 @@ export default function RouteDiagram({
   terminals,
   stops,
   landmarks,
+  me,
+  pickupIsPerson = true,
+  track = false,
+  recenterKey,
   onSelect,
+  onVehiclePress,
 }: MapProps) {
   const window = useWindowDimensions();
   const [width, setWidth] = useState(Math.max(280, window.width - 40));
 
+  // ------------------------------------------------------------ what to show
   const given = geometry?.coordinates ?? [];
   const snapped =
     given.length >= 2
@@ -143,12 +166,24 @@ export default function RouteDiagram({
       : pickup && destination
         ? onRoads([[pickup.longitude, pickup.latitude], [destination.longitude, destination.latitude]])
         : undefined;
-  // Roads end at the kerb; join them to the actual pickup and drop-off marks.
   const ends = given.length >= 2 ? given : pickup && destination ? [[pickup.longitude, pickup.latitude], [destination.longitude, destination.latitude]] : [];
-  const path = snapped ? [ends[0], ...snapped, ends[ends.length - 1]] : given;
+  // Join the road to the real pickup and drop-off without doubling back, and drop
+  // the small loops and U-turn spurs routing services sometimes return.
+  // Routing services snap the ends to a road, which can overshoot the real spot and hook back.
+  const startAt = pickup ? [pickup.longitude, pickup.latitude] : ends[0];
+  const endAt = destination ? [destination.longitude, destination.latitude] : ends[ends.length - 1];
+  const path = snapped
+    ? joinEnds(startAt, snapped, endAt)
+    : given.length >= 2
+      ? pickup && destination
+        ? joinEnds(startAt, given, endAt)
+        : cleanRoute(given)
+      : given;
   const line: Point[] = path.map(([longitude, latitude]) => ({ name: "", latitude, longitude }));
-  const anchor = pickup ?? destination ?? line[0] ?? { name: "", ...DEFAULT_CENTER };
+  const anchor = pickup ?? destination ?? me ?? line[0] ?? FALLBACK;
   const nearby = (vehicles ?? []).filter((v) => distanceKm(anchor, v.location) <= 3);
+  const editing = mode === "pickup" ? pickup : mode === "destination" ? destination : null;
+
   const focus: Point[] = [
     ...(pickup ? [pickup] : []),
     ...(destination ? [destination] : []),
@@ -156,188 +191,333 @@ export default function RouteDiagram({
     ...(terminals ?? []).map((t) => t.point),
     ...(stops ?? []).map((s) => s.point),
     ...nearby.map((v) => v.location),
+    ...(!pickup && !destination && !line.length && me ? [me] : []),
   ];
-  const view = fit(focus.length ? focus : [anchor], width, height, Math.max(46, Math.min(width, height) * 0.2));
-  const px = (p: Point) => ({
-    x: width / 2 + (mercX(p.longitude) - view.cx) * view.scale,
-    y: height / 2 + (mercY(p.latitude) - view.cy) * view.scale,
-  });
-  const inside = (p: { x: number; y: number }) => p.x > -20 && p.x < width + 20 && p.y > -20 && p.y < height + 20;
+  const pad = Math.max(46, Math.min(width, height) * 0.18);
+  const fitted = (): Camera =>
+    mode
+      ? cameraAt(editing ?? pickup ?? me ?? FALLBACK, 16.2)
+      : fitCamera(focus.length ? focus : [anchor], width, height, pad, FALLBACK);
 
-  const metersPerPx = (EARTH_M * Math.cos((anchor.latitude * Math.PI) / 180)) / view.scale;
+  // The camera only re-frames itself when the subject changes (a new pickup,
+  // drop-off, route or vehicle set), never while the person is exploring.
+  const at = (p?: Point | null) => (p ? `${p.latitude.toFixed(5)},${p.longitude.toFixed(5)}` : "-");
+  const subject = mode
+    ? `pin:${mode}:${recenterKey ?? ""}`
+    : [
+        at(pickup),
+        at(destination),
+        given.length,
+        at(line[0]),
+        at(line[line.length - 1]),
+        (terminals ?? []).map((t) => t.id).join(","),
+        (stops ?? []).map((s) => s.id).join(","),
+        nearby.map((v) => v.id).sort().join(","),
+        Math.round(width),
+        height,
+      ].join("|");
+  const [cam, setCam] = useState<Camera>(fitted);
+  const [gestures] = useState(() => new MapGestures());
+  const moved = useRef(false);
+  const lastSubject = useRef(subject);
+  const trackKey = track ? focus.map(at).join(";") : "";
+  useEffect(() => {
+    if (gestures.active) {
+      // Never yank the map out from under a finger; the next update re-frames.
+      return;
+    }
+    if (lastSubject.current !== subject) {
+      lastSubject.current = subject;
+      moved.current = false;
+      setCam(fitted());
+    } else if (track && !moved.current) {
+      setCam(fitted());
+    }
+    // `fitted` reads the same inputs that make up `subject` and `trackKey`.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [subject, trackKey]);
+
+  // ------------------------------------------------------------ gestures
+  const frame = useRef<React.ComponentRef<typeof View>>(null);
+  const commit = (next: Camera, userMoved: boolean) => {
+    if (userMoved) {
+      moved.current = true;
+    }
+    setCam(next);
+  };
+  const measure = () => {
+    frame.current?.measureInWindow?.((x: number, y: number) => gestures.setOrigin(x, y));
+  };
+  useLayoutEffect(() => {
+    gestures.sync({ cam, width, height, mode, vehicles: vehicles ?? [], onSelect, onVehiclePress, commit, measure });
+  });
+  // Clear the live transform in the same frame the committed camera is drawn.
+  useLayoutEffect(() => {
+    gestures.reset();
+  }, [cam, gestures]);
+
+  // Mouse wheel / trackpad zoom on the web.
+  useEffect(() => {
+    if (Platform.OS !== "web") {
+      return;
+    }
+    const node = frame.current as unknown as HTMLElement | null;
+    if (!node?.addEventListener) {
+      return;
+    }
+    let latest: Camera | null = null;
+    const onWheel = (event: WheelEvent) => {
+      event.preventDefault();
+      const rect = node.getBoundingClientRect();
+      gestures.setOrigin(rect.left, rect.top);
+      const fx = event.clientX - rect.left - rect.width / 2;
+      const fy = event.clientY - rect.top - rect.height / 2;
+      const factor = Math.exp(-event.deltaY * (event.ctrlKey ? 0.01 : 0.0025));
+      moved.current = true;
+      setCam((current) => {
+        latest = zoomAbout(current, factor, fx, fy);
+        return latest;
+      });
+      if (latest) {
+        gestures.settleLater(latest);
+      }
+    };
+    node.addEventListener("wheel", onWheel, { passive: false });
+    return () => {
+      node.removeEventListener("wheel", onWheel);
+      gestures.cancelPending();
+    };
+  }, [gestures]);
+
+  const zoomBy = (factor: number) => {
+    gestures.cancelPending();
+    gestures.settle(zoomAbout(cam, factor, 0, 0));
+  };
+  const recenter = () => {
+    gestures.cancelPending();
+    moved.current = false;
+    if (mode && me) {
+      gestures.settle(cameraAt(me, 16.4));
+      moved.current = false;
+    } else {
+      setCam(fitted());
+    }
+  };
+
+  // ------------------------------------------------------------ drawing
+  const scale = scaleOf(cam.zoom);
+  const bleedX = width * BLEED;
+  const bleedY = height * BLEED;
+  // Overlay coordinates: frame coordinates shifted by the bleed.
+  const px = (p: Point) => ({
+    x: bleedX + width / 2 + (mercX(p.longitude) - cam.cx) * scale,
+    y: bleedY + height / 2 + (mercY(p.latitude) - cam.cy) * scale,
+  });
+  const inside = (p: { x: number; y: number }) =>
+    p.x > -20 && p.x < width + bleedX * 2 + 20 && p.y > -20 && p.y < height + bleedY * 2 + 20;
+  const inFrame = (p: { x: number; y: number }) =>
+    p.x > bleedX - 10 && p.x < bleedX + width + 10 && p.y > bleedY - 10 && p.y < bleedY + height + 10;
+  const toFrame = (p: { x: number; y: number }) => ({ x: p.x - bleedX, y: p.y - bleedY });
+
+  const center = pointAtScreen(cam, width / 2, height / 2, width, height);
+  const metersPerPx = (EARTH_M * Math.cos((center.latitude * Math.PI) / 180)) / scale;
   const scaleMeters = niceDistance(metersPerPx * 90);
   const scalePx = scaleMeters / metersPerPx;
 
-  const routePts = line.length >= 2 ? line.map(px) : pickup && destination ? [px(pickup), px(destination)] : [];
+  const routePts = line.length >= 2 ? line.map(px) : pickup && destination && !mode ? [px(pickup), px(destination)] : [];
   const routeD = routePts.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ");
   const routeIsGuess = line.length < 2;
 
-  function select(event: GestureResponderEvent) {
-    if (!mode || !onSelect) {
-      return;
-    }
-    const native = event.nativeEvent as unknown as { locationX?: number; locationY?: number; offsetX?: number; offsetY?: number };
-    const x = native.locationX ?? native.offsetX ?? width / 2;
-    const y = native.locationY ?? native.offsetY ?? height / 2;
-    const longitude = (view.cx + (x - width / 2) / view.scale) * 360 - 180;
-    const latitude = latFromY(view.cy + (y - height / 2) / view.scale);
-    onSelect({ name: "Pinned spot", latitude, longitude });
-  }
-
-  const basemap = basemapUrl(
-    { longitude: view.cx * 360 - 180, latitude: latFromY(view.cy) },
-    Math.log2(view.scale / TILE),
-    width,
-    height,
-  );
+  const tiles = tilesFor(cam, width, height, Math.max(bleedX, bleedY));
+  const W = width + bleedX * 2;
+  const H = height + bleedY * 2;
   const grid: React.ReactNode[] = [];
-  for (let x = 16; x < width; x += 32) {
-    grid.push(<Line key={`gx${x}`} x1={x} y1={0} x2={x} y2={height} stroke={GRID} strokeWidth={1} />);
-  }
-  for (let y = 16; y < height; y += 32) {
-    grid.push(<Line key={`gy${y}`} x1={0} y1={y} x2={width} y2={y} stroke={GRID} strokeWidth={1} />);
+  if (!hasTiles) {
+    const step = 32;
+    const offX = ((((width / 2 - cam.cx * scale) % step) + step) % step);
+    const offY = ((((height / 2 - cam.cy * scale) % step) + step) % step);
+    for (let x = offX; x < W; x += step) {
+      grid.push(<Line key={`gx${x.toFixed(1)}`} x1={x} y1={0} x2={x} y2={H} stroke={GRID} strokeWidth={1} />);
+    }
+    for (let y = offY; y < H; y += step) {
+      grid.push(<Line key={`gy${y.toFixed(1)}`} x1={0} y1={y} x2={W} y2={y} stroke={GRID} strokeWidth={1} />);
+    }
   }
 
   // The street basemap already names places, so landmark labels only appear on the plain map.
-  const context = hasMapbox ? [] : [...(landmarks ?? [])].filter((p) => p.name !== pickup?.name && p.name !== destination?.name);
+  const context = hasTiles ? [] : [...(landmarks ?? [])].filter((p) => p.name !== pickup?.name && p.name !== destination?.name);
 
-  // Everything drawn as a mark claims its space before any label is placed.
+  // Labels are placed in frame coordinates; marks claim their space first.
   const taken: Box[] = [];
-  const claim = (at: { x: number; y: number }, r: number) => taken.push({ x: at.x - r, y: at.y - r, w: r * 2, h: r * 2 });
-  const pickupAt = pickup ? px(pickup) : null;
-  const destinationAt = destination ? px(destination) : null;
-  if (pickupAt && inside(pickupAt)) {claim(pickupAt, 11);}
-  if (destinationAt && inside(destinationAt)) {claim(destinationAt, 10);}
+  const claim = (p: { x: number; y: number }, r: number) => {
+    const f = toFrame(p);
+    taken.push({ x: f.x - r, y: f.y - r, w: r * 2, h: r * 2 });
+  };
+  const showPickup = pickup && !(mode === "pickup");
+  const showDestination = destination && !(mode === "destination");
+  const pickupAt = showPickup ? px(pickup) : null;
+  const destinationAt = showDestination ? px(destination) : null;
+  const meAt = me ? px(me) : null;
+  if (pickupAt && inFrame(pickupAt)) {claim(pickupAt, 15);}
+  if (destinationAt && inFrame(destinationAt)) {claim(destinationAt, 10);}
+  if (meAt && inFrame(meAt)) {claim(meAt, 15);}
   (terminals ?? []).forEach((t) => claim(px(t.point), 13));
   (stops ?? []).forEach((st) => claim(px(st.point), 7));
-  const marks = nearby.map((v) => ({ v, at: px(v.location) })).filter(({ at }) => inside(at));
-  marks.forEach(({ at }) => claim(at, 17));
-  taken.push({ x: 0, y: height - 34, w: 120, h: 34 }, { x: 0, y: 0, w: 64, h: 62 });
-  // Pickup and drop-off names go first so plate tags work around them.
+  const marks = (vehicles ?? []).map((v) => ({ v, at: px(v.location) })).filter(({ at: p }) => inside(p));
+  marks.filter(({ at: p }) => inFrame(p)).forEach(({ at: p }) => claim(p, 17));
+  taken.push({ x: 0, y: height - 34, w: 120, h: 34 }, { x: width - 52, y: 0, w: 52, h: 140 });
   const required = placeLabels(
     [
-      ...(pickupAt && inside(pickupAt)
-        ? [{ at: pickupAt, text: (pickupLabel || pickup!.name).toUpperCase(), required: true }]
+      ...(pickupAt && inFrame(pickupAt)
+        ? [{ at: toFrame(pickupAt), text: (pickupLabel || pickup!.name).toUpperCase(), required: true, gap: 18 }]
         : []),
-      ...(destinationAt && inside(destinationAt)
-        ? [{ at: destinationAt, text: (destinationLabel || destination!.name).toUpperCase(), required: true }]
+      ...(destinationAt && inFrame(destinationAt)
+        ? [{ at: toFrame(destinationAt), text: (destinationLabel || destination!.name).toUpperCase(), required: true }]
         : []),
     ],
     taken,
     width,
     height,
   );
-  const tags = marks
-    .map(({ v, at }) => {
-      if (!v.plate) {
-        return { v, at, tag: null };
-      }
-      const w = v.plate.length * 7.4 + 10;
-      const spots = [
-        { x: at.x + 18, y: at.y - 26, w, h: 17 },
-        { x: at.x - 18 - w, y: at.y - 26, w, h: 17 },
-        { x: at.x + 18, y: at.y + 9, w, h: 17 },
-        { x: at.x - 18 - w, y: at.y + 9, w, h: 17 },
-      ];
-      const tag = spots.find(
-        (b) => b.x >= 2 && b.x + b.w <= width - 2 && b.y >= 2 && !taken.some((t) => overlaps(b, t)),
-      );
-      if (tag) {
-        taken.push(tag);
-      }
-      return { v, at, tag: tag ?? null };
-    });
+  const tags = marks.map(({ v, at: p }) => {
+    if (!v.plate || !inFrame(p)) {
+      return { v, at: p, tag: null };
+    }
+    const f = toFrame(p);
+    const w = v.plate.length * 7.4 + 10;
+    const spots = [
+      { x: f.x + 18, y: f.y - 26, w, h: 17 },
+      { x: f.x - 18 - w, y: f.y - 26, w, h: 17 },
+      { x: f.x + 18, y: f.y + 9, w, h: 17 },
+      { x: f.x - 18 - w, y: f.y + 9, w, h: 17 },
+    ];
+    const tag = spots.find((b) => b.x >= 2 && b.x + b.w <= width - 2 && b.y >= 2 && !taken.some((t) => overlaps(b, t)));
+    if (tag) {
+      taken.push(tag);
+    }
+    return { v, at: p, tag: tag ? { ...tag, x: tag.x + bleedX, y: tag.y + bleedY } : null };
+  });
   const labels = [
     ...required,
     ...placeLabels(
       [
         ...(terminals ?? [])
           .map((t) => ({ at: px(t.point), text: t.name.toUpperCase(), gap: 16 }))
-          .filter(({ at }) => inside(at)),
+          .filter(({ at: p }) => inFrame(p))
+          .map((l) => ({ ...l, at: toFrame(l.at) })),
         ...context
           .map((p) => ({ at: px(p), text: p.name.toUpperCase(), color: MUTED, size: 10, gap: 7 }))
-          .filter(({ at }) => inside(at)),
+          .filter(({ at: p }) => inFrame(p))
+          .map((l) => ({ ...l, at: toFrame(l.at) })),
       ],
       taken,
       width,
       height,
     ),
-  ];
+  ].map((l) => ({ ...l, x: l.x + bleedX, y: l.y + bleedY }));
+
+  // The vehicle type is the reliable signal; fleet rows default their kind to PUJ.
+  const glyphFor = (v: Vehicle) =>
+    v.vehicleType === "Tricycle" || (!v.vehicleType && v.kind === "Tricycle driver") ? "tricycle" : "jeepney";
+
+  const webTouch = Platform.OS === "web" ? ({ touchAction: "none", cursor: "grab", userSelect: "none" } as object) : null;
 
   return (
-    <View style={[styles.frame, { height }]} onLayout={(e) => setWidth(Math.max(1, e.nativeEvent.layout.width))}>
-      {basemap ? (
-        <Image
-          source={{ uri: basemap }}
-          style={[StyleSheet.absoluteFill, { width, height }]}
-          resizeMode="stretch"
-          accessibilityIgnoresInvertColors
-        />
-      ) : null}
-      <Svg width={width} height={height} style={StyleSheet.absoluteFill}>
-        {basemap ? null : grid}
+    <View
+      ref={frame}
+      style={[styles.frame, { height }, webTouch]}
+      onLayout={(e) => {
+        setWidth(Math.max(1, e.nativeEvent.layout.width));
+        measure();
+      }}
+      accessibilityRole={mode ? "adjustable" : "image"}
+      accessibilityLabel={
+        mode
+          ? `Map. Move the map to place your ${mode} under the pin, or tap a spot.`
+          : "Map. Drag to move, pinch to zoom."
+      }
+      {...gestures.responder.panHandlers}
+    >
+      <Animated.View
+        pointerEvents="none"
+        style={[
+          StyleSheet.absoluteFill,
+          { transform: [{ translateX: gestures.tx }, { translateY: gestures.ty }, { scale: gestures.scale }] },
+        ]}
+      >
+        {tiles.map((t) => (
+          <Image
+            key={t.key}
+            source={{ uri: t.uri }}
+            style={{ position: "absolute", left: t.left, top: t.top, width: t.size + 0.5, height: t.size + 0.5 }}
+            fadeDuration={0}
+            accessibilityIgnoresInvertColors
+          />
+        ))}
+        <Svg width={W} height={H} style={{ position: "absolute", left: -bleedX, top: -bleedY }}>
+          {grid}
 
-        {context.map((p) => {
-          const at = px(p);
-          return inside(at) ? (
-            <G key={`l-${p.name}`}>
-              <Circle cx={at.x} cy={at.y} r={3} fill={MUTED} />
+          {context.map((p) => {
+            const q = px(p);
+            return inside(q) ? <Circle key={`l-${p.name}`} cx={q.x} cy={q.y} r={3} fill={MUTED} /> : null;
+          })}
+
+          {routePts.length >= 2 && (
+            <G>
+              <Polyline points={routeD} fill="none" stroke="#FFFFFF" strokeWidth={10} strokeLinecap="round" strokeLinejoin="round" />
+              <Polyline
+                points={routeD}
+                fill="none"
+                stroke={BRAND}
+                strokeWidth={5}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeDasharray={routeIsGuess ? "6 6" : undefined}
+              />
             </G>
-          ) : null;
-        })}
+          )}
 
-        {routePts.length >= 2 && (
-          <G>
-            <Polyline points={routeD} fill="none" stroke="#FFFFFF" strokeWidth={10} strokeLinecap="round" strokeLinejoin="round" />
-            <Polyline
-              points={routeD}
-              fill="none"
-              stroke={BRAND}
-              strokeWidth={5}
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeDasharray={routeIsGuess ? "6 6" : undefined}
-            />
-          </G>
-        )}
-
-        {(terminals ?? []).map((t) => {
-          const at = px(t.point);
-          return inside(at) ? (
-            <G key={`t-${t.id}`}>
-              <Rect x={at.x - 12} y={at.y - 12} width={24} height={24} rx={5} fill="#FFFFFF" stroke={INK} strokeWidth={2.5} />
-              <G transform={`translate(${at.x - 8.4} ${at.y - 8.4}) scale(0.7)`} fill="none" stroke={INK} strokeWidth={2.6} strokeLinecap="round" strokeLinejoin="round">
-                {glyphShapes("terminal")}
+          {(terminals ?? []).map((t) => {
+            const q = px(t.point);
+            return inside(q) ? (
+              <G key={`t-${t.id}`}>
+                <Rect x={q.x - 12} y={q.y - 12} width={24} height={24} rx={5} fill="#FFFFFF" stroke={INK} strokeWidth={2.5} />
+                <G transform={`translate(${q.x - 8.4} ${q.y - 8.4}) scale(0.7)`} fill="none" stroke={INK} strokeWidth={2.6} strokeLinecap="round" strokeLinejoin="round">
+                  {glyphShapes("terminal")}
+                </G>
               </G>
-            </G>
-          ) : null;
-        })}
+            ) : null;
+          })}
 
-        {(stops ?? []).map((s) => {
-          const at = px(s.point);
-          return inside(at) ? <Rect key={`s-${s.id}`} x={at.x - 6} y={at.y - 6} width={12} height={12} fill="#FFFFFF" stroke={BRAND} strokeWidth={3} /> : null;
-        })}
+          {(stops ?? []).map((s) => {
+            const q = px(s.point);
+            return inside(q) ? <Rect key={`s-${s.id}`} x={q.x - 6} y={q.y - 6} width={12} height={12} fill="#FFFFFF" stroke={BRAND} strokeWidth={3} /> : null;
+          })}
 
-        {pickup && inside(px(pickup)) && (
-          <G>
-            <Circle cx={px(pickup).x} cy={px(pickup).y} r={9} fill="#FFFFFF" stroke={INK} strokeWidth={3.5} />
-            <Circle cx={px(pickup).x} cy={px(pickup).y} r={3} fill={INK} />
-          </G>
-        )}
+          {destinationAt && inside(destinationAt) && (
+            <Rect x={destinationAt.x - 7} y={destinationAt.y - 7} width={14} height={14} fill={INK} stroke="#FFFFFF" strokeWidth={2} />
+          )}
 
-        {destination && inside(px(destination)) && (
-          <G>
-            <Rect x={px(destination).x - 7} y={px(destination).y - 7} width={14} height={14} fill={INK} />
-          </G>
-        )}
+          {meAt && inside(meAt) && !(pickupAt && Math.hypot(pickupAt.x - meAt.x, pickupAt.y - meAt.y) < 6) && (
+            <PersonMark x={meAt.x} y={meAt.y} color={ME} halo />
+          )}
 
-        {tags.map(({ v, at, tag }) => {
-          const glyph = v.vehicleType === "Jeepney" || v.kind === "PUJ / PUV driver" ? "jeepney" : "tricycle";
-          return (
+          {pickupAt && inside(pickupAt) && (
+            pickupIsPerson ? (
+              <PersonMark x={pickupAt.x} y={pickupAt.y} color={INK} />
+            ) : (
+              <G>
+                <Circle cx={pickupAt.x} cy={pickupAt.y} r={9} fill="#FFFFFF" stroke={INK} strokeWidth={3.5} />
+                <Circle cx={pickupAt.x} cy={pickupAt.y} r={3} fill={INK} />
+              </G>
+            )
+          )}
+
+          {tags.map(({ v, at: q, tag }) => (
             <G key={`v-${v.id}`} opacity={v.stale ? 0.45 : 1}>
-              <Circle cx={at.x} cy={at.y} r={16} fill={BRAND} stroke="#FFFFFF" strokeWidth={3} />
-              <G transform={`translate(${at.x - 10.8} ${at.y - 10.8}) scale(0.9)`} fill="none" stroke="#FFFFFF" strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round">
-                {glyphShapes(glyph)}
+              <Circle cx={q.x} cy={q.y} r={16} fill={BRAND} stroke="#FFFFFF" strokeWidth={3} />
+              <G transform={`translate(${q.x - 10.8} ${q.y - 10.8}) scale(0.9)`} fill="none" stroke="#FFFFFF" strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round">
+                {glyphShapes(glyphFor(v))}
               </G>
               {tag && v.plate ? (
                 <G>
@@ -348,33 +528,80 @@ export default function RouteDiagram({
                 </G>
               ) : null}
             </G>
-          );
-        })}
+          ))}
 
-        {labels.map((l) => (
-          <Label key={`${l.text}-${l.x}-${l.y}`} x={l.x} y={l.y} text={l.text} color={l.color} anchor="start" size={l.size} />
-        ))}
+          {labels.map((l) => (
+            <Label key={`${l.text}-${l.x}-${l.y}`} x={l.x} y={l.y} text={l.text} color={l.color} anchor="start" size={l.size} />
+          ))}
+        </Svg>
+      </Animated.View>
 
-        <G>
-          <Line x1={14} y1={height - 14} x2={14 + scalePx} y2={height - 14} stroke={INK} strokeWidth={3} />
-          <Line x1={14} y1={height - 19} x2={14} y2={height - 9} stroke={INK} strokeWidth={2} />
-          <Line x1={14 + scalePx} y1={height - 19} x2={14 + scalePx} y2={height - 9} stroke={INK} strokeWidth={2} />
-          <Label x={14} y={height - 22} text={scaleMeters >= 1000 ? `${scaleMeters / 1000} km` : `${scaleMeters} m`} anchor="start" size={10} />
-        </G>
-      </Svg>
-      <Pressable
-        style={StyleSheet.absoluteFill}
-        accessibilityRole={mode ? "button" : "image"}
-        accessibilityLabel={mode ? `Tap to set ${mode} on the map` : "Route map"}
-        onPress={mode ? select : undefined}
-      />
-      {basemap ? <Text style={styles.credit}>© Mapbox © OpenStreetMap</Text> : null}
+      {mode ? (
+        // The pin never moves; its tip marks the exact spot.
+        <View pointerEvents="none" style={[styles.pin, { left: width / 2 - 18, top: height / 2 - 44 }]}>
+          <Svg width={36} height={46}>
+            <Path d="M18 45 C18 45 4 27 4 17 A14 14 0 1 1 32 17 C32 27 18 45 18 45 Z" fill={mode === "pickup" ? INK : BRAND} stroke="#FFFFFF" strokeWidth={2.5} />
+            <G transform="translate(9.6 8.6) scale(0.7)" fill="none" stroke="#FFFFFF" strokeWidth={2.8} strokeLinecap="round" strokeLinejoin="round">
+              {mode === "pickup" ? glyphShapes("person") : <Rect x={6} y={6} width={12} height={12} fill="#FFFFFF" />}
+            </G>
+          </Svg>
+          <View style={styles.pinShadow} />
+        </View>
+      ) : null}
+
+      <View pointerEvents="none" style={styles.scale}>
+        <Svg width={scalePx + 30} height={30}>
+          <Line x1={1} y1={24} x2={1 + scalePx} y2={24} stroke={INK} strokeWidth={3} />
+          <Line x1={1} y1={19} x2={1} y2={29} stroke={INK} strokeWidth={2} />
+          <Line x1={1 + scalePx} y1={19} x2={1 + scalePx} y2={29} stroke={INK} strokeWidth={2} />
+          <Label x={1} y={14} text={scaleMeters >= 1000 ? `${scaleMeters / 1000} km` : `${scaleMeters} m`} anchor="start" size={10} />
+        </Svg>
+      </View>
+
+      <View style={styles.controls}>
+        <MapButton icon="add" label="Zoom in" onPress={() => zoomBy(2)} />
+        <MapButton icon="remove" label="Zoom out" onPress={() => zoomBy(0.5)} />
+        <MapButton
+          icon={mode && me ? "locate" : "scan-outline"}
+          label={mode && me ? "Move the pin to my location" : "Show everything"}
+          onPress={recenter}
+        />
+      </View>
+      {hasTiles ? <Text pointerEvents="none" style={styles.credit}>© Mapbox © OpenStreetMap</Text> : null}
     </View>
+  );
+}
+
+function MapButton({ icon, label, onPress }: { icon: React.ComponentProps<typeof Ionicons>["name"]; label: string; onPress: () => void }) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      onPress={onPress}
+      hitSlop={4}
+      style={({ pressed }) => [styles.control, pressed && { backgroundColor: "#E4ECE7" }]}
+    >
+      <Ionicons name={icon} size={18} color={INK} />
+    </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
   frame: { borderRadius: 10, overflow: "hidden", backgroundColor: PAPER },
+  controls: { position: "absolute", right: 8, top: 8, gap: 6 },
+  control: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "#FFFFFF",
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: "#D5DED8",
+  },
+  pin: { position: "absolute", width: 36, height: 50, alignItems: "center" },
+  pinShadow: { width: 10, height: 4, borderRadius: 5, backgroundColor: "rgba(20,32,26,0.35)", marginTop: -2 },
+  scale: { position: "absolute", left: 13, bottom: 4 },
   credit: {
     position: "absolute",
     right: 6,
