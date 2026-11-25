@@ -21,6 +21,7 @@ import CalbayogMap from "../map/CalbayogMap";
 import { RouteBoard } from "../common/RouteBoard";
 import { BodyNumber } from "../common/BodyNumber";
 import { Glyph, type GlyphName } from "../common/Glyph";
+import Avatar from "../common/Avatar";
 import { distanceKm } from "../services/mapbox";
 import { ps, passengerColors as c } from "../passenger/passengerStyles";
 import { pickDriverPhoto, Share, Linking } from "../services/previewActions";
@@ -1439,10 +1440,11 @@ export default function DriverApp({
     content = (
       <>
         <View style={[ps.row, { gap: 16 }]}>
-          <BodyNumber value={data.user.plate} toda={puj ? null : data.user.association} />
-          <View style={{ flex: 1, gap: 2 }}>
-            <Text style={ps.heading}>{data.user.name}</Text>
-            <Text style={ps.small}>
+          <Avatar photo={data.user.photo} name={data.user.name} size={56} />
+         <BodyNumber value={data.user.plate} toda={puj ? null : data.user.association}  />
+          <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
+            <Text numberOfLines={2} style={ps.heading}>{data.user.name}</Text>
+            <Text numberOfLines={2} style={ps.small}>
               {puj ? "Jeepney driver" : "Tricycle driver"}
               {data.user.verified ? " · approved" : " · awaiting approval"}
             </Text>
@@ -1461,6 +1463,9 @@ export default function DriverApp({
             });
           }}
         />
+        <View style={[{ paddingHorizontal: 150, gap: 0 }]}>
+          
+        </View>
         <View style={[ps.card, { paddingVertical: 2, gap: 0 }]}>
           <Row title="License" detail={data.user.license || "None"} />
           <Row title={puj ? "Franchise" : "TODA"} detail={(puj ? data.user.franchiseName : data.user.association) || "None"} />
@@ -1681,7 +1686,7 @@ export default function DriverApp({
             <Icon name="arrow-back" size={22} color={c.ink} />
           </Pressable>
         )}
-        <View style={{ flex: 1 }}>
+        <View style={{ flex: 1, minWidth: 0 }}>
           <Text accessibilityRole="header" style={ps.heading} numberOfLines={2}>
             {title}
           </Text>

@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { Image, Text, View } from "react-native";
 import { ps } from "../passenger/passengerStyles";
+import { initials } from "./initials";
 
 export default function DriverAvatar({
   photo,
@@ -33,14 +34,7 @@ export default function DriverAvatar({
           onError={() => setFailed(photo)}
         />
       ) : (
-        <Text style={ps.avatarText}>
-          {name
-            .split(" ")
-            .filter(Boolean)
-            .slice(0, 2)
-            .map((part) => part[0])
-            .join("")}
-        </Text>
+        <Text style={ps.avatarText}>{initials(name)}</Text>
       )}
     </View>
   );

@@ -11,6 +11,7 @@ import { adminDashboardStyles } from "./adminDashboardStyles";
 import BrandLogo from "../common/BrandLogo";
 import { Icon } from "../common/ui";
 import { isFinished } from "../domain/roles";
+import { initials as sharedInitials } from "../common/initials";
 
 
 const paths: Record<string, string> = {
@@ -169,13 +170,7 @@ function Search({
 }
 const currency = (value: number) =>
   `₱${value.toLocaleString("en-PH", { maximumFractionDigits: 2 })}`;
-const initials = (name?: string) =>
-  String(name || "")
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((n) => n[0]?.toUpperCase() || "")
-    .join("") || "A";
+const initials = (name?: string) => sharedInitials(name, "A");
 const terminalStatus = (status: string) =>
   status === "Completed" ? "" : status === "Cancelled" ? "red" : status === "Expired" ? "gray" : "blue";
 function departureTime(
@@ -229,6 +224,55 @@ function LicensePhoto({ userId, attached }: { userId: string; attached: boolean 
       />
     </a>
   );
+}
+
+function WebAvatar({
+  user,
+  size,
+}: {
+  user: Pick<User, "name" | "photo">;
+  size?: number;
+}) {
+  const photo = user.photo;
+  return (
+    <span className="aa-avatar" style={size ? { width: size, height: size } : undefined}>
+      {photo && /^(data:image\/|https?:)/i.test(photo) ? (
+        <img src={photo} alt={`${user.name}'s profile photo`} />
+      ) : (
+        initials(user.name)
+      )}
+    </span>
+  );
+}
+
+/** Read a browser image file and shrink it to a small square JPEG data URI. */
+async function fileToPhoto(file: File): Promise<string> {
+  const dataUrl = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () =>
+      typeof reader.result === "string" && reader.result
+        ? resolve(reader.result)
+        : reject(new Error("The image could not be read."));
+    reader.onerror = () => reject(reader.error || new Error("The image could not be read."));
+    reader.readAsDataURL(file);
+  });
+  const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error("The image could not be opened."));
+    img.src = dataUrl;
+  });
+  const side = Math.max(image.width, image.height);
+  const scale = Math.min(1, 512 / Math.max(1, side));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.round(image.width * scale));
+  canvas.height = Math.max(1, Math.round(image.height * scale));
+  const context = canvas.getContext("2d");
+  if (!context) {
+    return dataUrl;
+  }
+  context.drawImage(image, 0, 0, canvas.width, canvas.height);
+  return canvas.toDataURL("image/jpeg", 0.8);
 }
 
 export default function AdminDashboard({
@@ -896,9 +940,7 @@ export default function AdminDashboard({
                               open("Person details", u.id);
                             }}
                           >
-                            <span className="aa-avatar">
-                              {initials(u.name)}
-                            </span>
+                            <WebAvatar user={u} />
                             <span>
                               <b>{u.name}</b>
                               <small>{shortId(u.id)}</small>
@@ -976,12 +1018,15 @@ export default function AdminDashboard({
                   key={u.id}
                   onClick={() => open("Person details", u.id)}
                 >
-                  <span>
-                    <strong>{u.name}</strong>
-                    <small>New driver application</small>
-                    <small style={{ color: "#dfaa4d" }}>
-                      {u.association || "Association not supplied"}
-                    </small>
+                  <span className="aa-person" style={{ minWidth: 0 }}>
+                    <WebAvatar user={u} />
+                    <span style={{ minWidth: 0 }}>
+                      <strong>{u.name}</strong>
+                      <small>New driver application</small>
+                      <small style={{ color: "#dfaa4d" }}>
+                        {u.association || "Association not supplied"}
+                      </small>
+                    </span>
                   </span>
                   <Glyph name="chevron" size={13} />
                 </button>
@@ -1458,7 +1503,15 @@ export default function AdminDashboard({
               <tbody>
                 {ownerFranchiseDrivers.filter((u: any) => !search || `${u.name} ${u.email} ${u.phone} ${u.license} ${u.plate} ${u.franchiseName || ""}`.toLowerCase().includes(search.toLowerCase())).map((u: any) => (
                   <tr key={u.id} data-clickable={!("status" in u && u.status === "Approved")} onClick={() => { if (!("status" in u && u.status === "Approved")) { open("Person details", u.id); } }}>
-                    <td><strong>{u.name}</strong><br /><small>{u.email}</small></td>
+                    <td>
+                      <span className="aa-person">
+                        <WebAvatar user={u} />
+                        <span style={{ minWidth: 0 }}>
+                          <strong>{u.name}</strong>
+                          <small>{u.email}</small>
+                        </span>
+                      </span>
+                    </td>
                     <td>{u.phone || "-"}</td>
                     <td>{u.license || "-"}</td>
                     <td>{u.plate || "-"}</td>
@@ -1609,7 +1662,7 @@ export default function AdminDashboard({
           ))}
         </nav>
         <button className="aa-user" onClick={() => open("Your account")}>
-          <span className="aa-avatar">{initials(data.user.name)}</span>
+          <WebAvatar user={data.user} />
           <span>
             <b>{data.user.name}</b>
             <small>{isOwner ? "Calbayog Metro Express" : "City transport admin"}</small>
@@ -1865,6 +1918,13 @@ export default function AdminDashboard({
             })()}
             {modal === "Person details" && selectedUser && (
               <>
+                <div className="aa-person" style={{ margin: "0 0 16px" }}>
+                  <WebAvatar user={selectedUser} size={48} />
+                  <span style={{ minWidth: 0 }}>
+                    <b>{selectedUser.name}</b>
+                    <small>{selectedUser.email}</small>
+                  </span>
+                </div>
                 <dl>
                   {[
                     ["Full name", selectedUser.name],
@@ -2053,10 +2113,66 @@ function Account({
   logout,
 }: { user: User } & Pick<AdminDashboardProps, "busy" | "action" | "logout">) {
   const [name, setName] = useState(user.name),
-    [phone, setPhone] = useState(user.phone);
+    [phone, setPhone] = useState(user.phone),
+    [photoError, setPhotoError] = useState("");
+  const fileInput = useRef<HTMLInputElement>(null);
+  async function choosePhoto(input: HTMLInputElement) {
+    const picked = input.files?.[0];
+    input.value = "";
+    if (!picked) {
+      return;
+    }
+    if (!picked.type.startsWith("image/")) {
+      setPhotoError("Choose an image file, like a JPG or PNG.");
+      return;
+    }
+    setPhotoError("");
+    try {
+      const photo = await fileToPhoto(picked);
+      await action("/profile/photo", { photo }, "PATCH");
+    } catch (error) {
+      setPhotoError((error as Error).message || "The photo did not upload.");
+    }
+  }
   return (
     <div className="aa-formstack">
-      <p>{user.email} · Administrator</p>
+      <div className="aa-person" style={{ marginBottom: 8 }}>
+        <WebAvatar user={user} size={48} />
+        <span style={{ minWidth: 0 }}>
+          <b>{user.name}</b>
+          <small>{user.email} · Administrator</small>
+        </span>
+      </div>
+      <input
+        ref={fileInput}
+        type="file"
+        accept="image/*"
+        style={{ display: "none" }}
+        onChange={(event) => {
+          void choosePhoto(event.currentTarget);
+        }}
+      />
+      <button
+        type="button"
+        className="aa-button light"
+        disabled={busy}
+        onClick={() => fileInput.current?.click()}
+      >
+        {user.photo ? "Change profile photo" : "Add profile photo"}
+      </button>
+      {user.photo ? (
+        <button
+          type="button"
+          className="aa-button light"
+          disabled={busy}
+          onClick={() => action("/profile/photo", { photo: null }, "PATCH")}
+        >
+          Remove profile photo
+        </button>
+      ) : null}
+      {photoError ? (
+        <p style={{ color: "#B3411F", margin: 0 }}>{photoError}</p>
+      ) : null}
       <label>
         Display name{" "}
         <input
@@ -2073,17 +2189,19 @@ function Account({
           onChange={(e) => setPhone(e.target.value)}
         />
       </label>
-      <button
-        className="aa-button"
-        disabled={busy || !name.trim()}
-        onClick={() => action("/profile", { name, phone }, "PATCH")}
-      >
-        Save profile
-      </button>
-      <button className="aa-button light" disabled={busy} onClick={logout}>
-        <Glyph name="logout" />
-        Sign out
-      </button>
+      <div className="aa-accountactions">
+        <button
+          className="aa-button"
+          disabled={busy || !name.trim()}
+          onClick={() => action("/profile", { name, phone }, "PATCH")}
+        >
+          Save profile
+        </button>
+        <button className="aa-button light" disabled={busy} onClick={logout}>
+          <Glyph name="logout" />
+          Sign out
+        </button>
+      </div>
     </div>
   );
 }

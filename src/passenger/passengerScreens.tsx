@@ -11,6 +11,7 @@ import type { Point, Route, Snapshot, Trip, Vehicle } from "../types/types";
 import CalbayogMap from "../map/CalbayogMap";
 import { Icon, money } from "../common/ui";
 import { Glyph } from "../common/Glyph";
+import Avatar from "../common/Avatar";
 import { ps, passengerColors as c } from "./passengerStyles";
 import { isFinished } from "../domain/roles";
 import { vehicleForDriver } from "../domain/vehicles";
@@ -629,6 +630,7 @@ export function PassengerTripsScreen({
 export function PassengerProfileScreen({
   data,
   onEdit,
+  onPhoto,
   onTrips,
   onNotifications,
   onSupport,
@@ -638,6 +640,7 @@ export function PassengerProfileScreen({
 }: {
   data: Snapshot;
   onEdit: () => void;
+  onPhoto: () => void;
   onTrips: () => void;
   onNotifications: () => void;
   onSupport: () => void;
@@ -648,28 +651,56 @@ export function PassengerProfileScreen({
   const [alerts, setAlerts] = useState(true);
   return (
     <View style={v.stack}>
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel="Edit your personal details"
-        onPress={onEdit}
-        style={({ pressed }) => [ps.between, { minHeight: 56 }, pressed && ps.pressed]}
-      >
-        <View style={{ flex: 1, gap: 2 }}>
-          <Text style={v.profileName}>{data.user.name}</Text>
-          <Text style={v.small}>{data.user.phone || data.user.email}</Text>
+      <View style={v.profileHeader}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={
+            data.user.photo ? "Change your profile photo" : "Add a profile photo"
+          }
+          disabled={busy}
+          onPress={onPhoto}
+          style={({ pressed }) => [
+            v.avatarWrap,
+            pressed && ps.pressed,
+          ]}
+        >
+          <Avatar
+            photo={data.user.photo}
+            name={data.user.name}
+            size={64}
+          />
+          <View style={v.editBadge}>
+            <Icon name="camera" size={14} color="white" />
+          </View>
+        </Pressable>
+        <View style={v.profileIdentity}>
+          <Text numberOfLines={2} style={v.profileName}>
+            {data.user.name}
+          </Text>
+          <Text numberOfLines={1} style={v.small}>
+            {data.user.phone || data.user.email}
+          </Text>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Edit your personal details"
+            disabled={busy}
+            onPress={onEdit}
+            style={({ pressed }) => pressed && ps.pressed}
+          >
+            <Text style={v.link}>Edit details</Text>
+          </Pressable>
         </View>
-        <Text style={v.link}>Edit</Text>
-      </Pressable>
+      </View>
       <View style={v.profileStats}>
-        <View style={{ flex: 1, gap: 2 }}>
-          <Text style={v.statValue}>
+        <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
+          <Text numberOfLines={1} style={v.statValue}>
             {data.trips.filter((trip) => trip.status === "Completed").length}
           </Text>
           <Text style={v.small}>rides</Text>
         </View>
         <View style={{ width: 1, alignSelf: "stretch", backgroundColor: c.line }} />
-        <View style={{ flex: 1, gap: 2 }}>
-          <Text style={v.statValue}>
+        <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
+          <Text numberOfLines={1} style={v.statValue}>
             {money(
               data.trips
                 .filter((trip) => trip.status === "Completed")
@@ -681,6 +712,12 @@ export function PassengerProfileScreen({
       </View>
       <View style={[v.card, { gap: 0, paddingVertical: 0 }]}>
         {[
+          {
+            icon: "camera-outline" as const,
+            title: "Profile photo",
+            sub: data.user.photo ? "Change your photo" : "Add a photo or use your initials",
+            press: onPhoto,
+          },
           {
             icon: "person-outline" as const,
             title: "Personal information",
@@ -703,6 +740,7 @@ export function PassengerProfileScreen({
           <Pressable
             key={item.title}
             accessibilityRole="button"
+            disabled={busy}
             onPress={item.press}
             style={({ pressed }) => [
               v.listRow,
@@ -711,7 +749,14 @@ export function PassengerProfileScreen({
             ]}
           >
             <Icon name={item.icon} size={20} color={c.ink} />
-            <Text style={[v.label, { flex: 1, fontWeight: "600" }]}>{item.title}</Text>
+            <View style={{ flex: 1, minWidth: 0, gap: 1 }}>
+              <Text numberOfLines={1} style={[v.label, { fontWeight: "600" }]}>
+                {item.title}
+              </Text>
+              <Text numberOfLines={1} style={ps.tiny}>
+                {item.sub}
+              </Text>
+            </View>
             <Icon name="chevron-forward" size={17} color={c.muted} />
           </Pressable>
         ))}
@@ -1043,13 +1088,28 @@ const v = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
+  profileHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 14,
+    minHeight: 64,
+  },
+  avatarWrap: {
+    width: 64,
+    height: 64,
+    flexShrink: 0,
+  },
+  profileIdentity: {
+    flex: 1,
+    minWidth: 0,
+    gap: 2,
+  },
   profileName: {
     fontFamily: "Archivo",
     fontSize: 24,
     lineHeight: 29,
     fontWeight: "700",
     color: c.ink,
-    textAlign: "center",
   },
   profileStats: {
     flexDirection: "row",
@@ -1066,5 +1126,6 @@ const v = StyleSheet.create({
     lineHeight: 36,
     color: c.ink,
     fontVariant: ["tabular-nums"],
+    flexShrink: 1,
   },
 });

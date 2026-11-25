@@ -164,7 +164,6 @@ export const adminDashboardStyles = `
 .angkol-admin .aa-stat.amber .aa-statlabel::before{background:#ffc20e;box-shadow:inset 0 0 0 1.5px #14201A}
 .angkol-admin .aa-statvalue,.angkol-admin .aa-stat.amber .aa-statvalue,.angkol-admin .aa-stat.red .aa-statvalue{color:#14201A}
 .angkol-admin .aa-button{font-family:"Archivo",sans-serif;font-weight:700;text-transform:none;letter-spacing:0;font-size:13px}
-.angkol-admin .aa-person .aa-avatar,.angkol-admin .aa-user .aa-avatar{display:none}
 .angkol-admin .aa-table td,.angkol-admin .aa-person b{text-transform:none}
 .angkol-admin .aa-stats,.angkol-admin .aa-grid{gap:16px}
 .angkol-admin .aa-grid.split,.angkol-admin .aa-grid.routes{grid-template-columns:minmax(0,3fr) minmax(0,1fr)}
@@ -215,4 +214,36 @@ export const adminDashboardStyles = `
 .angkol-admin .aa-barcol:last-child .aa-bar{background:var(--brand)}
 .angkol-admin .aa-hour i{background:#AFC6B9}
 .angkol-admin .aa-hour.now i{background:var(--brand);box-shadow:none}
+
+/* Profile circles and long text: keep names/values inside the frame. */
+.angkol-admin .aa-avatar{overflow:hidden;padding:0;flex:0 0 auto;aspect-ratio:1}
+.angkol-admin .aa-avatar img{display:block;width:100%;height:100%;object-fit:cover;border-radius:50%}
+.angkol-admin .aa-inner,.angkol-admin .aa-panel,.angkol-admin .aa-grid>*{min-width:0}
+.angkol-admin .aa-user>span:not(.aa-avatar){min-width:0;flex:1}
+.angkol-admin .aa-user b,.angkol-admin .aa-user small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.angkol-admin .aa-person{min-width:0;max-width:100%}
+.angkol-admin .aa-person>span{min-width:0;overflow:hidden}
+.angkol-admin .aa-person b,.angkol-admin .aa-person small{display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.angkol-admin .aa-listitem>span{min-width:0}
+.angkol-admin .aa-listitem strong,.angkol-admin .aa-listitem small{overflow-wrap:anywhere}
+.angkol-admin .aa-dialog{max-height:calc(100vh - 32px);overflow:auto}
+.angkol-admin .aa-dialog dd{overflow-wrap:anywhere}
+.angkol-admin .aa-formstack p{overflow-wrap:anywhere}
+
+/* Schedule rows shrink the middle column instead of squeezing route names. */
+.angkol-admin .aa-schedule{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:6px 14px;align-items:center}
+.angkol-admin .aa-schedule time{white-space:nowrap}
+.angkol-admin .aa-schedule>div{min-width:0}
+.angkol-admin .aa-schedule strong,.angkol-admin .aa-schedule small{overflow-wrap:anywhere}
+.angkol-admin .aa-schedule .aa-pill{justify-self:end}
+@media(max-width:560px){
+  .angkol-admin .aa-schedule{grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"time status" "route route";gap:4px 10px}
+  .angkol-admin .aa-schedule time{grid-area:time}
+  .angkol-admin .aa-schedule>div{grid-area:route}
+  .angkol-admin .aa-schedule .aa-pill{grid-area:status}
+}
+
+/* Account actions sit side by side. */
+.angkol-admin .aa-accountactions{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.angkol-admin .aa-accountactions .aa-button{justify-self:auto}
 `;

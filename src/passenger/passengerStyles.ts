@@ -75,6 +75,7 @@ export const ps = StyleSheet.create({
     fontWeight: "700",
     color: c.ink,
     letterSpacing: -0.3,
+    flexShrink: 1,
   },
   subtitle: {
     fontFamily: "Archivo",
@@ -113,13 +114,14 @@ export const ps = StyleSheet.create({
     color: c.ink,
     lineHeight: 22,
   },
-  body: { fontFamily: "Archivo", fontSize: 16, lineHeight: 23, color: c.muted },
+  body: { fontFamily: "Archivo", fontSize: 16, lineHeight: 23, color: c.muted, flexShrink: 1 },
   label: {
     fontFamily: "Archivo",
     fontSize: 16,
     lineHeight: 21,
     fontWeight: "600",
     color: c.ink,
+    flexShrink: 1,
   },
   small: {
     fontFamily: "Archivo",
@@ -127,6 +129,7 @@ export const ps = StyleSheet.create({
     lineHeight: 20,
     color: c.muted,
     fontVariant: ["tabular-nums"],
+    flexShrink: 1,
   },
   tiny: {
     fontFamily: "Archivo",
@@ -134,6 +137,7 @@ export const ps = StyleSheet.create({
     lineHeight: 16,
     color: c.muted,
     fontVariant: ["tabular-nums"],
+    flexShrink: 1,
   },
   card: {
     borderRadius: 10,

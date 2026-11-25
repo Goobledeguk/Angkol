@@ -17,7 +17,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { router, useLocalSearchParams } from "expo-router";
 import { confirmAccountDeletion } from "../common/confirmAccountDeletion";
-import { Share, Linking } from "../services/previewActions";
+import { pickDriverPhoto, Share, Linking } from "../services/previewActions";
 import { api } from "../services/api";
 import { currentPoint } from "../services/location";
 import { distanceKm, reverseGeocode } from "../services/mapbox";
@@ -1691,6 +1691,14 @@ export default function PassengerApp({
         data={data}
         busy={locked}
         onEdit={() => go("Edit profile")}
+        onPhoto={() => {
+          void perform(async () => {
+            const photo = await pickDriverPhoto();
+            if (photo) {
+              await action("/profile/photo", { photo }, "PATCH");
+            }
+          });
+        }}
         onTrips={() => go("Trips")}
         onNotifications={() => go("Notifications")}
         onSupport={() => go("Support")}
@@ -1774,6 +1782,31 @@ export default function PassengerApp({
             });
           }}
         />
+        <Action
+          title={data.user.photo ? "Change profile photo" : "Add profile photo"}
+          light
+          disabled={locked}
+          onPress={() => {
+            void perform(async () => {
+              const photo = await pickDriverPhoto();
+              if (photo) {
+                await action("/profile/photo", { photo }, "PATCH");
+              }
+            });
+          }}
+        />
+        {Boolean(data.user.photo) && (
+          <Action
+            title="Remove profile photo"
+            light
+            disabled={locked}
+            onPress={() => {
+              void perform(async () => {
+                await action("/profile/photo", { photo: null }, "PATCH");
+              });
+            }}
+          />
+        )}
         <Action
           title="Sign out"
           light
@@ -1944,8 +1977,8 @@ export default function PassengerApp({
             <Icon name="arrow-back" size={22} color={c.ink} />
           </Pressable>
         )}
-        <View style={{ flex: 1 }}>
-          <Text accessibilityRole="header" style={ps.heading}>
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <Text accessibilityRole="header" style={ps.heading} numberOfLines={2}>
             {title}
           </Text>
           {subtitle ? (
