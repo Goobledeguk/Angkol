@@ -71,10 +71,22 @@ export function mapUser(row: any, driver?: any): User {
 }
 
 export function mapRoute(row: any): Route {
+  const stops = Array.isArray(row.stops) ? row.stops : [];
+  const polyline = row.route_polyline?.coordinates;
+  const geometry: Route["geometry"] =
+    Array.isArray(polyline) && polyline.length >= 2
+      ? { type: "LineString", coordinates: polyline }
+      : stops.length >= 2
+        ? {
+            type: "LineString",
+            coordinates: stops.map((stop: any) => [num(stop.longitude), num(stop.latitude)]),
+          }
+        : undefined;
   return {
     id: row.routes_id,
     name: str(row.route_name),
-    stops: Array.isArray(row.stops) ? row.stops : [],
+    stops,
+    ...(geometry ? { geometry } : {}),
     fare: num(row.fare),
     interval: num(row.interval_minutes, 15),
     startsAt: shortTime(row.starts_at, "06:00"),

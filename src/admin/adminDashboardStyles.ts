@@ -230,18 +230,13 @@ export const adminDashboardStyles = `
 .angkol-admin .aa-dialog dd{overflow-wrap:anywhere}
 .angkol-admin .aa-formstack p{overflow-wrap:anywhere}
 
-/* Schedule rows shrink the middle column instead of squeezing route names. */
-.angkol-admin .aa-schedule{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:6px 14px;align-items:center}
-.angkol-admin .aa-schedule time{white-space:nowrap}
-.angkol-admin .aa-schedule>div{min-width:0}
-.angkol-admin .aa-schedule strong,.angkol-admin .aa-schedule small{overflow-wrap:anywhere}
-.angkol-admin .aa-schedule .aa-pill{justify-self:end}
-@media(max-width:560px){
-  .angkol-admin .aa-schedule{grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"time status" "route route";gap:4px 10px}
-  .angkol-admin .aa-schedule time{grid-area:time}
-  .angkol-admin .aa-schedule>div{grid-area:route}
-  .angkol-admin .aa-schedule .aa-pill{grid-area:status}
-}
+/* Schedule rows put the time and status on their own line so the route name
+   always gets the full width instead of wrapping letter by letter. */
+.angkol-admin .aa-schedule{display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"time status" "route route";gap:4px 10px;align-items:center}
+.angkol-admin .aa-schedule time{grid-area:time;white-space:nowrap}
+.angkol-admin .aa-schedule>div{grid-area:route;min-width:0}
+.angkol-admin .aa-schedule strong,.angkol-admin .aa-schedule small{overflow-wrap:break-word;word-break:normal}
+.angkol-admin .aa-schedule .aa-pill{grid-area:status;justify-self:end}
 
 /* Account actions sit side by side. */
 .angkol-admin .aa-accountactions{display:flex;align-items:center;gap:10px;flex-wrap:wrap}

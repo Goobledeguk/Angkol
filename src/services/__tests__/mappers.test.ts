@@ -205,6 +205,13 @@ describe("mapRoute", () => {
       id: "r1",
       name: "Market loop",
       stops: [pickup, destination],
+      geometry: {
+        type: "LineString",
+        coordinates: [
+          [pickup.longitude, pickup.latitude],
+          [destination.longitude, destination.latitude],
+        ],
+      },
       fare: 14.5,
       interval: 25,
       startsAt: "07:30",
@@ -216,6 +223,16 @@ describe("mapRoute", () => {
       transportType: "Tricycle",
       scheduled: true,
     });
+  });
+
+  it("prefers the stored route polyline over a stop-to-stop line", () => {
+    const mapped = mapRoute({
+      routes_id: "r1",
+      route_name: "Market loop",
+      stops: [pickup, destination],
+      route_polyline: geometry,
+    });
+    expect(mapped.geometry).toStrictEqual(geometry);
   });
 
   test.each([null, undefined, "Market"])(

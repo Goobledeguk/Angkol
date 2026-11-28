@@ -36,10 +36,10 @@ export default function WelcomeScreen({
         <ScrollView contentContainerStyle={styles.content} bounces={false}>
           <View style={styles.bottom}>
             <Text accessibilityRole="header" style={styles.title}>
-              Tricycles and jeepneys{"\n"}in Calbayog
+              Your City.{"\n"}Your Next Ride.
             </Text>
             <Text style={styles.description}>
-              Book at the city’s fixed fare and pay the driver in cash.
+              From familiar streets to your next stop, Travel around Calbayog with ease.
             </Text>
             <Pressable
               accessibilityRole="button"
@@ -66,7 +66,7 @@ const styles = StyleSheet.create({
     paddingBottom: 32,
   },
   bottom: {
-    gap: 20,
+    gap: 25,
     maxWidth: 480,
     width: "100%",
     alignSelf: "center",
@@ -85,15 +85,15 @@ const styles = StyleSheet.create({
     color: "white",
     fontFamily: "Archivo",
     fontWeight: "700",
-    fontSize: 40,
-    lineHeight: 44,
+    fontSize: 39,
+    lineHeight: 39,
     letterSpacing: -0.8,
   },
   description: {
     color: "#E5EEE8",
     fontFamily: "Archivo",
     fontSize: 14,
-    lineHeight: 23,
+    lineHeight: 20,
   },
   button: {
     minHeight: 56,

@@ -465,11 +465,15 @@ class EmulatedDriver {
   }
 
   async findRequest() {
+    const nowIso = new Date().toISOString();
     const { data, error } = await this.client
       .from("bookings")
       .select("*")
       .eq("request_status", "Requested")
       .eq("service_type", "Tricycle")
+      // Ask the database for live requests only. Filtering after the limit let a
+      // backlog of expired rows hide a real passenger's new request.
+      .or(`expires_at.is.null,expires_at.gt.${nowIso}`)
       .order("created_at", { ascending: true })
       .limit(20);
     if (error) {

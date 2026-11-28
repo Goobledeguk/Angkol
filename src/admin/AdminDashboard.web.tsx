@@ -1485,6 +1485,7 @@ export default function AdminDashboard({
                               if (ok) { setModal(null); }
                             });
                           }}>Accept</button>
+                          <button type="button" className="aa-button" style={{ backgroundColor: "transparent", borderColor: "var(--line)", color: "var(--ink)" }} onClick={() => open("Franchise driver details", u.id)}>View</button>
                           <button type="button" className="aa-button plain" onClick={() => { setDeclineTarget(u); setModal("Decline driver application"); }}>Decline</button>
                         </div>
                       </td>
@@ -1903,6 +1904,7 @@ export default function AdminDashboard({
                       <React.Fragment key={String(label)}><dt>{label}</dt><dd>{String(value)}</dd></React.Fragment>
                     ))}
                   </dl>
+                  <LicensePhoto userId={d.id} attached={!!(d as any).licenseDocAttached} />
                   <div style={{ display:"flex", gap:8, marginTop:12, flexWrap:"wrap" }}>
                     {!revoked ? (
                       <button type="button" className="aa-button" style={{ backgroundColor:"#C53B1D", borderColor:"#C53B1D" }} onClick={() => {
@@ -2026,7 +2028,10 @@ export default function AdminDashboard({
                 <CalbayogMap
                   pickup={selectedTrip.pickupPoint}
                   destination={selectedTrip.destinationPoint}
-                  geometry={selectedTrip.geometry}
+                  geometry={
+                    selectedTrip.geometry ??
+                    routes.find((r: any) => r.id === selectedTrip.routeId)?.geometry
+                  }
                   vehicles={data.vehicles}
                 />
               </>

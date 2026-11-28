@@ -379,6 +379,7 @@ export function PassengerRoutesScreen({
           pickup={selected?.stops[0]}
           pickupIsPerson={false}
           destination={selected?.stops.at(-1)}
+          geometry={selected?.geometry}
           vehicles={runningOn(selected?.id)}
           terminals={data.terminals.filter((t) => t.routeId === selected?.id)}
           me={me}

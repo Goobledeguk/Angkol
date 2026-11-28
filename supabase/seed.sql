@@ -125,7 +125,7 @@ with rides (id, passenger, driver, vehicle, route, service, status, pickup, plat
      5.9, 14, 40, null, 'Cash', 2),
     ('b0000000-0000-4000-a000-000000000004', '00000000-0000-4000-a000-0000000000a1',
      '00000000-0000-4000-a000-0000000000d3', 'PUJ-1001', 'CB01', 'PUJ/PUV', 'Completed',
-     'Calbayog City Hall', 12.0676, 124.5942, 'Obrero', 12.0798, 124.6041,
+     'Calbayog City Hall', 12.0676, 124.5942, 'Obrero', 12.0671, 124.5903,
      1.8, 9, 15, 5, 'Cash', 1),
     ('b0000000-0000-4000-a000-000000000005', '00000000-0000-4000-a000-0000000000a2',
      '00000000-0000-4000-a000-0000000000d1', null, null, 'Tricycle', 'Completed',

@@ -73,8 +73,16 @@ export const routes: Route[] = [
     stops: [
       { name: "Calbayog City Hall", latitude: 12.0676, longitude: 124.5942 },
       { name: "Public Market", latitude: 12.0701, longitude: 124.5961 },
-      { name: "Obrero", latitude: 12.0798, longitude: 124.6041 },
+      { name: "Obrero", latitude: 12.0671, longitude: 124.5903 },
     ],
+    geometry: {
+      type: "LineString",
+      coordinates: [
+        [124.5942, 12.0676],
+        [124.5961, 12.0701],
+        [124.5903, 12.0671],
+      ],
+    },
     fare: 15,
     interval: 15,
     startsAt: "06:00",

@@ -88,6 +88,7 @@ export type Route = {
   destination?: string;
   transportType?: "Tricycle" | "PUJ / PUV";
   scheduled?: boolean;
+  geometry?: Geometry;
   id: string;
   name: string;
   stops: Point[];

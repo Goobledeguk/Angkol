@@ -95,6 +95,47 @@ in filename order. An existing project only needs migrations it has not applied 
 - The web admin shows the same fallback and can upload a photo from **Your account**.
 - Profile screens are laid out with wrapping/truncation rules so long names and
   contact details do not overflow on phones or web.
+- Both profile headers show the avatar with a camera badge, then the name and
+  role/contact line. The driver profile puts the body number (or LTO plate)
+  centered directly under the photo control.
+
+## Driver license photo
+
+- Driver sign-up collects the license number and (optionally) a photo.
+- The photo is kept locally until the driver can sign in, then uploaded to the
+  private `driver-documents` bucket as `license/<user_id>.jpg`.
+- The pending-approval driver screen can also capture or replace it before
+  approval.
+- Admin and franchise-owner pending-driver details show the photo through a
+  signed URL. Look in `src/admin/AdminDashboard.web.tsx` (`LicensePhoto`).
+
+## Map route line
+
+Route geometry comes from `bookings.route_polyline` / Mapbox Directions. The map
+cleans the line, drops U-turns and loops, joins the ends to the real pickup and
+destination, and falls back to a straight pickup→destination line if geometry is
+missing. While a trip is being tracked, the stretch already driven is trimmed so
+the line clears instead of staying on the whole path.
+
+See `docs/FILE_DATABASE_MAP.md` for a file-by-file map of what reads and writes each
+database table, plus the SRS traceability checks. See `docs/SRS-COMPLIANCE.md` for
+the requirement-by-requirement audit against the SRS (what is met and what is not).
+
+## Two devices and simulated drivers
+
+Both devices talk to the same Supabase project, so passenger + driver testing works
+across two phones, a phone and a browser, or a phone and the emulators:
+
+```bash
+npx expo start --lan        # same Wi-Fi (use --tunnel for different networks)
+npm run emulate:drivers     # optional: simulated tricycle drivers
+```
+
+Emulated tricycle drivers read real `Requested` bookings, so they can pick up real
+passenger accounts. Supabase’s `transition_booking` RPC still enforces approval,
+availability and one-ride-at-a-time rules. See `scripts/emulator/README.md` and
+`docs/FILE_DATABASE_MAP.md` for details.
+
 
 ## Demo / test data
 

@@ -364,7 +364,12 @@ export default function AdminPanel({
               void save(
                 { type: "fare", baseFare, perKm },
                 "Fare rules saved.",
-              );
+              ).then((ok) => {
+                if (ok) {
+                  setFareBase(String(baseFare));
+                  setFareKm(String(perKm));
+                }
+              });
             }}
           />
           {data.routes.map((r) => (

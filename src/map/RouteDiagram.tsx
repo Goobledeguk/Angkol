@@ -159,34 +159,67 @@ export default function RouteDiagram({
   const [width, setWidth] = useState(Math.max(280, window.width - 40));
 
   // ------------------------------------------------------------ what to show
-  const given = geometry?.coordinates ?? [];
+  // Keep only real [longitude, latitude] pairs. A malformed or half-loaded
+  // geometry should fall back to the pickup→drop-off line, never hide the route.
+  const given = (geometry?.coordinates ?? []).filter(
+    (c) => Array.isArray(c) && c.length >= 2 && Number.isFinite(c[0]) && Number.isFinite(c[1]),
+  );
+  // A driver on the way to a pickup has no destination yet. Use the driver's
+  // current position as the other end so the approach line stays visible.
+  const approachEnd =
+    !destination && pickup && vehicles?.length === 1 ? vehicles[0].location : null;
+  const routeEnd = destination ?? approachEnd;
   const snapped =
     given.length >= 2
       ? onRoads(given)
-      : pickup && destination
-        ? onRoads([[pickup.longitude, pickup.latitude], [destination.longitude, destination.latitude]])
+      : pickup && routeEnd
+        ? onRoads([[pickup.longitude, pickup.latitude], [routeEnd.longitude, routeEnd.latitude]])
         : undefined;
-  const ends = given.length >= 2 ? given : pickup && destination ? [[pickup.longitude, pickup.latitude], [destination.longitude, destination.latitude]] : [];
+  const ends =
+    given.length >= 2
+      ? given
+      : pickup && routeEnd
+        ? [[pickup.longitude, pickup.latitude], [routeEnd.longitude, routeEnd.latitude]]
+        : [];
   // Join the road to the real pickup and drop-off without doubling back, and drop
   // the small loops and U-turn spurs routing services sometimes return.
   // Routing services snap the ends to a road, which can overshoot the real spot and hook back.
   const startAt = pickup ? [pickup.longitude, pickup.latitude] : ends[0];
-  const endAt = destination ? [destination.longitude, destination.latitude] : ends[ends.length - 1];
+  const endAt = routeEnd ? [routeEnd.longitude, routeEnd.latitude] : ends[ends.length - 1];
   const path = snapped
     ? joinEnds(startAt, snapped, endAt)
     : given.length >= 2
-      ? pickup && destination
+      ? pickup && routeEnd
         ? joinEnds(startAt, given, endAt)
         : cleanRoute(given)
       : given;
   const line: Point[] = path.map(([longitude, latitude]) => ({ name: "", latitude, longitude }));
+  // While tracking one driver, drop the stretch they have already driven so the
+  // route clears behind them instead of lingering once the path is taken.
+  const trackingVehicle = track && vehicles?.length === 1 ? vehicles?.[0] : null;
+  let drawLine = line;
+  if (trackingVehicle && line.length > 2) {
+    const here = trackingVehicle.location;
+    let nearest = 0;
+    let nearestKm = Infinity;
+    for (let i = 0; i < line.length; i += 1) {
+      const km = distanceKm(here, line[i]);
+      if (km < nearestKm) {
+        nearestKm = km;
+        nearest = i;
+      }
+    }
+    if (nearestKm <= 0.35) {
+      drawLine = line.slice(nearest);
+    }
+  }
   const anchor = pickup ?? destination ?? me ?? line[0] ?? FALLBACK;
   const nearby = (vehicles ?? []).filter((v) => distanceKm(anchor, v.location) <= 3);
   const editing = mode === "pickup" ? pickup : mode === "destination" ? destination : null;
 
   const focus: Point[] = [
     ...(pickup ? [pickup] : []),
-    ...(destination ? [destination] : []),
+    ...(routeEnd ? [routeEnd] : []),
     ...line,
     ...(terminals ?? []).map((t) => t.point),
     ...(stops ?? []).map((s) => s.point),
@@ -209,6 +242,7 @@ export default function RouteDiagram({
         at(destination),
         given.length,
         at(line[0]),
+        at(line[Math.floor(line.length / 2)]),
         at(line[line.length - 1]),
         (terminals ?? []).map((t) => t.id).join(","),
         (stops ?? []).map((s) => s.id).join(","),
@@ -324,7 +358,14 @@ export default function RouteDiagram({
   const scaleMeters = niceDistance(metersPerPx * 90);
   const scalePx = scaleMeters / metersPerPx;
 
-  const routePts = line.length >= 2 ? line.map(px) : pickup && destination && !mode ? [px(pickup), px(destination)] : [];
+  const routePts =
+    drawLine.length >= 2
+      ? drawLine.map(px)
+      : line.length >= 2
+        ? []
+        : pickup && routeEnd && !mode
+          ? [px(pickup), px(routeEnd)]
+          : [];
   const routeD = routePts.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ");
   const routeIsGuess = line.length < 2;
 

@@ -1,0 +1,621 @@
+﻿
+
+
+
+
+
+
+
+Software Requirements Specification
+
+
+
+
+
+
+Project Name: Angkol
+Version: 1.0.0
+Date: September 15, 2026
+Status: Draft
+Group: 4 
+Author / Organization:
+ Cahusay, Alizzander 
+ Esguerra, Judeah Claire
+Ferrer, Kent
+Joriza,  Stephen
+Lentejas, April  
+ Moriles,  Shaina 
+Rosino, Limuel 
+ Salem, Meynard
+Tocayon, Baby Camell 
+  
+  
+
+
+
+
+
+
+1.Introduction
+1.1 Purpose
+The Angkol platform aims to modernize local commuting by delivering point-to-point ride-hailing for tricycles in limited-access areas (e.g., alleys, narrow streets) and real-time tracking, scheduling, and route mapping for Public Utility Jeepneys (PUJs) and Public Utility Vehicles (PUVs). It ensures transparent, fixed fares to minimize disputes and optimizes vehicle capacity for drivers. By connecting commuters and local transportation providers through a centralized digital platform, Angkol intends to provide a more predictable transportation experience while helping drivers identify nearby passengers and improve the efficiency of their trips.
+1.2 Intended Audience
+This platform is set for the following user, where they utilize the whole application: 
+
+Users 
+
+Description and Responsibilities
+
+
+
+Commuter / Passenger
+
+The primary user of Angkol who can request point-to-point tricycle rides, view fixed fares before booking, locate nearby transportation terminals, monitor live PUJ/PUV locations, and identify available vehicles along designated routes.
+
+
+Tricycle Driver
+
+Uses the mobile application to receive and manage ride requests, view passenger pickup and destination details, accept or reject bookings, update ride status, and check the fare associated with a trip.
+
+
+PUJ/PUV Driver
+
+Uses the application to share vehicle location and route information, monitor passenger requests along the designated route, and identify potential passenger pickup points without unnecessary distractions while driving.
+
+
+Administrators
+
+Uses the web-based management platform to monitor trips, manage user accounts and transportation information, investigate reported issues, review system logs, analyze transportation data, and identify areas for system maintenance and improvement.
+
+
+
+
+1.3 Product Scope
+Angkol will provide a digital platform where commuters can request tricycle rides, view available transportation options, obtain estimated and fixed fare information, locate nearby PUJ/PUV terminals, view PUJ/PUV routes, and access available transportation schedules and tracking information. Registered tricycle drivers will be able to receive ride requests, view passenger pickup locations, manage their availability, and accept or decline requests. The system will also provide administrative functions for managing driver accounts, transportation routes, fare information, terminals, reports, and system records.
+The initial scope will focus on local transportation services and information within the selected implementation area. The system will not initially function as a full public transportation payment processor, vehicle dispatching authority, courier service or government transportation management system. Online payments, automated government enforcement, advanced demand prediction, and integration with every transportation operator may remain outside the initial implementation unless they are specifically needed in later development phases.
+1.4 Definitions, Acronyms, and Abbreviations
+The following is the terms and definitions used in the project: 
+
+Term / Acronym
+
+Definition
+
+Angkol
+A proposed centralized local transportation application designed to connect commuters with tricycle and PUJ/PUV services through ride requests, route information, fare transparency, and vehicle tracking.
+
+Fixed Fare
+A fare displayed by the system based on an approved or configured fare structure rather than being freely determined during the ride.
+
+PUJ
+Public Utility Jeepney, a commonly used public transportation vehicle that operates along designated routes.
+
+PUV
+Public Utility Vehicle, a vehicle authorized to provide public transportation services, including eligible vehicles operating along designated routes.
+
+Ride-Hailing
+The process of requesting transportation through an application by providing a pickup location and, when applicable, a destination.
+
+Tricycle
+A local three-wheeled public transportation vehicle used to transport passengers, often for point-to-point trips and locations that larger vehicles cannot easily access.
+
+Terminal
+A designated location where public transportation vehicles begin or end their routes, wait for passengers, or provide transportation services.
+
+Commuter / Passenger
+A person who uses Angkol to find transportation, request rides, view fares, or access route and vehicle information.
+
+
+
+1.5 References
+Grab Help Centre. (2026). Grab.Com. https://help.grab.com/passenger/en-ph/360001392648-Book-a-ride
+Angkas (n.d.). Angkas.Com. Retrieved September 15, 2026, from https://www.angkas.com
+Move It. (n.d.). How it works Retrieved September 15, 2026, from https://moveit.com.ph/how-it-works/
+
+2. Overall Description
+2.1 Product Perspective
+Angkol is a centralized transportation platform consisting of mobile applications for commuters and drivers and a web-based platform for administrators and developers. It uses smartphone GPS, internet connectivity, a backend server, and a relational database to support ride requests, fixed-fare information, vehicle tracking, and transportation records. The system may integrate with third-party mapping and notification services, while its administration platform supports trip monitoring, system management, and analytics. The following table summarizes its major components and external interactions:
+System Component
+Interaction with Angkol
+Commuter Mobile Application
+Requests tricycle rides and displays fares, routes, terminals, and vehicle locations.
+Driver Mobile Application
+Manages ride requests, trip status, and vehicle location reporting.
+Backend Server
+Processes requests, calculates fares, and coordinates system operations.
+Relational Database
+Stores accounts, routes, fares, bookings, and trip records.
+GPS and Mapping Services
+Support vehicle tracking and route visualization.
+Web-Based Administration Platform
+Supports record management, trip monitoring, issue tracking, and analytics.
+Notification Services
+Deliver booking and ride-status updates.
+
+
+
+2.2 Product Functions
+The system functions as follow: 
+Tricycle ride-hailing for point-to-point requests from narrow streets with automatic fixed-fare calculation. 
+PUJ/PUV tracking that shows real-time vehicle locations, terminal locations, and estimated departure schedules.
+Fare transparency that displays LGU-based fixed prices upfront to prevent fare dispute.
+Commuter should be able to review and choose their available transportation options.
+Commuter should be able to see all terminal locations of the transportation vehicles.
+2.3 User Classes and Characteristics
+User Class
+Characteristics
+
+
+Commuter / Passenger
+
+
+The primary end-user of Angkol. May have different levels of technical experience and may use the application while commuting in urban or rural areas.
+
+
+Tricycle Driver
+
+Uses a smartphone to receive and manage passenger requests. Needs access to pick up and destination information, booking status, and applicable fare details.
+
+
+PUJ/PUV Driver
+
+Operates along designated routes and may need to identify passengers waiting along the road. System interaction should not interfere with safe vehicle operation.
+
+
+Administrator
+
+Oversees the operational side of the platform, including user records, transportation data, complaints, and system activity.
+
+2.4 Operating Environment
+Angkol is intended to operate primarily on smartphones and computers with an active internet connection. Passenger and driver interfaces may be implemented as responsive web and mobile applications so that the system can support mobile devices and modern desktop browsers. The backend may operate on a web server using a suitable server-side programming framework and relational database.
+
+
+For the application to work it will require access to GPS or location services for functions involving vehicle location and transportation mapping. A stable internet connection is required for real-time ride requests, communication, and location updates.
+2.5 Design and Implementation Constraints
+The system shall use a framework like React-Native for mobile responsiveness of the application and for database will use a relational database for structured transportation records  to implement role-based access control to prevent passengers and drivers from accessing unauthorized functions such like PostgreSQL. The design of the system shall be divided into 2 separate platform for better monitoring and control. 
+The platform also considers limitations in mobile hardware, internet connectivity, GPS accuracy, server resources, and transportation data availability. Because Angkol handles location and personal information, its implementation must follow applicable data protection and privacy requirements.
+2.6 Assumptions and Dependencies
+It is assumed that users have smartphones with GPS enabled and mobile data, and that LGU or on the Terminal will provide accurate fare matrix and PUJ/PUV schedules. The system depends on third-party services like APIs and Cloud Messaging. It also assumes drivers will keep location services active and grant location permissions for tracking to work. Any interruption in these external services may reduce the accuracy or availability of transportation information.
+
+3. External Interface Requirements
+3.1 User Interfaces (UI) 
+Interface
+Proposed Features and Description
+Commuter Interface
+A welcoming and easy-to-navigate mobile interface that supports point-to-point tricycle requests, particularly for narrow streets and alleys. It should display fixed fares before booking, show pickup and destination information, provide ride-status updates, and present available PUJ/PUV locations, terminals, routes, and estimated departure schedules.
+Tricycle Driver Interface
+A simple mobile layout for viewing incoming ride requests, passenger pickup and destination details, fare information, and booking status. It should provide clear controls for accepting or rejecting requests, managing availability, and updating ride progress.
+
+
+
+
+
+PUJ/PUV Driver Interface
+
+A driver-oriented interface that supports route and location sharing and presents passenger pickup points along the driver's designated route. Important information should be easy to understand, with minimal interaction required while driving.
+
+
+
+
+Administrator Interface
+
+A web-based dashboard for viewing current and past trips, monitoring reported transportation activity, managing user and transportation records, and reviewing system status. Authorized administrators should also be able to handle reports and support requests.
+
+3.2 Hardware Interfaces
+Smartphones and tablets that commuters, drivers, and dispatchers carry in their pockets, providing the portable screen and touch interface needed to access the platform on the go.
+Desktop computers or laptops used for monitoring wider system activity. Location and tracking tools 
+Built-in smartphone GPS sensors that continuously track locations, allowing the system to accurately map out where tricycles and jeepneys are in real time. 
+Cloud servers operating behind the scenes on the internet to act as the central brain of Angkol. 
+Powerful hosting capabilities designed to process multiple heavy tasks simultaneously such as live transit tracking feeds, rapid ride-hailing matches between passengers and drivers, and constant database queries ensuring the platform stays fast and stable without lagging or crashing.
+3.3 Software Interfaces
+ Angkol shall interact with a mobile application, database, GPS/location services, and map services. The system will store information such as user accounts, driver details, vehicle information, routes, fares, terminals, and ride records. It shall use APIs that will help the geo tagging of the specific location within the locality. 
+3.4 Communications Interfaces
+Angkol shall use an internet connection to exchange information between commuters, drivers, and the server. The system shall use secure communication protocols to protect user information and ride data. Real-time communication will support ride requests, vehicle tracking, notifications, and fare information.
+
+
+
+Authentication information and other sensitive data must be transmitted through encrypted connections. Location updates should be transmitted at an appropriate frequency to balance tracking usefulness, network consumption, battery usage, and system performance.
+4. System Features & Functional Requirements
+4.1 Feature Framework Structure
+For Angkol, the features should be organized according to the different services provided by the platform. These may include tricycle ride-hailing, PUJ/PUV tracking, route information, terminal and schedule information, and fare transparency. 
+
+4.1.1 Feature Description and Priority
+Priority
+Feature
+Description
+
+High
+
+Signup / Login Authentication
+Passengers, drivers, and administrators to securely access the functions appropriate to their user roles.
+
+High
+
+Tricycle Ride Request
+Allows passengers to request point-to-point transportation by specifying their pickup location and destination. 
+
+High
+
+Route Management
+Provides a detailed route for pick-up points and Tricycle drivers shortest path to take 
+
+High
+
+Driver Ride Management
+
+Displays the status and driversâ€™ information. It checks if the driver is licensed and if on an Association/Coop 
+
+High
+
+Fare Information and Transparency
+
+The exact calculation based on the approved LGU/Terminal Fare 
+
+Medium
+
+Vehicle Location / Tracking 
+
+This shows the estimate location of the vehicle en route, whether itâ€™s the tricycle or PUV/PUJs 
+
+Medium
+
+Terminal Location and Schedule 
+
+This is optional for commuters to go there and check to lessen the time waiting for booking  
+
+High
+
+Trip Information 
+
+Display all information on the trip, this includes distance, waiting time and the driver information 
+
+High
+
+Data Analysis 
+
+Collects and combine all data trip logs and calculate peak hours and estimated waiting time
+
+High 
+
+Waiting Time Estimation 
+Calculate the estimated time for the distance traveled and travel time to the destination
+
+High
+
+Priority Queue 
+Priority for the nearest driver available and passenger needed
+
+4.1.2 Stimulus / Response Sequences
+Component
+User Response
+System Response
+Login 
+User enters registered email/username and password.
+System validates the credentials and provides access to the appropriate user dashboard.
+Signup 
+User enters the required registration information.
+System validates the information, creates the account, and confirms successful registration.
+Update Profile
+User selects the profile option and edits personal information.
+System validates and saves the updated profile information.
+View Terminal
+User selects the terminal location feature.
+System displays available terminals and their corresponding locations.
+View Schedule 
+User selects a terminal or route.
+System displays the available schedule or estimated departure information.
+Booking of Trip
+Passenger selects the pickup location, destination, and confirms the ride request.
+System calculates or retrieves the applicable fare, creates the trip request, and searches for available drivers.
+Accept Trip 
+Driver receives an available trip request and chooses to accept it.
+System assigns the trip to the driver and notifies the passenger that a driver has accepted the request.
+View Vehicle Location
+Passenger opens the vehicle tracking feature for an active trip.
+System displays the driver's latest available location on the map.
+View Total Fare
+Passenger enters or confirms the trip details.
+System displays the applicable fare before the passenger confirms the trip.
+View Near PUV/PUJ
+User searches for nearby PUV/PUJ vehicles or routes.
+System displays available nearby vehicles, routes, or transportation information based on the available location data.
+Notify PUV/PUJ 
+System detects or receives an updated vehicle location or status.
+System updates the vehicle information and provides the relevant location/status information to users.
+View Trip Data
+Administrator requests transportation or trip information.
+System processes stored trip and display it
+
+4.1.3 Explicit Requirements Matrix
+Functional Requirement Statement
+Priority
+Feature / Component
+User shall be able to create an account by providing registration information 
+High
+Signup / Login Authentication
+User shall be able to access to their account by verifying all information first and accessing the main application 
+High
+Signup / Login Authentication
+The system shall be assigning each authenticated account an appropriate user role depending on their choice 
+High
+Signup / Login Authentication
+If the system detected that the user chose the driver role, it will present 2 types of users whether being a PUJ/PUV or Tricycle
+Medium
+Signup / Login Authentication
+The passenger shall see al available terminals and schedule of departures
+High
+Tricycle Ride Request
+The passenger should be able to request a ride through the app and pinpoint the location where they are 
+High
+Tricycle Ride Request
+If the passenger chooses the Point-to-point, they will be prompted with the exact location where they are 
+High
+Tricycle Ride Request
+The system shall require the passenger to confirm the displayed ride information before creating a ride request.
+High
+Tricycle Ride Request
+The system shall create a unique ride request record after a passenger successfully confirms a ride.
+High
+Route Management
+The system shall identify drivers whose availability status is set to Available when processing a ride request.
+High
+Route Management
+The system shall find the nearest available Tricycle driver to accept the trip 
+High
+Driver Ride Management
+If the driver refuses the trip, it shall automatically find another nearest driver 
+High
+Driver Ride Management
+The system shall notify the passenger when a driver accepts the ride request.
+High
+Driver Ride Management
+The system shall display the applicable fare information after the pickup location and destination have been provided.
+High
+Driver Ride Management
+The system shall allow the driver to update the ride status to indicate arrival at the pickup location.
+High
+Driver Ride Management
+The system shall allow the driver to mark a ride as completed after reaching the destination.
+High
+Fare Information and Transparency
+The system shall store completed ride information including passenger, driver, pickup location, destination, fare, and timestamps.
+High
+Fare Information and Transparency
+
+
+
+If the passenger chooses a PUJ/PUV option, the  system shall allow passengers to search for available PUJ/PUV routes based on route or destination information.
+High
+Fare Information and Transparency
+The system shall calculate and estimate the waiting time before the PUJ/PUV arrive 
+Medium
+Vehicle Location / Tracking
+The system will determine the path of the nearest route of the PUJ/PUV, thus passengers will navigate and wait for the arrival of the transportation
+Medium
+Vehicle Location / Tracking
+The system shall display configured PUJ route stops and route information.
+Medium
+Vehicle Location / Tracking
+The system shall display the latest available vehicle location when tracking information is available.
+Medium
+Terminal Location and Schedule
+The system shall indicate when vehicle location information is unavailable or has not been recently updated.
+Medium
+Terminal Location and Schedule
+The system shall allow drivers to change their availability status between Available and Unavailable.
+High
+Trip Information
+The system shall detect the current location of the vehicle 
+High
+Trip Information
+The system shall allow administrators to add, modify, and deactivate PUJ route records.
+High
+Data Analysis
+The system shall allow administrators to add, modify, and deactivate terminal records.
+High
+Data Analysis
+The system shall allow authorized administrators to configure applicable fare information.
+High
+Waiting Time Estimation
+The system shall allow authorized administrators to view ride records and system reports.
+High
+Priority Queue
+The system will display all calculated data for further assessment only for administrator 
+High
+Priority Queue
+
+5. Non-Functional Requirements (NFRs)
+The following requirements define the expected performance, security, reliability, and software quality of Angkol. They serve as preliminary development guidelines and may be refined through technical evaluation and testing.
+5.1 Performance Requirements
+These requirements address the system's ability to process ride requests, update vehicle locations, and manage increasing workloads efficiently.
+Requirement
+Description
+Response Time
+Common operations, including fare inquiries and ride requests, should respond within acceptable time limits under expected workloads.
+Concurrent Users
+The system should support multiple commuters and drivers using its services simultaneously.
+Database Performance
+Data retrieval and storage should remain efficient as user accounts, bookings, and trip records increase.
+Location Updates
+Vehicle locations and ride statuses should be updated in a timely manner, subject to network and GPS availability.
+5.2 Security Requirements
+These requirements protect user accounts, personal information, location data, and transportation transactions against unauthorized access and misuse.
+Requirement
+Description
+Access Control
+Role-based permissions should distinguish commuters, drivers, administrators, and developers.
+Session Management
+User sessions should be managed securely, with appropriate expiration and reauthentication when necessary.
+Data Encryption
+Sensitive information should be protected through appropriate encryption during transmission and storage.
+
+5.3 Reliability and Availability
+These requirements ensure that Angkol remains dependable during transportation operations and handles service interruptions without unnecessarily losing essential information.
+Requirement
+Description
+Availability
+The system should remain available during its intended operating hours, with an appropriate availability target established before deployment.
+Data Consistency
+Ride requests, fare records, and trip statuses should remain consistent when multiple updates occur.
+Failure Handling
+Temporary network, GPS, or external service failures should be handled gracefully, with clear feedback to users.
+
+5.4 Software Quality Attributes
+These requirements guide the development team in maintaining a usable, maintainable, scalable, and adaptable application.
+Requirement
+Description
+Usability
+Interfaces should be simple and responsive across supported mobile devices and web browsers.
+Maintainability
+The codebase should be organized and documented to support debugging, updates, and future improvements.
+Scalability
+The system architecture should accommodate future growth in users, routes, transportation providers, and records.
+Localization
+The system should allow relevant interface text, fare formats, and location information to accommodate the intended local users and service areas.
+Portability
+The application should support the mobile platforms and browsers defined within the project's deployment scope.
+
+
+6. Supplemental Artifacts
+6.1 Database Schema Requirements
+Angkol shall use a relational database management system (RDBMS) to store and manage information required for passenger transportation, driver management, ride requests, route management, fare calculation, vehicle tracking, terminal schedules, notifications, and transportation data analysis.
+Core Database Table
+Tables
+Primary Key
+Description
+Relationship / FK
+User 
+user_id
+Stores core system user details, credentials, profile information, contact numbers, and assigned system roles.
+â€”
+Driver 
+driver_id
+Maintains driver verification details, professional license numbers, operational classification (Tricycle vs. PUJ), and real-time availability status.
+FK: user_id  
+
+Vehicle 
+vehicle_id
+Holds registration details, plate/body numbers, capacity, and vehicle
+FK: driver_id 
+FK: routes_id
+
+Booking
+booking_id
+Tracks point-to-point tricycle ride requests made by commuters, including pickup/dropoff coordinates, calculated fixed fares, and request status.
+FK: user_id
+FK: driver_id
+Routes
+routes_id
+Stores designated public utility jeepney (PUJ) route names, polylines, start/end locations, and LTFRB route definitions.
+â€”
+Terminal
+terminal_id
+Contains physical information, station names, and spatial coordinates for PUJ terminals and major local loading/unloading stops.
+FK: routes_id
+Terminal_Schedule
+sched_id
+Manages estimated departure times, target dispatch intervals, and operational time windows for PUJs at specific terminals.
+FK: terminal_id
+FK: routes_id
+
+
+Fare_Matrices
+fare_id
+Defines local municipal base fares, per-kilometer rates, and tariff tiers used to calculate fixed, transparent pricing for tricycle and PUJ trips.
+FK:routes_id
+Vehicle_Locations
+loc_id
+Captures high-frequency live GPS coordinates streamed from active driver mobile devices.
+FK: vehicle_id
+FK: driver_id
+Trip_Records
+trip_id
+Stores completed or terminated trip histories, final actual distances traveled, payment statuses, total trip durations, and timestamp logs.
+FK: booking_id
+FK: driver_id
+FK: user_id
+
+Data_Analysis
+data_id
+Aggregates daily commuting metrics, peak travel hours, passenger demand heatmaps, route utilization rates, and operational efficiency stats.
+FK: routes_id
+Audit_Logs
+log_id
+Records administrative changes, system events, login attempts, user role updates, and critical security transactions for audit compliance.
+FK: user_id
+
+Database Requirements
+The database shall satisfy the following requirements:
+User Data ManagementThe database shall store account information for passengers, tricycle drivers, PUJ/PUV drivers, and administrators while maintaining the appropriate user roles and access privileges.
+Driver and Vehicle RecordsThe database shall store driver identification, license information, vehicle information, transportation association information, verification status, and availability status.
+Ride and Booking RecordsThe database shall store passenger ride requests, pickup locations, destinations, assigned drivers, fares, timestamps, and trip status.
+
+
+Route and Terminal RecordsThe database shall store transportation routes, route coordinates, terminal locations, and schedule information to support route and transportation searches.
+Fare RecordsThe database shall store configured fare matrices, base fares, distance-based charges, additional charges, and the effective dates of fare information.
+Trip and Data Analysis RecordsThe database shall retain completed trip information so that the system can calculate and analyze waiting time, travel time, trip volume, fare information, and peak transportation periods.
+Data IntegrityPrimary keys, foreign keys, validation rules, and appropriate constraints shall be implemented to prevent invalid or inconsistent records.
+Data Retention and BackupImportant transportation and transaction records shall be stored persistently. Regular database backups shall be implemented to reduce the risk of permanent data loss.
+6.2 Appendices & Analytical Frameworks
+The following supplementary artifacts shall be included in the Angkol project documentation to provide a clearer representation of the system's processes, structure, data, and analytical functions.
+System Flow & Process Flowchart 
+
+Figure 2. System Flow of Angkol
+
+The primary workflow (Figure 2) shall begin with login or registration, selection of pickup and destination locations, fare viewing, ride request submission, driver matching, driver acceptance, vehicle tracking, trip completion, and storage of trip information. 
+
+Entity Relationship Diagram
+
+Figure 3. Entity Relationship Diagram of Angkol
+The diagram (Figure 3) includes entities such as Users, Drivers, Vehicles, Bookings, Routes, Terminals, Schedules, Fare Matrices, Vehicle Locations, Trip Records, Notifications, and Audit Logs that based on the core tables mentioned.
+
+
+
+
+
+
+
+
+7. Approval &Sign-Off Matrix 
+
+Role 
+
+Name & Title
+
+Signature / Date
+
+Project Manager
+
+Alizzander Cahusay
+
+
+
+Database Administrator /
+Developer
+
+
+Stephen Joriza
+Limuel Rosino 
+
+
+UI/UX Design
+
+April Lentejas
+Baby Camell Tocayon
+
+
+
+QA / Testing Lead
+
+Judeah Claire Esguerra 
+Shaina Moriles
+
+
+
+
+System Analyst
+
+
+Kent Ferrer  
+Meynard Salem
+
+

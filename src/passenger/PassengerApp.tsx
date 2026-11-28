@@ -636,7 +636,8 @@ export default function PassengerApp({
         }
         geometry={
           (approaching ? null : selectedTrip?.geometry) ||
-          (journey === "quote" ? quote?.geometry : null)
+          (journey === "quote" ? quote?.geometry : null) ||
+          (journey === "route" ? selectedRoute?.geometry : null)
         }
         vehicles={
           journey === "trip"
@@ -1105,6 +1106,7 @@ export default function PassengerApp({
             height={220}
             pickup={pujRoute.stops[board]}
             destination={pujRoute.stops[alight]}
+            geometry={pujRoute.geometry}
             vehicles={running}
             me={me}
           />
@@ -1215,6 +1217,7 @@ export default function PassengerApp({
             height={240}
             pickup={pujTrip.pickupPoint}
             destination={pujTrip.destinationPoint}
+            geometry={data.routes.find((r) => r.id === pujTrip.routeId)?.geometry}
             vehicles={unit ? [unit] : []}
             me={me}
             track
@@ -1546,18 +1549,6 @@ export default function PassengerApp({
               </Pressable>
               {terminal?.id === item.id && (
                 <View style={ps.row}>
-                  <View style={{ flex: 1 }}>
-                    <Action
-                      title="Use as pickup"
-                      light
-                      onPress={() => {
-                        setPickup(item.point);
-                        setQuote(null);
-                        setGpsAt(null);
-                        go("Journey");
-                      }}
-                    />
-                  </View>
                   <View style={{ flex: 1 }}>
                     <Action
                       title="Directions"

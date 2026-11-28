@@ -1439,9 +1439,50 @@ export default function DriverApp({
     back = page === "Documents" ? "Profile" : null;
     content = (
       <>
-        <View style={[ps.row, { gap: 16 }]}>
-          <Avatar photo={data.user.photo} name={data.user.name} size={56} />
-         <BodyNumber value={data.user.plate} toda={puj ? null : data.user.association}  />
+        <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 16 }}>
+          <View style={{ alignItems: "center", gap: 8 }}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={
+                data.user.photo ? "Change your profile photo" : "Add a profile photo"
+              }
+              disabled={locked}
+              onPress={() => {
+                void perform(async () => {
+                  const photo = await pickDriverPhoto();
+                  if (photo) {
+                    await action("/profile/photo", { photo }, "PATCH");
+                  }
+                });
+              }}
+              style={({ pressed }) => [{ width: 64, height: 64 }, pressed && ps.pressed]}
+            >
+              <Avatar photo={data.user.photo} name={data.user.name} size={64} />
+              <View
+                style={{
+                  position: "absolute",
+                  bottom: 0,
+                  right: -2,
+                  width: 28,
+                  height: 28,
+                  borderRadius: 14,
+                  backgroundColor: c.ink,
+                  borderWidth: 3,
+                  borderColor: c.background,
+                  justifyContent: "center",
+                  alignItems: "center",
+                }}
+              >
+                <Icon name="camera" size={14} color="white" />
+              </View>
+            </Pressable>
+            <BodyNumber
+              value={data.user.plate}
+              toda={puj ? null : data.user.association}
+              size="sm"
+              align="center"
+            />
+          </View>
           <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
             <Text numberOfLines={2} style={ps.heading}>{data.user.name}</Text>
             <Text numberOfLines={2} style={ps.small}>
@@ -1449,22 +1490,6 @@ export default function DriverApp({
               {data.user.verified ? " · approved" : " · awaiting approval"}
             </Text>
           </View>
-        </View>
-        <Button
-          title={data.user.photo ? "Change your photo" : "Add your photo for riders"}
-          icon="camera-outline"
-          disabled={locked}
-          onPress={() => {
-            void perform(async () => {
-              const photo = await pickDriverPhoto();
-              if (photo) {
-                await action("/profile/photo", { photo }, "PATCH");
-              }
-            });
-          }}
-        />
-        <View style={[{ paddingHorizontal: 150, gap: 0 }]}>
-          
         </View>
         <View style={[ps.card, { paddingVertical: 2, gap: 0 }]}>
           <Row title="License" detail={data.user.license || "None"} />

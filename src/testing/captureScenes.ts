@@ -72,7 +72,7 @@ const leg = (from: Place, to: Place, via?: Place) => ({
 // Other tricycles on the road around the city centre.
 const tricycleFleet: Vehicle[] = [
   ["114", "Nonoy Gabon", "Near the transport terminal", 12.0641, 124.5968],
-  ["209", "Arnel Tizon", "Obrero", 12.0738, 124.6012],
+  ["209", "Arnel Tizon", "Obrero", 12.0675, 124.5908],
   ["063", "Bebot Uy", "Bagacay", 12.0622, 124.6079],
   ["148", "Rodel Abuda", "Near City Hall", 12.0709, 124.5893],
 ].map(([plate, driver, near, latitude, longitude], index) => ({
